@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "connectdialog_p.h"
 #include "signalslot_utils_p.h"
@@ -37,23 +7,21 @@
 #include <signalslotdialog_p.h>
 #include <metadatabase_p.h>
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerWidgetDataBaseInterface>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerLanguageExtension>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractwidgetdatabase.h>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractlanguage.h>
 
-#include <QtWidgets/QPushButton>
+#include <QtWidgets/qpushbutton.h>
 
 QT_BEGIN_NAMESPACE
 
-namespace {
-    typedef QList<QListWidgetItem*> ListWidgetItems;
-}
+using namespace Qt::StringLiterals;
 
 static QString realClassName(QDesignerFormEditorInterface *core, QWidget *widget)
 {
-    QString class_name = QLatin1String(widget->metaObject()->className());
+    QString class_name = QLatin1StringView(widget->metaObject()->className());
     const QDesignerWidgetDataBaseInterface *wdb = core->widgetDataBase();
     const int idx = wdb->indexOfObject(widget);
     if (idx != -1)
@@ -63,9 +31,9 @@ static QString realClassName(QDesignerFormEditorInterface *core, QWidget *widget
 
 static QString widgetLabel(QDesignerFormEditorInterface *core, QWidget *widget)
 {
-    return QString::fromUtf8("%1 (%2)")
-            .arg(qdesigner_internal::realObjectName(core, widget))
-            .arg(realClassName(core, widget));
+    return "%1 (%2)"_L1
+            .arg(qdesigner_internal::realObjectName(core, widget),
+                 realClassName(core, widget));
 }
 
 namespace qdesigner_internal {
@@ -82,29 +50,29 @@ ConnectDialog::ConnectDialog(QDesignerFormWindowInterface *formWindow,
 {
     m_ui.setupUi(this);
 
-    setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
-
-    connect(m_ui.signalList, SIGNAL(itemClicked(QListWidgetItem*)),
-            this, SLOT(selectSignal(QListWidgetItem*)));
-    connect(m_ui.slotList, SIGNAL(itemClicked(QListWidgetItem*)),
-            this,  SLOT(selectSlot(QListWidgetItem*)));
+    connect(m_ui.signalList, &QListWidget::itemClicked,
+            this, &ConnectDialog::selectSignal);
+    connect(m_ui.slotList, &QListWidget::itemClicked,
+            this, &ConnectDialog::selectSlot);
     m_ui.slotList->setEnabled(false);
 
     QPushButton *ok_button = okButton();
     ok_button->setDefault(true);
     ok_button->setEnabled(false);
 
-    connect(m_ui.showAllCheckBox, SIGNAL(toggled(bool)), this, SLOT(populateLists()));
+    connect(m_ui.showAllCheckBox, &QCheckBox::toggled, this, &ConnectDialog::populateLists);
 
     QDesignerFormEditorInterface *core = m_formWindow->core();
     m_ui.signalGroupBox->setTitle(widgetLabel(core, source));
     m_ui.slotGroupBox->setTitle(widgetLabel(core, destination));
 
     m_ui.editSignalsButton->setEnabled(m_sourceMode != NormalWidget);
-    connect(m_ui.editSignalsButton, SIGNAL(clicked()), this, SLOT(editSignals()));
+    connect(m_ui.editSignalsButton, &QAbstractButton::clicked,
+            this, &ConnectDialog::editSignals);
 
     m_ui.editSlotsButton->setEnabled(m_destinationMode != NormalWidget);
-    connect(m_ui.editSlotsButton,   SIGNAL(clicked()), this, SLOT(editSlots()));
+    connect(m_ui.editSlotsButton, &QAbstractButton::clicked,
+            this, &ConnectDialog::editSlots);
 
     populateLists();
 }
@@ -141,22 +109,22 @@ void ConnectDialog::populateLists()
 
 void ConnectDialog::setSignalSlot(const QString &signal, const QString &slot)
 {
-    ListWidgetItems sigItems = m_ui.signalList->findItems(signal, Qt::MatchExactly);
+    auto sigItems = m_ui.signalList->findItems(signal, Qt::MatchExactly);
 
-    if (sigItems.empty()) {
+    if (sigItems.isEmpty()) {
         m_ui.showAllCheckBox->setChecked(true);
         sigItems = m_ui.signalList->findItems(signal, Qt::MatchExactly);
     }
 
-    if (!sigItems.empty()) {
-        selectSignal(sigItems.front());
-        ListWidgetItems slotItems = m_ui.slotList->findItems(slot, Qt::MatchExactly);
-        if (slotItems.empty()) {
+    if (!sigItems.isEmpty()) {
+        selectSignal(sigItems.constFirst());
+        auto slotItems = m_ui.slotList->findItems(slot, Qt::MatchExactly);
+        if (slotItems.isEmpty()) {
             m_ui.showAllCheckBox->setChecked(true);
             slotItems = m_ui.slotList->findItems(slot, Qt::MatchExactly);
         }
-        if (!slotItems.empty())
-            selectSlot(slotItems.front());
+        if (!slotItems.isEmpty())
+            selectSlot(slotItems.constFirst());
     }
 }
 
@@ -197,7 +165,7 @@ void ConnectDialog::selectSlot(QListWidgetItem *item)
 
 QString ConnectDialog::signal() const
 {
-    const ListWidgetItems item_list = m_ui.signalList->selectedItems();
+    const auto item_list = m_ui.signalList->selectedItems();
     if (item_list.size() != 1)
         return QString();
     return item_list.at(0)->text();
@@ -205,7 +173,7 @@ QString ConnectDialog::signal() const
 
 QString ConnectDialog::slot() const
 {
-    const ListWidgetItems item_list = m_ui.slotList->selectedItems();
+    const auto item_list = m_ui.slotList->selectedItems();
     if (item_list.size() != 1)
         return QString();
     return item_list.at(0)->text();
@@ -226,10 +194,8 @@ void ConnectDialog::populateSlotList(const QString &signal)
     font.setItalic(true);
     QVariant variantFont = QVariant::fromValue(font);
 
-    QListWidgetItem *curr = 0;
-    QMap<QString, QString>::ConstIterator itMember = memberToClassName.constBegin();
-    const QMap<QString, QString>::ConstIterator itMemberEnd = memberToClassName.constEnd();
-    while (itMember != itMemberEnd) {
+    QListWidgetItem *curr = nullptr;
+    for (auto itMember = memberToClassName.cbegin(), itMemberEnd = memberToClassName.cend(); itMember != itMemberEnd; ++itMember) {
         const QString member = itMember.key();
         QListWidgetItem *item = new QListWidgetItem(m_ui.slotList);
         item->setText(member);
@@ -242,7 +208,6 @@ void ConnectDialog::populateSlotList(const QString &signal)
             item->setData(Qt::FontRole, variantFont);
             item->setData(Qt::ForegroundRole, QColor(Qt::red));
         }
-        ++itMember;
     }
 
     if (curr)
@@ -268,10 +233,8 @@ void ConnectDialog::populateSignalList()
     font.setItalic(true);
     QVariant variantFont = QVariant::fromValue(font);
 
-    QListWidgetItem *curr = 0;
-    QMap<QString, QString>::ConstIterator itMember = memberToClassName.constBegin();
-    const QMap<QString, QString>::ConstIterator itMemberEnd = memberToClassName.constEnd();
-    while (itMember != itMemberEnd) {
+    QListWidgetItem *curr = nullptr;
+    for (auto itMember = memberToClassName.cbegin(), itMemberEnd = memberToClassName.cend(); itMember != itMemberEnd; ++itMember) {
         const QString member = itMember.key();
 
         QListWidgetItem *item = new QListWidgetItem(m_ui.signalList);
@@ -285,7 +248,6 @@ void ConnectDialog::populateSignalList()
             item->setData(Qt::FontRole, variantFont);
             item->setData(Qt::ForegroundRole, QColor(Qt::red));
         }
-        ++itMember;
     }
 
     if (curr) {
@@ -329,3 +291,6 @@ void ConnectDialog::editSignalsSlots(QWidget *w, WidgetMode mode, int signalSlot
 }
 
 QT_END_NAMESPACE
+
+#include "moc_connectdialog_p.cpp"
+

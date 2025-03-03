@@ -1,48 +1,20 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qmdiarea_container.h"
 
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerFormEditorInterface>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractformeditor.h>
 
-#include <QtWidgets/QMdiArea>
-#include <QtWidgets/QMdiSubWindow>
-#include <QtWidgets/QApplication>
-#include <QtCore/QDebug>
-#include <QtCore/QHash>
+#include <QtWidgets/qmdiarea.h>
+#include <QtWidgets/qmdisubwindow.h>
+#include <QtWidgets/qapplication.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qhash.h>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 namespace qdesigner_internal {
 
@@ -54,13 +26,13 @@ QMdiAreaContainer::QMdiAreaContainer(QMdiArea *widget, QObject *parent)
 
 int QMdiAreaContainer::count() const
 {
-    return m_mdiArea->subWindowList(QMdiArea::CreationOrder).count();
+    return m_mdiArea->subWindowList(QMdiArea::CreationOrder).size();
 }
 
 QWidget *QMdiAreaContainer::widget(int index) const
 {
     if (index < 0)
-        return 0;
+        return nullptr;
     return m_mdiArea->subWindowList(QMdiArea::CreationOrder).at(index)->widget();
 }
 
@@ -122,7 +94,7 @@ void QMdiAreaContainer::insertWidget(int, QWidget *widget)
 
 void QMdiAreaContainer::remove(int index)
 {
-    QList<QMdiSubWindow *> subWins = m_mdiArea->subWindowList(QMdiArea::CreationOrder);
+    auto subWins = m_mdiArea->subWindowList(QMdiArea::CreationOrder);
     if (index >= 0 && index < subWins.size()) {
         QMdiSubWindow *f = subWins.at(index);
         m_mdiArea->removeSubWindow(f->widget());
@@ -134,26 +106,24 @@ void QMdiAreaContainer::remove(int index)
 // 1) window name (object name of child)
 // 2) title (windowTitle of child).
 
-static const char *subWindowTitleC = "activeSubWindowTitle";
-static const char *subWindowNameC = "activeSubWindowName";
+static constexpr auto subWindowTitleC = "activeSubWindowTitle"_L1;
+static constexpr auto subWindowNameC = "activeSubWindowName"_L1;
 
 QMdiAreaPropertySheet::QMdiAreaPropertySheet(QWidget *mdiArea, QObject *parent) :
     QDesignerPropertySheet(mdiArea, parent),
-    m_windowTitleProperty(QStringLiteral("windowTitle"))
+    m_windowTitleProperty(u"windowTitle"_s)
 {
-    createFakeProperty(QLatin1String(subWindowNameC), QString());
-    createFakeProperty(QLatin1String(subWindowTitleC), QString());
+    createFakeProperty(subWindowNameC, QString());
+    createFakeProperty(subWindowTitleC, QString());
 }
 
 QMdiAreaPropertySheet::MdiAreaProperty QMdiAreaPropertySheet::mdiAreaProperty(const QString &name)
 {
-    typedef QHash<QString, MdiAreaProperty> MdiAreaPropertyHash;
-    static MdiAreaPropertyHash mdiAreaPropertyHash;
-    if (mdiAreaPropertyHash.empty()) {
-        mdiAreaPropertyHash.insert(QLatin1String(subWindowNameC), MdiAreaSubWindowName);
-        mdiAreaPropertyHash.insert(QLatin1String(subWindowTitleC), MdiAreaSubWindowTitle);
-    }
-    return mdiAreaPropertyHash.value(name,MdiAreaNone);
+    static const QHash<QString, MdiAreaProperty> mdiAreaPropertyHash = {
+        {subWindowNameC, MdiAreaSubWindowName},
+        {subWindowTitleC, MdiAreaSubWindowTitle}
+    };
+    return mdiAreaPropertyHash.value(name, MdiAreaNone);
 }
 
 void QMdiAreaPropertySheet::setProperty(int index, const QVariant &value)
@@ -219,7 +189,7 @@ bool QMdiAreaPropertySheet::isEnabled(int index) const
     switch (mdiAreaProperty(propertyName(index))) {
     case MdiAreaSubWindowName:
     case MdiAreaSubWindowTitle:
-        return currentWindow() != 0;
+        return currentWindow() != nullptr;
     case MdiAreaNone:
         break;
     }
@@ -231,7 +201,7 @@ bool QMdiAreaPropertySheet::isChanged(int index) const
     bool rc = false;
     switch (mdiAreaProperty(propertyName(index))) {
     case MdiAreaSubWindowName:
-        rc = currentWindow() != 0;
+        rc = currentWindow() != nullptr;
         break;
     case MdiAreaSubWindowTitle:
         if (QDesignerPropertySheetExtension *cws = currentWindowSheet()) {
@@ -251,17 +221,17 @@ QWidget *QMdiAreaPropertySheet::currentWindow() const
     if (const QDesignerContainerExtension *c = qt_extension<QDesignerContainerExtension*>(core()->extensionManager(), object())) {
         const int ci = c->currentIndex();
         if (ci < 0)
-            return 0;
+            return nullptr;
         return c->widget(ci);
     }
-    return 0;
+    return nullptr;
 }
 
 QDesignerPropertySheetExtension *QMdiAreaPropertySheet::currentWindowSheet() const
 {
     QWidget *cw = currentWindow();
-    if (cw == 0)
-        return 0;
+    if (cw == nullptr)
+        return nullptr;
     return qt_extension<QDesignerPropertySheetExtension*>(core()->extensionManager(), cw);
 }
 

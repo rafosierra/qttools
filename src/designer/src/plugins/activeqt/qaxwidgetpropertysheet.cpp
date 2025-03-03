@@ -1,52 +1,22 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qaxwidgetpropertysheet.h"
 #include "qdesigneraxwidget.h"
 
-#include <QtDesigner/QDesignerMemberSheetExtension>
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerPropertyEditorInterface>
+#include <QtDesigner/membersheet.h>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractpropertyeditor.h>
 
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/qextensionmanager.h>
 #include <private/qdesigner_utils_p.h>
-#include <QtCore/QDebug>
-#include <QtCore/QTimer>
-
-static const char *geometryPropertyC = "geometry";
+#include <QtCore/qdebug.h>
+#include <QtCore/qtimer.h>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 const char *QAxWidgetPropertySheet::controlPropertyName = "control";
 
@@ -60,7 +30,7 @@ static QString designerPropertyToString(const QVariant &value)
 QAxWidgetPropertySheet::QAxWidgetPropertySheet(QDesignerAxWidget *object, QObject *parent) :
     QDesignerPropertySheet(object, parent),
     m_controlProperty(controlPropertyName),
-    m_propertyGroup(QStringLiteral("QAxWidget"))
+    m_propertyGroup(u"QAxWidget"_s)
 {
      if (!axWidget()->loaded()) { // For some obscure reason....
         const int controlIndex = QDesignerPropertySheet::indexOf(m_controlProperty);
@@ -73,6 +43,12 @@ bool QAxWidgetPropertySheet::isEnabled(int index) const
     if (propertyName(index) == m_controlProperty)
         return false;
     return QDesignerPropertySheet::isEnabled(index);
+}
+
+bool QAxWidgetPropertySheet::isVisible(int index) const
+{
+    // classContext is ulong, which the property editor does not support
+    return propertyName(index) != "classContext"_L1;
 }
 
 bool QAxWidgetPropertySheet::dynamicPropertiesAllowed() const
@@ -89,13 +65,13 @@ QDesignerAxWidget *QAxWidgetPropertySheet::axWidget() const
 bool QAxWidgetPropertySheet::reset(int index)
 {
     const QString name = propertyName(index);
-    QMap<QString, QVariant>::iterator it = m_currentProperties.changedProperties.find(name);
+    const auto it = m_currentProperties.changedProperties.find(name);
     if (it !=  m_currentProperties.changedProperties.end())
         m_currentProperties.changedProperties.erase(it);
     if (name != m_controlProperty)
         return QDesignerPropertySheet::reset(index);
     axWidget()->resetControl();
-    QTimer::singleShot(0, this, SLOT(updatePropertySheet()));
+    QTimer::singleShot(0, this, &QAxWidgetPropertySheet::updatePropertySheet);
     return true;
 }
 
@@ -124,7 +100,7 @@ void QAxWidgetPropertySheet::setProperty(int index, const QVariant &value)
         if (clsid.isEmpty() || !axWidget()->loadControl(clsid))
             reset(index);
         else
-            QTimer::singleShot(100, this, SLOT(updatePropertySheet()));
+            QTimer::singleShot(100, this, &QAxWidgetPropertySheet::updatePropertySheet);
     }
 }
 
@@ -135,7 +111,7 @@ int QAxWidgetPropertySheet::indexOf(const QString &name) const
         return index;
     // Loading before recreation of sheet in timer slot: Add a fake property to store the value
     const QVariant dummValue(0);
-    QAxWidgetPropertySheet *that = const_cast<QAxWidgetPropertySheet *>(this);
+    auto that = const_cast<QAxWidgetPropertySheet *>(this);
     const int newIndex = that->createFakeProperty(name, dummValue);
     that->setPropertyGroup(newIndex, m_propertyGroup);
     return newIndex;
@@ -147,7 +123,7 @@ void QAxWidgetPropertySheet::updatePropertySheet()
     struct SavedProperties tmp = m_currentProperties;
     QDesignerAxWidget *axw = axWidget();
     QDesignerFormWindowInterface *formWin = QDesignerFormWindowInterface::findFormWindow(axw);
-    Q_ASSERT(formWin != 0);
+    Q_ASSERT(formWin != nullptr);
     tmp.widget = axw;
     tmp.clsid = axw->control();
     // Delete the sheets as they cache the meta object and other information
@@ -156,16 +132,18 @@ void QAxWidgetPropertySheet::updatePropertySheet()
     reloadPropertySheet(tmp, formWin);
 }
 
-void QAxWidgetPropertySheet::reloadPropertySheet(const struct SavedProperties &properties, QDesignerFormWindowInterface *formWin)
+void QAxWidgetPropertySheet::reloadPropertySheet(const struct SavedProperties &properties,
+                                                 QDesignerFormWindowInterface *formWin)
 {
     QDesignerFormEditorInterface *core = formWin->core();
     //Recreation of the property sheet
-    QDesignerPropertySheetExtension *sheet = qt_extension<QDesignerPropertySheetExtension *>(core->extensionManager(), properties.widget);
+    auto sheet = qt_extension<QDesignerPropertySheetExtension *>(core->extensionManager(),
+                                                                 properties.widget);
 
     bool foundGeometry = false;
-    const QString geometryProperty = QLatin1String(geometryPropertyC);
-    const SavedProperties::NamePropertyMap::const_iterator cend = properties.changedProperties.constEnd();
-    for (SavedProperties::NamePropertyMap::const_iterator i = properties.changedProperties.constBegin(); i != cend; ++i) {
+    const QString geometryProperty = "geometry"_L1;
+    for (auto i = properties.changedProperties.cbegin(), cend = properties.changedProperties.cend();
+         i != cend; ++i) {
         const QString name = i.key();
         const int index = sheet->indexOf(name);
         if (index == -1)

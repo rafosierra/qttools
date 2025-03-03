@@ -1,104 +1,84 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Assistant of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #ifndef QHELPSEARCHENGINE_H
 #define QHELPSEARCHENGINE_H
 
 #include <QtHelp/qhelp_global.h>
+#include <QtHelp/qhelpsearchresult.h>
 
-#include <QtCore/QMap>
-#include <QtCore/QUrl>
-#include <QtCore/QObject>
-#include <QtCore/QString>
-#include <QtCore/QStringList>
+#include <QtCore/qobject.h>
+#include <QtCore/qshareddata.h>
+#include <QtCore/qstringlist.h>
 
 QT_BEGIN_NAMESPACE
 
-
 class QHelpEngineCore;
+class QHelpSearchEnginePrivate;
 class QHelpSearchQueryWidget;
 class QHelpSearchResultWidget;
-class QHelpSearchEnginePrivate;
 
+#if QT_DEPRECATED_SINCE(6, 7)
 class QHELP_EXPORT QHelpSearchQuery
 {
 public:
     enum FieldName { DEFAULT = 0, FUZZY, WITHOUT, PHRASE, ALL, ATLEAST };
 
+    QT_DEPRECATED_VERSION_X_6_7("Use QString instead")
     QHelpSearchQuery()
         : fieldName(DEFAULT) { wordList.clear(); }
+    QT_DEPRECATED_VERSION_X_6_7("Use QString instead")
     QHelpSearchQuery(FieldName field, const QStringList &wordList_)
         : fieldName(field), wordList(wordList_) {}
 
     FieldName fieldName;
     QStringList wordList;
 };
+#endif // QT_DEPRECATED_SINCE(6, 7)
 
 class QHELP_EXPORT QHelpSearchEngine : public QObject
 {
     Q_OBJECT
 
 public:
-    explicit QHelpSearchEngine(QHelpEngineCore *helpEngine,
-        QObject *parent = 0);
+    explicit QHelpSearchEngine(QHelpEngineCore *helpEngine, QObject *parent = nullptr);
     ~QHelpSearchEngine();
 
-    QHelpSearchQueryWidget* queryWidget();
-    QHelpSearchResultWidget* resultWidget();
+    QHelpSearchQueryWidget *queryWidget();
+    QHelpSearchResultWidget *resultWidget();
 
-#ifdef QT_DEPRECATED
-    QT_DEPRECATED int hitsCount() const;
-#endif
-    int hitCount() const;
-
+#if QT_DEPRECATED_SINCE(5, 9)
     typedef QPair<QString, QString> SearchHit;
-    QList<SearchHit> hits(int start, int end) const;
 
-    QList<QHelpSearchQuery> query() const;
+    QT_DEPRECATED int hitsCount() const;
+    QT_DEPRECATED int hitCount() const;
+    QT_DEPRECATED QList<SearchHit> hits(int start, int end) const;
+    QT_DEPRECATED QList<QHelpSearchQuery> query() const;
+#endif
+
+    int searchResultCount() const;
+    QList<QHelpSearchResult> searchResults(int start, int end) const;
+    QString searchInput() const;
 
 public Q_SLOTS:
     void reindexDocumentation();
     void cancelIndexing();
 
-    void search(const QList<QHelpSearchQuery> &queryList);
+#if QT_DEPRECATED_SINCE(5, 9)
+    QT_DEPRECATED void search(const QList<QHelpSearchQuery> &queryList);
+#endif
+
+    void search(const QString &searchInput);
     void cancelSearching();
+
+    void scheduleIndexDocumentation();
 
 Q_SIGNALS:
     void indexingStarted();
     void indexingFinished();
 
     void searchingStarted();
-    void searchingFinished(int hits);
+    void searchingFinished(int searchResultCount);
 
 private Q_SLOTS:
     void indexDocumentation();
@@ -109,4 +89,4 @@ private:
 
 QT_END_NAMESPACE
 
-#endif  // QHELPSEARCHENGINE_H
+#endif // QHELPSEARCHENGINE_H

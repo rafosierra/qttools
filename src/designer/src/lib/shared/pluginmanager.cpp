@@ -1,76 +1,47 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "pluginmanager_p.h"
 #include "qdesigner_utils_p.h"
 #include "qdesigner_qsettings_p.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerLanguageExtension>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractlanguage.h>
 
-#include <QtUiPlugin/QDesignerCustomWidgetInterface>
+#include <QtUiPlugin/customwidget.h>
 
-#include <QtCore/QDir>
-#include <QtCore/QFile>
-#include <QtCore/QFileInfo>
-#include <QtCore/QSet>
-#include <QtCore/QPluginLoader>
-#include <QtCore/QLibrary>
-#include <QtCore/QLibraryInfo>
+#include <QtCore/qdir.h>
+#include <QtCore/qfile.h>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qset.h>
+#include <QtCore/qpluginloader.h>
+#include <QtCore/qlibrary.h>
+#include <QtCore/qlibraryinfo.h>
 #include <QtCore/qdebug.h>
-#include <QtCore/QMap>
-#include <QtCore/QSettings>
-#include <QtCore/QCoreApplication>
+#include <QtCore/qmap.h>
+#include <QtCore/qsettings.h>
+#include <QtCore/qcoreapplication.h>
 
-#include <QtCore/QXmlStreamReader>
-#include <QtCore/QXmlStreamAttributes>
-#include <QtCore/QXmlStreamAttribute>
+#include <QtCore/qxmlstream.h>
 
-static const char *uiElementC = "ui";
-static const char *languageAttributeC = "language";
-static const char *widgetElementC = "widget";
-static const char *displayNameAttributeC = "displayname";
-static const char *classAttributeC = "class";
-static const char *customwidgetElementC = "customwidget";
-static const char *extendsElementC = "extends";
-static const char *addPageMethodC = "addpagemethod";
-static const char *propertySpecsC = "propertyspecifications";
-static const char *stringPropertySpecC = "stringpropertyspecification";
-static const char *stringPropertyNameAttrC = "name";
-static const char *stringPropertyTypeAttrC = "type";
-static const char *stringPropertyNoTrAttrC = "notr";
-static const char *jambiLanguageC = "jambi";
+using namespace Qt::StringLiterals;
+
+static constexpr auto uiElementC = "ui"_L1;
+static constexpr auto languageAttributeC = "language"_L1;
+static constexpr auto widgetElementC = "widget"_L1;
+static constexpr auto displayNameAttributeC = "displayname"_L1;
+static constexpr auto classAttributeC = "class"_L1;
+static constexpr auto customwidgetElementC = "customwidget"_L1;
+static constexpr auto extendsElementC = "extends"_L1;
+static constexpr auto addPageMethodC = "addpagemethod"_L1;
+static constexpr auto propertySpecsC = "propertyspecifications"_L1;
+static constexpr auto stringPropertySpecC = "stringpropertyspecification"_L1;
+static constexpr auto propertyToolTipC = "tooltip"_L1;
+static constexpr auto stringPropertyNameAttrC = "name"_L1;
+static constexpr auto stringPropertyTypeAttrC = "type"_L1;
+static constexpr auto stringPropertyNoTrAttrC = "notr"_L1;
+static constexpr auto jambiLanguageC = "jambi"_L1;
 
 enum { debugPluginManager = 0 };
 
@@ -94,8 +65,8 @@ QT_BEGIN_NAMESPACE
 
 static QStringList unique(const QStringList &lst)
 {
-    const QSet<QString> s = QSet<QString>::fromList(lst);
-    return s.toList();
+    const QSet<QString> s(lst.cbegin(), lst.cend());
+    return s.values();
 }
 
 QStringList QDesignerPluginManager::defaultPluginPaths()
@@ -104,21 +75,10 @@ QStringList QDesignerPluginManager::defaultPluginPaths()
 
     const QStringList path_list = QCoreApplication::libraryPaths();
 
-    const QString designer = QStringLiteral("designer");
-    foreach (const QString &path, path_list) {
-        QString libPath = path;
-        libPath += QDir::separator();
-        libPath += designer;
-        result.append(libPath);
-    }
+    for (const QString &path : path_list)
+        result.append(path + "/designer"_L1);
 
-    QString homeLibPath = QDir::homePath();
-    homeLibPath += QDir::separator();
-    homeLibPath += QStringLiteral(".designer");
-    homeLibPath += QDir::separator();
-    homeLibPath += QStringLiteral("plugins");
-
-    result.append(homeLibPath);
+    result.append(qdesigner_internal::dataDirectory() + "/plugins"_L1);
     return result;
 }
 
@@ -128,11 +88,11 @@ QStringList QDesignerPluginManager::defaultPluginPaths()
 static inline QString getDesignerLanguage(QDesignerFormEditorInterface *core)
 {
     if (QDesignerLanguageExtension *lang = qt_extension<QDesignerLanguageExtension *>(core->extensionManager(), core)) {
-        if (lang->uiExtension() == QStringLiteral("jui"))
-            return QLatin1String(jambiLanguageC);
-        return QStringLiteral("unknown");
+        if (lang->uiExtension() == "jui"_L1)
+            return jambiLanguageC;
+        return u"unknown"_s;
     }
-    return QStringLiteral("c++");
+    return u"c++"_s;
 }
 
 // ----------------  QDesignerCustomWidgetSharedData
@@ -140,8 +100,7 @@ static inline QString getDesignerLanguage(QDesignerFormEditorInterface *core)
 class QDesignerCustomWidgetSharedData : public QSharedData {
 public:
     // Type of a string property
-    typedef QPair<qdesigner_internal::TextPropertyValidationMode, bool> StringPropertyType;
-    typedef QHash<QString, StringPropertyType> StringPropertyTypeMap;
+    using StringPropertyType = std::pair<qdesigner_internal::TextPropertyValidationMode, bool>;
 
     explicit QDesignerCustomWidgetSharedData(const QString &thePluginPath) : pluginPath(thePluginPath) {}
     void clearXML();
@@ -154,7 +113,8 @@ public:
     QString xmlAddPageMethod;
     QString xmlExtends;
 
-    StringPropertyTypeMap xmlStringPropertyTypeMap;
+    QHash<QString, StringPropertyType> xmlStringPropertyTypeMap;
+    QHash<QString, QString> propertyToolTipMap;
 };
 
 void QDesignerCustomWidgetSharedData::clearXML()
@@ -226,13 +186,18 @@ QString QDesignerCustomWidgetData::pluginPath() const
 
 bool QDesignerCustomWidgetData::xmlStringPropertyType(const QString &name, StringPropertyType *type) const
 {
-    QDesignerCustomWidgetSharedData::StringPropertyTypeMap::const_iterator it = m_d->xmlStringPropertyTypeMap.constFind(name);
+    const auto it = m_d->xmlStringPropertyTypeMap.constFind(name);
     if (it == m_d->xmlStringPropertyTypeMap.constEnd()) {
         *type = StringPropertyType(qdesigner_internal::ValidationRichText, true);
         return false;
     }
     *type = it.value();
     return true;
+}
+
+QString QDesignerCustomWidgetData::propertyToolTip(const QString &name) const
+{
+    return m_d->propertyToolTipMap.value(name);
 }
 
 // Wind a QXmlStreamReader  until it finds an element. Returns index or one of FindResult
@@ -272,67 +237,77 @@ static inline QString msgAttributeMissing(const QString &name)
 static qdesigner_internal::TextPropertyValidationMode typeStringToType(const QString &v, bool *ok)
 {
     *ok = true;
-    if (v  == QStringLiteral("multiline"))
+    if (v  == "multiline"_L1)
         return qdesigner_internal::ValidationMultiLine;
-    if (v  == QStringLiteral("richtext"))
+    if (v  == "richtext"_L1)
         return qdesigner_internal::ValidationRichText;
-    if (v  == QStringLiteral("stylesheet"))
+    if (v  == "stylesheet"_L1)
         return qdesigner_internal::ValidationStyleSheet;
-    if (v  == QStringLiteral("singleline"))
+    if (v  == "singleline"_L1)
         return qdesigner_internal::ValidationSingleLine;
-    if (v  == QStringLiteral("objectname"))
+    if (v  == "objectname"_L1)
         return qdesigner_internal::ValidationObjectName;
-    if (v  == QStringLiteral("objectnamescope"))
+    if (v  == "objectnamescope"_L1)
         return qdesigner_internal::ValidationObjectNameScope;
-    if (v  == QStringLiteral("url"))
+    if (v  == "url"_L1)
         return qdesigner_internal::ValidationURL;
     *ok = false;
     return qdesigner_internal::ValidationRichText;
 }
 
-static  bool parsePropertySpecs(QXmlStreamReader &sr,
-                                   QDesignerCustomWidgetSharedData::StringPropertyTypeMap *rc,
-                                   QString *errorMessage)
+static bool parsePropertySpecs(QXmlStreamReader &sr,
+                               QDesignerCustomWidgetSharedData *data,
+                               QString *errorMessage)
 {
-    const QString propertySpecs = QLatin1String(propertySpecsC);
-    const QString stringPropertySpec = QLatin1String(stringPropertySpecC);
-    const QString stringPropertyTypeAttr = QLatin1String(stringPropertyTypeAttrC);
-    const QString stringPropertyNoTrAttr = QLatin1String(stringPropertyNoTrAttrC);
-    const QString stringPropertyNameAttr = QLatin1String(stringPropertyNameAttrC);
+    const QString propertySpecs = propertySpecsC;
+    const QString stringPropertySpec = stringPropertySpecC;
+    const QString propertyToolTip = propertyToolTipC;
+    const QString stringPropertyTypeAttr = stringPropertyTypeAttrC;
+    const QString stringPropertyNoTrAttr = stringPropertyNoTrAttrC;
+    const QString stringPropertyNameAttr = stringPropertyNameAttrC;
 
     while (!sr.atEnd()) {
         switch(sr.readNext()) {
         case QXmlStreamReader::StartElement: {
-            if (sr.name() != stringPropertySpec) {
+            if (sr.name() == stringPropertySpec) {
+                const QXmlStreamAttributes atts = sr.attributes();
+                const QString name = atts.value(stringPropertyNameAttr).toString();
+                const QString type = atts.value(stringPropertyTypeAttr).toString();
+                const QString notrS = atts.value(stringPropertyNoTrAttr).toString(); //Optional
+
+                if (type.isEmpty()) {
+                    *errorMessage = msgAttributeMissing(stringPropertyTypeAttr);
+                    return false;
+                }
+                if (name.isEmpty()) {
+                    *errorMessage = msgAttributeMissing(stringPropertyNameAttr);
+                    return false;
+                }
+                bool typeOk;
+                const bool noTr = notrS == "true"_L1 || notrS == "1"_L1;
+                QDesignerCustomWidgetSharedData::StringPropertyType v(typeStringToType(type, &typeOk), !noTr);
+                if (!typeOk) {
+                    *errorMessage = QDesignerPluginManager::tr("'%1' is not a valid string property specification.").arg(type);
+                    return false;
+                }
+                data->xmlStringPropertyTypeMap.insert(name, v);
+            } else if (sr.name() == propertyToolTip) {
+                const QString name = sr.attributes().value(stringPropertyNameAttr).toString();
+                if (name.isEmpty()) {
+                    *errorMessage = msgAttributeMissing(stringPropertyNameAttr);
+                    return false;
+                }
+                data->propertyToolTipMap.insert(name, sr.readElementText().trimmed());
+            } else {
                 *errorMessage = QDesignerPluginManager::tr("An invalid property specification ('%1') was encountered. Supported types: %2").arg(sr.name().toString(), stringPropertySpec);
                 return false;
             }
-            const QXmlStreamAttributes atts = sr.attributes();
-            const QString name = atts.value(stringPropertyNameAttr).toString();
-            const QString type = atts.value(stringPropertyTypeAttr).toString();
-            const QString notrS = atts.value(stringPropertyNoTrAttr).toString(); //Optional
-
-            if (type.isEmpty()) {
-                *errorMessage = msgAttributeMissing(stringPropertyTypeAttr);
-                return false;
-            }
-            if (name.isEmpty()) {
-                *errorMessage = msgAttributeMissing(stringPropertyNameAttr);
-                return false;
-            }
-            bool typeOk;
-            const bool noTr = notrS == QStringLiteral("true") || notrS == QStringLiteral("1");
-            QDesignerCustomWidgetSharedData::StringPropertyType v(typeStringToType(type, &typeOk), !noTr);
-            if (!typeOk) {
-                *errorMessage = QDesignerPluginManager::tr("'%1' is not a valid string property specification.").arg(type);
-                return false;
-            }
-            rc->insert(name, v);
         }
             break;
         case QXmlStreamReader::EndElement: // Outer </stringproperties>
             if (sr.name() == propertySpecs)
                 return true;
+            break;
         default:
             break;
         }
@@ -356,8 +331,8 @@ QDesignerCustomWidgetData::ParseResult
     ParseResult rc = ParseOk;
     // Parse for the (optional) <ui> or the first <widget> element
     QStringList elements;
-    elements.push_back(QLatin1String(uiElementC));
-    elements.push_back(QLatin1String(widgetElementC));
+    elements.push_back(uiElementC);
+    elements.push_back(widgetElementC);
     for (int i = 0; i < 2 && !foundWidget; i++) {
         switch (findElement(elements, sr)) {
         case FindError:
@@ -368,13 +343,13 @@ QDesignerCustomWidgetData::ParseResult
             return ParseError;
         case 0: { // <ui>
             const QXmlStreamAttributes attributes = sr.attributes();
-            data.xmlLanguage = attributes.value(QLatin1String(languageAttributeC)).toString();
-            data.xmlDisplayName = attributes.value(QLatin1String(displayNameAttributeC)).toString();
+            data.xmlLanguage = attributes.value(languageAttributeC).toString();
+            data.xmlDisplayName = attributes.value(displayNameAttributeC).toString();
             foundUI = true;
         }
             break;
         case 1: // <widget>: Do some sanity checks
-            data.xmlClassName = sr.attributes().value(QLatin1String(classAttributeC)).toString();
+            data.xmlClassName = sr.attributes().value(classAttributeC).toString();
             if (data.xmlClassName.isEmpty()) {
                 *errorMessage = QDesignerPluginManager::tr("The class attribute for the class %1 is missing.").arg(name);
                 rc = ParseWarning;
@@ -392,7 +367,7 @@ QDesignerCustomWidgetData::ParseResult
     if (!foundUI)
         return rc;
     elements.clear();
-    elements.push_back(QLatin1String(customwidgetElementC));
+    elements.push_back(customwidgetElementC);
     switch (findElement(elements, sr)) {
     case FindError:
         *errorMessage = msgXmlError(name, sr.errorString());
@@ -403,10 +378,7 @@ QDesignerCustomWidgetData::ParseResult
         break;
     }
     // Find <extends>, <addPageMethod>, <stringproperties>
-    elements.clear();
-    elements.push_back(QLatin1String(extendsElementC));
-    elements.push_back(QLatin1String(addPageMethodC));
-    elements.push_back(QLatin1String(propertySpecsC));
+    elements = {extendsElementC, addPageMethodC, propertySpecsC};
     while (true) {
         switch (findElement(elements, sr)) {
         case FindError:
@@ -429,7 +401,7 @@ QDesignerCustomWidgetData::ParseResult
             }
             break;
         case 2: // <stringproperties>
-            if (!parsePropertySpecs(sr, &m_d->xmlStringPropertyTypeMap, errorMessage)) {
+            if (!parsePropertySpecs(sr, m_d.data(), errorMessage)) {
                 *errorMessage = msgXmlError(name, *errorMessage);
                 return ParseError;
             }
@@ -443,7 +415,7 @@ QDesignerCustomWidgetData::ParseResult
 
 class QDesignerPluginManagerPrivate {
     public:
-    typedef QPair<QString, QString> ClassNamePropertyNameKey;
+    using ClassNamePropertyNameKey = std::pair<QString, QString>;
 
     QDesignerPluginManagerPrivate(QDesignerFormEditorInterface *core);
 
@@ -451,7 +423,7 @@ class QDesignerPluginManagerPrivate {
     bool addCustomWidget(QDesignerCustomWidgetInterface *c,
                          const QString &pluginPath,
                          const QString &designerLanguage);
-    void addCustomWidgets(const QObject *o,
+    void addCustomWidgets(QObject *o,
                           const QString &pluginPath,
                           const QString &designerLanguage);
 
@@ -461,8 +433,7 @@ class QDesignerPluginManagerPrivate {
     // TODO: QPluginLoader also caches invalid plugins -> This seems to be dead code
     QStringList m_disabledPlugins;
 
-    typedef QMap<QString, QString> FailedPluginMap;
-    FailedPluginMap m_failedPlugins;
+    QMap<QString, QString> m_failedPlugins;
 
     // Synced lists of custom widgets and their data. Note that the list
     // must be ordered for collections to appear in order.
@@ -525,7 +496,7 @@ bool QDesignerPluginManagerPrivate::addCustomWidget(QDesignerCustomWidgetInterfa
 
 // Check the plugin interface for either a custom widget or a collection and
 // add all contained custom widgets.
-void QDesignerPluginManagerPrivate::addCustomWidgets(const QObject *o,
+void QDesignerPluginManagerPrivate::addCustomWidgets(QObject *o,
                                                      const QString &pluginPath,
                                                      const QString &designerLanguage)
 {
@@ -533,8 +504,9 @@ void QDesignerPluginManagerPrivate::addCustomWidgets(const QObject *o,
         addCustomWidget(c, pluginPath, designerLanguage);
         return;
     }
-    if (const QDesignerCustomWidgetCollectionInterface *coll = qobject_cast<QDesignerCustomWidgetCollectionInterface*>(o)) {
-        foreach(QDesignerCustomWidgetInterface *c, coll->customWidgets())
+    if (QDesignerCustomWidgetCollectionInterface *coll = qobject_cast<QDesignerCustomWidgetCollectionInterface*>(o)) {
+        const auto &collCustomWidgets = coll->customWidgets();
+        for (QDesignerCustomWidgetInterface *c : collCustomWidgets)
             addCustomWidget(c, pluginPath, designerLanguage);
     }
 }
@@ -544,12 +516,18 @@ void QDesignerPluginManagerPrivate::addCustomWidgets(const QObject *o,
 // As of 4.4, the header will be distributed with the Eclipse plugin.
 
 QDesignerPluginManager::QDesignerPluginManager(QDesignerFormEditorInterface *core) :
+      QDesignerPluginManager(QStringList{}, core)
+{
+}
+
+QDesignerPluginManager::QDesignerPluginManager(const QStringList &pluginPaths,
+                                               QDesignerFormEditorInterface *core) :
     QObject(core),
     m_d(new QDesignerPluginManagerPrivate(core))
 {
-    m_d->m_pluginPaths = defaultPluginPaths();
+    m_d->m_pluginPaths = pluginPaths.isEmpty() ? defaultPluginPaths() : pluginPaths;
     const QSettings settings(qApp->organizationName(), QDesignerQSettings::settingsApplicationName());
-    m_d->m_disabledPlugins = unique(settings.value(QStringLiteral("PluginManager/DisabledPlugins")).toStringList());
+    m_d->m_disabledPlugins = unique(settings.value("PluginManager/DisabledPlugins").toStringList());
 
     // Register plugins
     updateRegisteredPlugins();
@@ -578,21 +556,20 @@ QStringList QDesignerPluginManager::findPlugins(const QString &path)
         return QStringList();
 
     const QFileInfoList infoList = dir.entryInfoList(QDir::Files);
-    if (infoList.empty())
+    if (infoList.isEmpty())
         return QStringList();
 
     // Load symbolic links but make sure all file names are unique as not
     // to fall for something like 'libplugin.so.1 -> libplugin.so'
     QStringList result;
-    const QFileInfoList::const_iterator icend = infoList.constEnd();
-    for (QFileInfoList::const_iterator it = infoList.constBegin(); it != icend; ++it) {
+    for (const auto &fi : infoList) {
         QString fileName;
-        if (it->isSymLink()) {
-            const QFileInfo linkTarget = QFileInfo(it->symLinkTarget());
+        if (fi.isSymLink()) {
+            const QFileInfo linkTarget = QFileInfo(fi.symLinkTarget());
             if (linkTarget.exists() && linkTarget.isFile())
                 fileName = linkTarget.absoluteFilePath();
         } else {
-            fileName = it->absoluteFilePath();
+            fileName = fi.absoluteFilePath();
         }
         if (!fileName.isEmpty() && QLibrary::isLibrary(fileName) && !result.contains(fileName))
             result += fileName;
@@ -640,7 +617,7 @@ QStringList QDesignerPluginManager::pluginPaths() const
 QObject *QDesignerPluginManager::instance(const QString &plugin) const
 {
     if (m_d->m_disabledPlugins.contains(plugin))
-        return 0;
+        return nullptr;
 
     QPluginLoader loader(plugin);
     return loader.instance();
@@ -651,7 +628,7 @@ void QDesignerPluginManager::updateRegisteredPlugins()
     if (debugPluginManager)
         qDebug() << Q_FUNC_INFO;
     m_d->m_registeredPlugins.clear();
-    foreach (const QString &path,  m_d->m_pluginPaths)
+    for (const QString &path : std::as_const(m_d->m_pluginPaths))
         registerPath(path);
 }
 
@@ -661,7 +638,7 @@ bool QDesignerPluginManager::registerNewPlugins()
         qDebug() << Q_FUNC_INFO;
 
     const int before = m_d->m_registeredPlugins.size();
-    foreach (const QString &path, m_d->m_pluginPaths)
+    for (const QString &path : std::as_const(m_d->m_pluginPaths))
         registerPath(path);
     const bool newPluginsFound = m_d->m_registeredPlugins.size() > before;
     // We force a re-initialize as Jambi collection might return
@@ -676,9 +653,8 @@ void QDesignerPluginManager::registerPath(const QString &path)
 {
     if (debugPluginManager)
         qDebug() << Q_FUNC_INFO << path;
-    QStringList candidates = findPlugins(path);
-
-    foreach (const QString &plugin, candidates)
+    const QStringList &candidates = findPlugins(path);
+    for (const QString &plugin : candidates)
         registerPlugin(plugin);
 }
 
@@ -694,7 +670,7 @@ void QDesignerPluginManager::registerPlugin(const QString &plugin)
     QPluginLoader loader(plugin);
     if (loader.isLoaded() || loader.load()) {
         m_d->m_registeredPlugins += plugin;
-        QDesignerPluginManagerPrivate::FailedPluginMap::iterator fit = m_d->m_failedPlugins.find(plugin);
+        const auto fit = m_d->m_failedPlugins.find(plugin);
         if (fit != m_d->m_failedPlugins.end())
             m_d->m_failedPlugins.erase(fit);
         return;
@@ -709,8 +685,8 @@ void QDesignerPluginManager::registerPlugin(const QString &plugin)
 bool QDesignerPluginManager::syncSettings()
 {
     QSettings settings(qApp->organizationName(), QDesignerQSettings::settingsApplicationName());
-    settings.beginGroup(QStringLiteral("PluginManager"));
-    settings.setValue(QStringLiteral("DisabledPlugins"), m_d->m_disabledPlugins);
+    settings.beginGroup("PluginManager");
+    settings.setValue("DisabledPlugins", m_d->m_disabledPlugins);
     settings.endGroup();
     return settings.status() == QSettings::NoError;
 }
@@ -728,14 +704,15 @@ void QDesignerPluginManager::ensureInitialized()
     m_d->clearCustomWidgets();
     // Add the static custom widgets
     const QObjectList staticPluginObjects = QPluginLoader::staticInstances();
-    if (!staticPluginObjects.empty()) {
+    if (!staticPluginObjects.isEmpty()) {
         const QString staticPluginPath = QCoreApplication::applicationFilePath();
-        foreach(QObject *o, staticPluginObjects)
+        for (QObject *o : staticPluginObjects)
             m_d->addCustomWidgets(o, staticPluginPath, designerLanguage);
     }
-    foreach (const QString &plugin, m_d->m_registeredPlugins)
+    for (const QString &plugin : std::as_const(m_d->m_registeredPlugins)) {
         if (QObject *o = instance(plugin))
             m_d->addCustomWidgets(o, plugin, designerLanguage);
+    }
 
     m_d->m_initialized = true;
 }
@@ -756,8 +733,7 @@ QDesignerCustomWidgetData QDesignerPluginManager::customWidgetData(QDesignerCust
 
 QDesignerCustomWidgetData QDesignerPluginManager::customWidgetData(const QString &name) const
 {
-    const int count = m_d->m_customWidgets.size();
-    for (int i = 0; i < count; i++)
+    for (qsizetype i = 0, count = m_d->m_customWidgets.size(); i < count; ++i)
         if (m_d->m_customWidgets.at(i)->name() == name)
             return m_d->m_customWidgetData.at(i);
     return QDesignerCustomWidgetData();
@@ -765,10 +741,10 @@ QDesignerCustomWidgetData QDesignerPluginManager::customWidgetData(const QString
 
 QObjectList QDesignerPluginManager::instances() const
 {
-    QStringList plugins = registeredPlugins();
+    const QStringList &plugins = registeredPlugins();
 
     QObjectList lst;
-    foreach (const QString &plugin, plugins) {
+    for (const QString &plugin : plugins) {
         if (QObject *o = instance(plugin))
             lst.append(o);
     }

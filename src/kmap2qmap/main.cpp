@@ -1,49 +1,18 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the QtGui module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include <cstdio>
 
 #include <QFile>
 #include <QFileInfo>
 #include <QDir>
-#include <QTextCodec>
 #include <QList>
-#include <QVector>
 #include <QByteArray>
+#include <QStringDecoder>
 #include <QStringList>
 #include <QTextStream>
 
-#include <QtPlatformSupport/private/qevdevkeyboardhandler_p.h>
+#include <QtInputSupport/private/qevdevkeyboardhandler_p.h>
 
 using namespace std;
 
@@ -140,7 +109,8 @@ static const struct symbol_map_t symbol_map[] = {
     { "twosuperior", Qt::Key_twosuperior },
     { "threesuperior", Qt::Key_threesuperior },
     { "acute", Qt::Key_acute },
-    { "mu", Qt::Key_mu },
+    { "micro", Qt::Key_micro },
+    { "mu", Qt::Key_micro }, // Old name, deprecated since Qt 6.6
     { "paragraph", Qt::Key_paragraph },
     { "periodcentered", Qt::Key_periodcentered },
     { "cedilla", Qt::Key_cedilla },
@@ -415,8 +385,8 @@ public:
     int parseWarningCount() const   { return m_warning_count; }
 
 private:
-    bool parseSymbol(const QByteArray &str, const QTextCodec *codec, quint16 &unicode, quint32 &qtcode, quint8 &flags, quint16 &special);
-    bool parseCompose(const QByteArray &str, const QTextCodec *codec, quint16 &unicode);
+    bool parseSymbol(const QByteArray &str, quint16 &unicode, quint32 &qtcode, quint8 &flags, quint16 &special);
+    bool parseCompose(const QByteArray &str, QStringDecoder &codec, quint16 &unicode);
     bool parseModifier(const QByteArray &str, quint8 &modifier);
 
     void updateMapping(quint16 keycode = 0, quint8 modifiers = 0, quint16 unicode = 0xffff, quint32 qtcode = Qt::Key_unknown, quint8 flags = 0, quint16 = 0);
@@ -446,7 +416,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    QVector<QFile *> kmaps(argc - header - 2);
+    QList<QFile *> kmaps(argc - header - 2);
     for (int i = 0; i < kmaps.size(); ++i) {
         kmaps [i] = new QFile(QString::fromLocal8Bit(argv[i + 1 + header]));
 
@@ -501,31 +471,27 @@ bool KeymapParser::generateHeader(QFile *f)
 {
     QTextStream ts(f);
 
-    ts << "#ifndef QEVDEVKEYBOARDHANDLER_DEFAULTMAP_H" << endl;
-    ts << "#define QEVDEVKEYBOARDHANDLER_DEFAULTMAP_H" << endl << endl;
+    ts << "#ifndef QEVDEVKEYBOARDHANDLER_DEFAULTMAP_H" << Qt::endl;
+    ts << "#define QEVDEVKEYBOARDHANDLER_DEFAULTMAP_H" << Qt::endl << Qt::endl;
 
-    ts << "const QEvdevKeyboardMap::Mapping QEvdevKeyboardHandler::s_keymap_default[] = {" << endl;
+    ts << "const QEvdevKeyboardMap::Mapping QEvdevKeyboardHandler::s_keymap_default[] = {" << Qt::endl;
 
     for (int i = 0; i < m_keymap.size(); ++i) {
         const QEvdevKeyboardMap::Mapping &m = m_keymap.at(i);
-        QString s;
-        s.sprintf("    { %3d, 0x%04x, 0x%08x, 0x%02x, 0x%02x, 0x%04x },\n", m.keycode, m.unicode, m.qtcode, m.modifiers, m.flags, m.special);
-        ts << s;
+        ts << QString::asprintf("    { %3d, 0x%04x, 0x%08x, 0x%02x, 0x%02x, 0x%04x },\n", m.keycode, m.unicode, m.qtcode, m.modifiers, m.flags, m.special);
     }
 
-    ts << "};" << endl << endl;
+    ts << "};" << Qt::endl << Qt::endl;
 
-    ts << "const QEvdevKeyboardMap::Composing QEvdevKeyboardHandler::s_keycompose_default[] = {" << endl;
+    ts << "const QEvdevKeyboardMap::Composing QEvdevKeyboardHandler::s_keycompose_default[] = {" << Qt::endl;
 
     for (int i = 0; i < m_keycompose.size(); ++i) {
         const QEvdevKeyboardMap::Composing &c = m_keycompose.at(i);
-        QString s;
-        s.sprintf("    { 0x%04x, 0x%04x, 0x%04x },\n", c.first, c.second, c.result);
-        ts << s;
+        ts << QString::asprintf("    { 0x%04x, 0x%04x, 0x%04x },\n", c.first, c.second, c.result);
     }
-    ts << "};" << endl << endl;
+    ts << "};" << Qt::endl << Qt::endl;
 
-    ts << "#endif" << endl;
+    ts << "#endif" << Qt::endl;
 
     return (ts.status() == QTextStream::Ok);
 }
@@ -590,7 +556,7 @@ bool KeymapParser::parseKmap(QFile *f)
     QByteArray line;
     int lineno = 0;
     QList<int> keymaps;
-    QTextCodec *codec = QTextCodec::codecForName("iso8859-1");
+    auto codec = QStringDecoder(QStringDecoder::Latin1);
 
     for (int i = 0; i <= 256; ++i)
         keymaps << i;
@@ -608,7 +574,8 @@ bool KeymapParser::parseKmap(QFile *f)
             keymaps.clear();
 
             if (tokens.count() > 1) {
-                foreach (const QByteArray &section, tokens[1].split(',')) {
+                const QByteArrayList tokenList = tokens[1].split(',');
+                for (const QByteArray &section : tokenList) {
                     int dashpos = section.indexOf('-');
 
                     //qWarning("Section %s", section.constData());
@@ -626,7 +593,7 @@ bool KeymapParser::parseKmap(QFile *f)
                     else
                         parseWarning("keymaps has an invalid range");
                 }
-                qSort(keymaps);
+                std::sort(keymaps.begin(), keymaps.end());
             }
             else
                 parseWarning("keymaps with more than one argument");
@@ -650,7 +617,7 @@ bool KeymapParser::parseKmap(QFile *f)
                     searchpath << d;
                 searchpath << QDir::current();
 
-                foreach (const QDir &path, searchpath) {
+                for (const QDir &path : std::as_const(searchpath)) {
                     QFile f2(path.filePath(incname));
                     //qWarning("  -- trying to include %s", qPrintable(f2.fileName()));
                     if (f2.open(QIODevice::ReadOnly)) {
@@ -667,13 +634,13 @@ bool KeymapParser::parseKmap(QFile *f)
         }
         else if (tokens[0] == "charset") {
             if (tokens.count() == 2) {
-                codec = QTextCodec::codecForName(tokens[1]);
-                if (!codec) {
+                codec = QStringDecoder(tokens[1]);
+                if (!codec.isValid()) {
                     parseWarning("could not parse codec definition");
-                    codec = QTextCodec::codecForName("iso8859-1");
+                    codec = QStringDecoder(QStringDecoder::Latin1);
                 }
             } else
-                parseWarning("codec doesn't habe exactly one argument");
+                parseWarning("codec doesn't have exactly one argument");
         }
         else if (tokens[0] == "strings") {
             // simply ignore those - they have no meaning for us
@@ -701,8 +668,8 @@ bool KeymapParser::parseKmap(QFile *f)
             if (kcpos >= 0 && kcpos < (tokens.count()-3) && tokens[kcpos+2] == "=") {
                 quint16 keycode = tokens[kcpos+1].toInt();
 
-                if (keycode <= 0 || keycode > 0x1ff /* KEY_MAX */) {
-                    parseWarning("keycode out of range [0..0x1ff]");
+                if (keycode <= 0 || keycode > 0x2ff /* KEY_MAX */) {
+                    parseWarning("keycode out of range [0..0x2ff]");
                     break;
                 }
 
@@ -734,7 +701,7 @@ bool KeymapParser::parseKmap(QFile *f)
                     quint16 unicode;
                     quint16 special;
                     quint8 flags;
-                    if (!parseSymbol(tokens[i + kcpos + 3], codec, unicode, qtcode, flags, special)) {
+                    if (!parseSymbol(tokens[i + kcpos + 3], unicode, qtcode, flags, special)) {
                         parseWarning((QByteArray("symbol could not be parsed: ") + tokens[i + kcpos + 3]).constData());
                         break;
                     }
@@ -788,7 +755,7 @@ bool KeymapParser::parseKmap(QFile *f)
             }
         }
     }
-    qSort(m_keymap);
+    std::sort(m_keymap.begin(), m_keymap.end());
     return !m_keymap.isEmpty();
 }
 
@@ -838,13 +805,13 @@ bool KeymapParser::parseModifier(const QByteArray &str, quint8 &modifier)
 }
 
 
-bool KeymapParser::parseCompose(const QByteArray &str, const QTextCodec *codec, quint16 &unicode)
+bool KeymapParser::parseCompose(const QByteArray &str, QStringDecoder &codec, quint16 &unicode)
 {
     if (str == "'\\''") {
         unicode = '\'';
         return true;
     } else if (str.length() == 3 && str.startsWith('\'') && str.endsWith('\'')) {
-        QString temp = codec->toUnicode(str.constData() + 1, str.length() - 2);
+        QString temp = codec(str.constData() + 1, str.length() - 2);
         if (temp.length() != 1)
             return false;
         unicode = temp[0].unicode();
@@ -856,7 +823,7 @@ bool KeymapParser::parseCompose(const QByteArray &str, const QTextCodec *codec, 
         char c[2];
         c[0] = char(code);
         c[1] = 0;
-        QString temp = codec->toUnicode(c);
+        QString temp = codec(c, 2);
         if (temp.length() != 1)
             return false;
         unicode = temp[0].unicode();
@@ -865,7 +832,7 @@ bool KeymapParser::parseCompose(const QByteArray &str, const QTextCodec *codec, 
 }
 
 
-bool KeymapParser::parseSymbol(const QByteArray &str, const QTextCodec * /*codec*/, quint16 &unicode, quint32 &qtcode, quint8 &flags, quint16 &special)
+bool KeymapParser::parseSymbol(const QByteArray &str, quint16 &unicode, quint32 &qtcode, quint8 &flags, quint16 &special)
 {
     flags = (str[0] == '+') ? QEvdevKeyboardMap::IsLetter : 0;
     QByteArray sym = (flags & QEvdevKeyboardMap::IsLetter) ? str.right(str.length() - 1) : str;

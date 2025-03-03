@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "phrasemodel.h"
 
@@ -37,7 +7,7 @@ QT_BEGIN_NAMESPACE
 
 void PhraseModel::removePhrases()
 {
-    int r = plist.count();
+    int r = plist.size();
     if (r > 0) {
         beginResetModel();
         plist.clear();
@@ -64,7 +34,7 @@ void PhraseModel::setPhrase(const QModelIndex &indx, Phrase *ph)
 
 QModelIndex PhraseModel::addPhrase(Phrase *p)
 {
-    int r = plist.count();
+    int r = plist.size();
 
     plist.append(p);
 
@@ -94,7 +64,7 @@ QModelIndex PhraseModel::index(Phrase * const phr) const
 
 int PhraseModel::rowCount(const QModelIndex &) const
 {
-    return plist.count();
+    return plist.size();
 }
 
 int PhraseModel::columnCount(const QModelIndex &) const
@@ -121,7 +91,7 @@ QVariant PhraseModel::headerData(int section, Qt::Orientation orientation, int r
 Qt::ItemFlags PhraseModel::flags(const QModelIndex &index) const
 {
     if (!index.isValid())
-        return 0;
+        return {};
     Qt::ItemFlags flags = Qt::ItemIsSelectable | Qt::ItemIsEnabled;
     // Edit is allowed for source & translation if item is from phrasebook
     if (plist.at(index.row())->phraseBook()
@@ -135,7 +105,7 @@ bool PhraseModel::setData(const QModelIndex & index, const QVariant & value, int
     int row = index.row();
     int column = index.column();
 
-    if (!index.isValid() || row >= plist.count() || role != Qt::EditRole)
+    if (!index.isValid() || row >= plist.size() || role != Qt::EditRole)
         return false;
 
     Phrase *phrase = plist.at(row);
@@ -163,7 +133,7 @@ QVariant PhraseModel::data(const QModelIndex &index, int role) const
     int row = index.row();
     int column = index.column();
 
-    if (row >= plist.count() || !index.isValid())
+    if (row >= plist.size() || !index.isValid())
         return QVariant();
 
     Phrase *phrase = plist.at(row);

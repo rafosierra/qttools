@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Assistant of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 #include "tracer.h"
 
 #include <QtCore/QFileInfo>
@@ -39,6 +9,8 @@
 #include "cmdlineparser.h"
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 static const char helpMessage[] = QT_TRANSLATE_NOOP("CmdLineParser",
         "Usage: assistant [Options]\n\n"
@@ -65,7 +37,9 @@ static const char helpMessage[] = QT_TRANSLATE_NOOP("CmdLineParser",
         "                           file.\n"
         "-setCurrentFilter filter   Set the filter as the active filter.\n"
         "-remove-search-index       Removes the full text search index.\n"
-        "-rebuild-search-index      Re-builds the full text search index (potentially slow).\n"
+        "-rebuild-search-index      Obsolete. Use -remove-search-index instead.\n"
+        "                           Removes the full text search index.\n"
+        "                           It will be rebuilt on next Assistant run.\n"
         "-quiet                     Does not display any error or\n"
         "                           status message.\n"
         "-help                      Displays this help.\n"
@@ -81,11 +55,10 @@ CmdLineParser::CmdLineParser(const QStringList &arguments)
     m_search(Untouched),
     m_register(None),
     m_removeSearchIndex(false),
-    m_rebuildSearchIndex(false),
     m_quiet(false)
 {
     TRACE_OBJ
-    for (int i = 1; i < arguments.count(); ++i) {
+    for (int i = 1; i < arguments.size(); ++i) {
         const QString &arg = arguments.at(i);
         if (arg.toLower() == "-quiet")
             m_quiet = true;
@@ -101,36 +74,36 @@ CmdLineParser::Result CmdLineParser::parse()
 
     while (m_error.isEmpty() && hasMoreArgs()) {
         const QString &arg = nextArg().toLower();
-        if (arg == QLatin1String("-collectionfile"))
+        if (arg == "-collectionfile"_L1)
             handleCollectionFileOption();
-        else if (arg == QLatin1String("-showurl"))
+        else if (arg == "-showurl"_L1)
             handleShowUrlOption();
-        else if (arg == QLatin1String("-enableremotecontrol"))
+        else if (arg == "-enableremotecontrol"_L1)
             m_enableRemoteControl = true;
-        else if (arg == QLatin1String("-show"))
+        else if (arg == "-show"_L1)
             handleShowOption();
-        else if (arg == QLatin1String("-hide"))
+        else if (arg == "-hide"_L1)
             handleHideOption();
-        else if (arg == QLatin1String("-activate"))
+        else if (arg == "-activate"_L1)
             handleActivateOption();
-        else if (arg == QLatin1String("-register"))
+        else if (arg == "-register"_L1)
             handleRegisterOption();
-        else if (arg == QLatin1String("-unregister"))
+        else if (arg == "-unregister"_L1)
             handleUnregisterOption();
-        else if (arg == QLatin1String("-setcurrentfilter"))
+        else if (arg == "-setcurrentfilter"_L1)
             handleSetCurrentFilterOption();
-        else if (arg == QLatin1String("-remove-search-index"))
+        else if (arg == "-remove-search-index"_L1)
             m_removeSearchIndex = true;
-        else if (arg == QLatin1String("-rebuild-search-index"))
-            m_rebuildSearchIndex = true;
-        else if (arg == QLatin1String("-help"))
+        else if (arg == "-rebuild-search-index"_L1)
+            m_removeSearchIndex = true;
+        else if (arg == "-help"_L1)
             showHelp = true;
         else
             m_error = tr("Unknown option: %1").arg(arg);
     }
 
     if (!m_error.isEmpty()) {
-        showMessage(m_error + QLatin1String("\n\n\n") + tr(helpMessage), true);
+        showMessage(m_error + "\n\n\n"_L1 + tr(helpMessage), true);
         return Error;
     } else if (showHelp) {
         showMessage(tr(helpMessage), false);
@@ -142,7 +115,7 @@ CmdLineParser::Result CmdLineParser::parse()
 bool CmdLineParser::hasMoreArgs() const
 {
     TRACE_OBJ
-    return m_pos < m_arguments.count();
+    return m_pos < m_arguments.size();
 }
 
 const QString &CmdLineParser::nextArg()
@@ -204,13 +177,13 @@ void CmdLineParser::handleShowOrHideOrActivateOption(ShowState state)
     TRACE_OBJ
     if (hasMoreArgs()) {
         const QString &widget = nextArg().toLower();
-        if (widget == QLatin1String("contents"))
+        if (widget == "contents"_L1)
             m_contents = state;
-        else if (widget == QLatin1String("index"))
+        else if (widget == "index"_L1)
             m_index = state;
-        else if (widget == QLatin1String("bookmarks"))
+        else if (widget == "bookmarks"_L1)
             m_bookmarks = state;
-        else if (widget == QLatin1String("search"))
+        else if (widget == "search"_L1)
             m_search = state;
         else
             m_error = tr("Unknown widget: %1").arg(widget);
@@ -270,7 +243,7 @@ void CmdLineParser::showMessage(const QString &msg, bool error)
     if (m_quiet)
         return;
 #ifdef Q_OS_WIN
-    QString message = QLatin1String("<pre>") % msg % QLatin1String("</pre>");
+    QString message = "<pre>"_L1 % msg % "</pre>"_L1;
     if (error)
         QMessageBox::critical(0, tr("Error"), message);
     else
@@ -295,8 +268,7 @@ QString CmdLineParser::collectionFile() const
 bool CmdLineParser::collectionFileGiven() const
 {
     TRACE_OBJ
-    return m_arguments.contains(QLatin1String("-collectionfile"),
-        Qt::CaseInsensitive);
+    return m_arguments.contains("-collectionfile"_L1, Qt::CaseInsensitive);
 }
 
 QUrl CmdLineParser::url() const
@@ -345,12 +317,6 @@ bool CmdLineParser::removeSearchIndex() const
 {
     TRACE_OBJ
     return m_removeSearchIndex;
-}
-
-bool CmdLineParser::rebuildSearchIndex() const
-{
-    TRACE_OBJ
-    return m_rebuildSearchIndex;
 }
 
 CmdLineParser::RegisterState CmdLineParser::registerRequest() const

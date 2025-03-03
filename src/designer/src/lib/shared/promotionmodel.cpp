@@ -1,50 +1,20 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "promotionmodel_p.h"
 #include "widgetdatabase_p.h"
 
-#include <QtDesigner/QDesignerWidgetDataBaseInterface>
-#include <QtDesigner/QDesignerPromotionInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
+#include <QtDesigner/abstractwidgetdatabase.h>
+#include <QtDesigner/abstractpromotioninterface.h>
+#include <QtDesigner/abstractformeditor.h>
 
-#include <QtGui/QStandardItem>
-#include <QtCore/QCoreApplication>
+#include <QtGui/qstandarditemmodel.h>
+#include <QtCore/qcoreapplication.h>
 
 QT_BEGIN_NAMESPACE
 
 namespace {
-    typedef QList<QStandardItem *> StandardItemList;
+    using StandardItemList = QList<QStandardItem *>;
 
     // Model columns.
     enum { ClassNameColumn, IncludeFileColumn, IncludeTypeColumn, ReferencedColumn, NumColumns };
@@ -70,17 +40,16 @@ namespace {
     }
 
     // Create an editable model row for a promoted class.
-    StandardItemList promotedModelRow(const QDesignerWidgetDataBaseInterface *widgetDataBase,
+    StandardItemList promotedModelRow(QDesignerWidgetDataBaseItemInterface *baseItem,
                                       QDesignerWidgetDataBaseItemInterface *dbItem,
-                                      bool referenced = false) {
+                                      bool referenced)
+    {
+        qdesigner_internal::PromotionModel::ModelData data;
+        data.baseItem = baseItem;
+        data.promotedItem = dbItem;
+        data.referenced = referenced;
 
-        const int index = widgetDataBase->indexOf(dbItem);
-
-        // Associate user data: database index and enabled flag
-        QVariantList userDataList;
-        userDataList.push_back(QVariant(index));
-        userDataList.push_back(QVariant(referenced));
-        const QVariant userData(userDataList);
+        const QVariant userData = QVariant::fromValue(data);
 
         StandardItemList rc =  modelRow();
         // name
@@ -113,7 +82,7 @@ namespace qdesigner_internal {
     PromotionModel::PromotionModel(QDesignerFormEditorInterface *core) :
         m_core(core)
     {
-        connect(this, SIGNAL(itemChanged(QStandardItem*)), this, SLOT(slotItemChanged(QStandardItem*)));
+        connect(this, &QStandardItemModel::itemChanged, this, &PromotionModel::slotItemChanged);
     }
 
     void PromotionModel::initializeHeaders() {
@@ -126,7 +95,7 @@ namespace qdesigner_internal {
     }
 
     void PromotionModel::updateFromWidgetDatabase() {
-        typedef QDesignerPromotionInterface::PromotedClasses PromotedClasses;
+        using PromotedClasses = QDesignerPromotionInterface::PromotedClasses;
 
         clear();
         initializeHeaders();
@@ -135,35 +104,34 @@ namespace qdesigner_internal {
         // Set the item index as user data on the item.
         const PromotedClasses promotedClasses = m_core->promotion()->promotedClasses();
 
-        if (promotedClasses.empty())
+        if (promotedClasses.isEmpty())
             return;
 
         const QSet<QString> usedPromotedClasses = m_core->promotion()->referencedPromotedClassNames();
 
-        QDesignerWidgetDataBaseInterface *widgetDataBase = m_core->widgetDataBase();
-        QDesignerWidgetDataBaseItemInterface *baseClass = 0;
-        QStandardItem *baseItem = 0;
+        QDesignerWidgetDataBaseItemInterface *baseClass = nullptr;
+        QStandardItem *baseItem = nullptr;
 
-        const PromotedClasses::const_iterator bcend = promotedClasses.constEnd();
-        for (PromotedClasses::const_iterator it = promotedClasses.constBegin(); it !=  bcend; ++it) {
+        for (auto &pi : promotedClasses) {
             // Start a new base class?
-            if (baseClass !=  it->baseItem) {
-                baseClass =  it->baseItem;
-                const StandardItemList baseRow = baseModelRow(it->baseItem);
-                baseItem = baseRow.front();
+            if (baseClass != pi.baseItem) {
+                baseClass = pi.baseItem;
+                const StandardItemList baseRow = baseModelRow(pi.baseItem);
+                baseItem = baseRow.constFirst();
                 appendRow(baseRow);
             }
             Q_ASSERT(baseItem);
             // Append derived
-            baseItem->appendRow(promotedModelRow(widgetDataBase, it->promotedItem, usedPromotedClasses.contains(it->promotedItem->name())));
+            baseItem->appendRow(promotedModelRow(pi.baseItem, pi.promotedItem,
+                                                 usedPromotedClasses.contains(pi.promotedItem->name())));
         }
     }
 
     void PromotionModel::slotItemChanged(QStandardItem * changedItem) {
         // Retrieve DB item
-        bool referenced;
-        QDesignerWidgetDataBaseItemInterface *dbItem = databaseItem(changedItem, &referenced);
-        Q_ASSERT(dbItem);
+        const ModelData data = modelData(changedItem);
+        Q_ASSERT(data.isValid());
+        QDesignerWidgetDataBaseItemInterface *dbItem = data.promotedItem;
         // Change header or type
         switch (changedItem->column()) {
         case ClassNameColumn:
@@ -181,31 +149,20 @@ namespace qdesigner_internal {
         }
     }
 
-    QDesignerWidgetDataBaseItemInterface *PromotionModel::databaseItemAt(const QModelIndex &index, bool *referenced) const {
-        if (const QStandardItem *item = itemFromIndex (index))
-            return databaseItem(item, referenced);
-
-        *referenced = false;
-        return 0;
+    PromotionModel::ModelData PromotionModel::modelData(const QStandardItem *item) const
+    {
+        const QVariant userData = item->data();
+        return userData.canConvert<ModelData>() ? userData.value<ModelData>() : ModelData();
     }
 
-    QDesignerWidgetDataBaseItemInterface *PromotionModel::databaseItem(const QStandardItem * item, bool *referenced) const {
-        // Decode user data associated with item.
-        const QVariant data =  item->data();
-        if (data.type() != QVariant::List) {
-            *referenced = false;
-            return 0;
-        }
-
-        const QVariantList dataList = data.toList();
-        const int index = dataList[0].toInt();
-        *referenced     = dataList[1].toBool();
-        return  m_core->widgetDataBase()->item(index);
+    PromotionModel::ModelData PromotionModel::modelData(const QModelIndex &index) const
+    {
+        return index.isValid() ? modelData(itemFromIndex(index)) : ModelData();
     }
 
     QModelIndex PromotionModel::indexOfClass(const QString &className) const {
         const StandardItemList matches = findItems (className, Qt::MatchFixedString|Qt::MatchCaseSensitive|Qt::MatchRecursive);
-        return matches.empty() ? QModelIndex() : indexFromItem (matches.front());
+        return matches.isEmpty() ? QModelIndex() : indexFromItem (matches.constFirst());
     }
 } // namespace qdesigner_internal
 

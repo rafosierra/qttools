@@ -1,40 +1,11 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #ifndef QMAKEPARSER_H
 #define QMAKEPARSER_H
 
 #include "qmake_global.h"
+#include "qmakevfs.h"
 #include "proitems.h"
 
 #include <qhash.h>
@@ -83,7 +54,12 @@ public:
     enum ParseFlag {
         ParseDefault = 0,
         ParseUseCache = 1,
-        ParseReportMissing = 2
+        ParseReportMissing = 4,
+#ifdef PROEVALUATOR_DUAL_VFS
+        ParseCumulative = 8
+#else
+        ParseCumulative = 0
+#endif
     };
     Q_DECLARE_FLAGS(ParseFlags, ParseFlag)
 
@@ -92,10 +68,14 @@ public:
     enum SubGrammar { FullGrammar, TestGrammar, ValueGrammar };
     // fileName is expected to be absolute and cleanPath()ed.
     ProFile *parsedProFile(const QString &fileName, ParseFlags flags = ParseDefault);
-    ProFile *parsedProBlock(const QString &contents, const QString &name, int line = 0,
+    ProFile *parsedProBlock(QStringView contents, int id, const QString &name, int line = 0,
                             SubGrammar grammar = FullGrammar);
 
-    void discardFileFromCache(const QString &fileName);
+    void discardFileFromCache(int id);
+
+#ifdef PROPARSER_DEBUG
+    static QString formatProBlock(const QString &block);
+#endif
 
 private:
     enum ScopeNesting {
@@ -105,8 +85,7 @@ private:
     };
 
     struct BlockScope {
-        BlockScope() : start(0), braceLevel(0), special(false), inBranch(false), nest(NestNone) {}
-        BlockScope(const BlockScope &other) { *this = other; }
+        BlockScope() : start(nullptr), braceLevel(0), special(false), inBranch(false), nest(NestNone) {}
         ushort *start; // Where this block started; store length here
         int braceLevel; // Nesting of braces in scope
         bool special; // Single-line conditionals inside loops, etc. cannot have else branches
@@ -130,8 +109,8 @@ private:
         ushort terminator; // '}' if replace function call is braced, ':' if test function
     };
 
-    bool read(ProFile *pro, ParseFlags flags);
-    bool read(ProFile *pro, const QString &content, int line, SubGrammar grammar);
+    bool readFile(int id, QMakeParser::ParseFlags flags, QString *contents);
+    void read(ProFile *pro, QStringView content, int line, SubGrammar grammar);
 
     ALWAYS_INLINE void putTok(ushort *&tokPtr, ushort tok);
     ALWAYS_INLINE void putBlockLen(ushort *&tokPtr, uint len);
@@ -142,11 +121,15 @@ private:
     ALWAYS_INLINE bool resolveVariable(ushort *xprPtr, int tlen, int needSep, ushort **ptr,
                                        ushort **buf, QString *xprBuff,
                                        ushort **tokPtr, QString *tokBuff,
-                                       const ushort *cur, const QString &in);
+                                       const ushort *cur, QStringView in);
     void finalizeCond(ushort *&tokPtr, ushort *uc, ushort *ptr, int wordCount);
     void finalizeCall(ushort *&tokPtr, ushort *uc, ushort *ptr, int argc);
+    void warnOperator(const char *msg);
+    bool failOperator(const char *msg);
+    bool acceptColon(const char *msg);
+    void putOperator(ushort *&tokPtr);
     void finalizeTest(ushort *&tokPtr);
-    void bogusTest(ushort *&tokPtr);
+    void bogusTest(ushort *&tokPtr, const QString &msg);
     void enterScope(ushort *&tokPtr, bool special, ScopeState state);
     void leaveScope(ushort *&tokPtr);
     void flushCond(ushort *&tokPtr);
@@ -154,7 +137,10 @@ private:
 
     void message(int type, const QString &msg) const;
     void parseError(const QString &msg) const
-            { message(QMakeParserHandler::ParserError, msg); }
+    {
+        message(QMakeParserHandler::ParserError, msg);
+        m_proFile->setOk(false);
+    }
     void languageWarning(const QString &msg) const
             { message(QMakeParserHandler::ParserWarnLanguage, msg); }
     void deprecationWarning(const QString &msg) const
@@ -169,7 +155,7 @@ private:
     int m_markLine; // Put marker for this line
     bool m_inError; // Current line had a parsing error; suppress followup error messages
     bool m_canElse; // Conditionals met on previous line, but no scope was opened
-    bool m_invert; // Pending conditional is negated
+    int m_invert; // Pending conditional is negated
     enum { NoOperator, AndOperator, OrOperator } m_operator; // Pending conditional is ORed/ANDed
 
     QString m_tmp; // Temporary for efficient toQString
@@ -189,11 +175,12 @@ Q_DECLARE_OPERATORS_FOR_FLAGS(QMakeParser::ParseFlags)
 class QMAKE_EXPORT ProFileCache
 {
 public:
-    ProFileCache() {}
+    ProFileCache();
     ~ProFileCache();
 
-    void discardFile(const QString &fileName);
-    void discardFiles(const QString &prefix);
+    void discardFile(int id);
+    void discardFile(const QString &fileName, QMakeVfs *vfs);
+    void discardFiles(const QString &prefix, QMakeVfs *vfs);
 
 private:
     struct Entry {
@@ -209,7 +196,7 @@ private:
 #endif
     };
 
-    QHash<QString, Entry> parsed_files;
+    QHash<int, Entry> parsed_files;
 #ifdef PROPARSER_THREAD_SAFE
     QMutex mutex;
 #endif
@@ -218,7 +205,7 @@ private:
 };
 
 #if !defined(__GNUC__) || __GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ > 3)
-Q_DECLARE_TYPEINFO(QMakeParser::BlockScope, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(QMakeParser::BlockScope, Q_RELOCATABLE_TYPE);
 Q_DECLARE_TYPEINFO(QMakeParser::Context, Q_PRIMITIVE_TYPE);
 #endif
 

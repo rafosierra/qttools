@@ -1,42 +1,12 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
-#include <QtCore/QFileInfo>
-#include <QtCore/QStringList>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qstringlist.h>
 
-#include <QtNetwork/QHostAddress>
-#include <QtNetwork/QTcpServer>
-#include <QtNetwork/QTcpSocket>
+#include <QtNetwork/qhostaddress.h>
+#include <QtNetwork/qtcpserver.h>
+#include <QtNetwork/qtcpsocket.h>
 
 #include "qdesigner.h"
 #include "qdesigner_server.h"
@@ -45,24 +15,21 @@
 
 QT_BEGIN_NAMESPACE
 
+using namespace Qt::StringLiterals;
+
 // ### review
 
 QDesignerServer::QDesignerServer(QObject *parent)
     : QObject(parent)
 {
-    m_socket = 0;
     m_server = new QTcpServer(this);
-    m_server->listen(QHostAddress::LocalHost, 0);
-    if (m_server->isListening())
-    {
-        connect(m_server, SIGNAL(newConnection()),
-                this, SLOT(handleNewConnection()));
+    if (m_server->listen(QHostAddress::LocalHost, 0)) {
+        connect(m_server, &QTcpServer::newConnection,
+                this, &QDesignerServer::handleNewConnection);
     }
 }
 
-QDesignerServer::~QDesignerServer()
-{
-}
+QDesignerServer::~QDesignerServer() = default;
 
 quint16 QDesignerServer::serverPort() const
 {
@@ -75,8 +42,7 @@ void QDesignerServer::sendOpenRequest(int port, const QStringList &files)
     sSocket->connectToHost(QHostAddress::LocalHost, port);
     if(sSocket->waitForConnected(3000))
     {
-        foreach(const QString &file, files)
-        {
+        for (const QString &file : files) {
             QFileInfo fi(file);
             sSocket->write(fi.absoluteFilePath().toUtf8() + '\n');
         }
@@ -91,8 +57,8 @@ void QDesignerServer::readFromClient()
     while (m_socket->canReadLine()) {
         QString file = QString::fromUtf8(m_socket->readLine());
         if (!file.isNull()) {
-            file.remove(QLatin1Char('\n'));
-            file.remove(QLatin1Char('\r'));
+            file.remove(u'\n');
+            file.remove(u'\r');
             qDesigner->postEvent(qDesigner, new QFileOpenEvent(file));
         }
     }
@@ -100,18 +66,18 @@ void QDesignerServer::readFromClient()
 
 void QDesignerServer::socketClosed()
 {
-    m_socket = 0;
+    m_socket = nullptr;
 }
 
 void QDesignerServer::handleNewConnection()
 {
     // no need for more than one connection
-    if (m_socket == 0) {
+    if (m_socket == nullptr) {
         m_socket = m_server->nextPendingConnection();
-        connect(m_socket, SIGNAL(readyRead()),
-                this, SLOT(readFromClient()));
-        connect(m_socket, SIGNAL(disconnected()),
-                this, SLOT(socketClosed()));
+        connect(m_socket, &QTcpSocket::readyRead,
+                this, &QDesignerServer::readFromClient);
+        connect(m_socket, &QTcpSocket::disconnected,
+                this, &QDesignerServer::socketClosed);
     }
 }
 
@@ -121,8 +87,8 @@ QDesignerClient::QDesignerClient(quint16 port, QObject *parent)
 {
     m_socket = new QTcpSocket(this);
     m_socket->connectToHost(QHostAddress::LocalHost, port);
-    connect(m_socket, SIGNAL(readyRead()),
-                this, SLOT(readFromSocket()));
+    connect(m_socket, &QTcpSocket::readyRead,
+                this, &QDesignerClient::readFromSocket);
 
 }
 
@@ -137,8 +103,8 @@ void QDesignerClient::readFromSocket()
     while (m_socket->canReadLine()) {
         QString file = QString::fromUtf8(m_socket->readLine());
         if (!file.isNull()) {
-            file.remove(QLatin1Char('\n'));
-            file.remove(QLatin1Char('\r'));
+            file.remove(u'\n');
+            file.remove(u'\r');
             if (QFile::exists(file))
                 qDesigner->postEvent(qDesigner, new QFileOpenEvent(file));
         }

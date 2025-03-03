@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qextensionmanager.h"
 
@@ -39,7 +9,7 @@ QT_BEGIN_NAMESPACE
     \class QExtensionManager
 
     \brief The QExtensionManager class provides extension management
-    facilities for Qt Designer.
+    facilities for \QD.
 
     \inmodule QtDesigner
 
@@ -80,7 +50,7 @@ QT_BEGIN_NAMESPACE
     For a complete example using the QExtensionManager class, see the
     \l {taskmenuextension}{Task Menu Extension example}. The
     example shows how to create a custom widget plugin for Qt
-    Designer, and how to to use the QDesignerTaskMenuExtension class
+    Designer, and how to use the QDesignerTaskMenuExtension class
     to add custom items to \QD's task menu.
 
     \sa QExtensionFactory, QAbstractExtensionManager
@@ -98,9 +68,7 @@ QExtensionManager::QExtensionManager(QObject *parent)
 /*!
   Destroys the extension manager
 */
-QExtensionManager::~QExtensionManager()
-{
-}
+QExtensionManager::~QExtensionManager() = default;
 
 /*!
     Register the extension specified by the given \a factory and
@@ -113,7 +81,7 @@ void QExtensionManager::registerExtensions(QAbstractExtensionFactory *factory, c
         return;
     }
 
-    FactoryMap::iterator it = m_extensions.find(iid);
+    auto it = m_extensions.find(iid);
     if (it == m_extensions.end())
         it = m_extensions.insert(iid, FactoryList());
 
@@ -131,7 +99,7 @@ void QExtensionManager::unregisterExtensions(QAbstractExtensionFactory *factory,
         return;
     }
 
-    const FactoryMap::iterator it = m_extensions.find(iid);
+    const auto it = m_extensions.find(iid);
     if (it == m_extensions.end())
         return;
 
@@ -148,19 +116,20 @@ void QExtensionManager::unregisterExtensions(QAbstractExtensionFactory *factory,
 */
 QObject *QExtensionManager::extension(QObject *object, const QString &iid) const
 {
-    const FactoryMap::const_iterator it = m_extensions.constFind(iid);
+    const auto it = m_extensions.constFind(iid);
     if (it != m_extensions.constEnd()) {
-        const FactoryList::const_iterator fcend = it.value().constEnd();
-        for (FactoryList::const_iterator fit = it.value().constBegin(); fit != fcend; ++fit)
-            if (QObject *ext = (*fit)->extension(object, iid))
+        for (const auto &f : it.value()) {
+            if (QObject *ext = f->extension(object, iid))
                 return ext;
+        }
     }
-    const FactoryList::const_iterator gfcend =  m_globalExtension.constEnd();
-    for (FactoryList::const_iterator git = m_globalExtension.constBegin(); git != gfcend; ++git)
-        if (QObject *ext = (*git)->extension(object, iid))
-            return ext;
 
-    return 0;
+    for (const auto &gf : m_globalExtension) {
+        if (QObject *ext = gf->extension(object, iid))
+            return ext;
+    }
+
+    return nullptr;
 }
 
 QT_END_NAMESPACE

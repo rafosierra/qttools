@@ -1,51 +1,22 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "plaintexteditor_p.h"
 
-#include <QtDesigner/QDesignerSettingsInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
+#include <QtDesigner/abstractsettings.h>
+#include <QtDesigner/abstractformeditor.h>
 
-#include <QtWidgets/QPlainTextEdit>
-#include <QtWidgets/QDialogButtonBox>
-#include <QtWidgets/QVBoxLayout>
-#include <QtWidgets/QPushButton>
+#include <QtWidgets/qplaintextedit.h>
+#include <QtWidgets/qdialogbuttonbox.h>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qpushbutton.h>
 
 QT_BEGIN_NAMESPACE
 
-static const char *PlainTextDialogC = "PlainTextDialog";
-static const char *Geometry = "Geometry";
+using namespace Qt::StringLiterals;
 
+static constexpr auto PlainTextDialogC = "PlainTextDialog"_L1;
+static constexpr auto PlainTextEditorGeometryC = "Geometry"_L1;
 
 namespace qdesigner_internal {
 
@@ -55,7 +26,6 @@ PlainTextEditorDialog::PlainTextEditorDialog(QDesignerFormEditorInterface *core,
     m_core(core)
 {
     setWindowTitle(tr("Edit text"));
-    setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
     QVBoxLayout *vlayout = new QVBoxLayout(this);
     vlayout->addWidget(m_editor);
@@ -63,15 +33,15 @@ PlainTextEditorDialog::PlainTextEditorDialog(QDesignerFormEditorInterface *core,
     QDialogButtonBox *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, Qt::Horizontal);
     QPushButton *ok_button = buttonBox->button(QDialogButtonBox::Ok);
     ok_button->setDefault(true);
-    connect(buttonBox, SIGNAL(accepted()), this, SLOT(accept()));
-    connect(buttonBox, SIGNAL(rejected()), this, SLOT(reject()));
+    connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
+    connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
     vlayout->addWidget(buttonBox);
 
     QDesignerSettingsInterface *settings = core->settingsManager();
-    settings->beginGroup(QLatin1String(PlainTextDialogC));
+    settings->beginGroup(PlainTextDialogC);
 
-    if (settings->contains(QLatin1String(Geometry)))
-        restoreGeometry(settings->value(QLatin1String(Geometry)).toByteArray());
+    if (settings->contains(PlainTextEditorGeometryC))
+        restoreGeometry(settings->value(PlainTextEditorGeometryC).toByteArray());
 
     settings->endGroup();
 }
@@ -79,9 +49,9 @@ PlainTextEditorDialog::PlainTextEditorDialog(QDesignerFormEditorInterface *core,
 PlainTextEditorDialog::~PlainTextEditorDialog()
 {
     QDesignerSettingsInterface *settings = m_core->settingsManager();
-    settings->beginGroup(QLatin1String(PlainTextDialogC));
+    settings->beginGroup(PlainTextDialogC);
 
-    settings->setValue(QLatin1String(Geometry), saveGeometry());
+    settings->setValue(PlainTextEditorGeometryC, saveGeometry());
     settings->endGroup();
 }
 

@@ -1,40 +1,11 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the tools applications of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include <stdio.h>
 #include <stdlib.h>
 
 #include <QtCore/QCoreApplication>
+#include <QtCore/QRegularExpression>
 #include <QtCore/QStringList>
 #include <QtCore/qmetaobject.h>
 #include <QtXml/QDomDocument>
@@ -81,22 +52,24 @@ static void printArg(const QVariant &v)
         return;
     }
 
-    if (v.userType() == QVariant::StringList) {
-        foreach (QString s, v.toStringList())
+    if (v.metaType() == QMetaType::fromType<QStringList>()) {
+        const QStringList sl = v.toStringList();
+        for (const QString &s : sl)
             printf("%s\n", qPrintable(s));
-    } else if (v.userType() == QVariant::List) {
-        foreach (const QVariant &var, v.toList())
+    } else if (v.metaType() == QMetaType::fromType<QVariantList>()) {
+        const QVariantList vl = v.toList();
+        for (const QVariant &var : vl)
             printArg(var);
-    } else if (v.userType() == QVariant::Map) {
+    } else if (v.metaType() == QMetaType::fromType<QVariantMap>()) {
         const QVariantMap map = v.toMap();
         QVariantMap::ConstIterator it = map.constBegin();
         for ( ; it != map.constEnd(); ++it) {
             printf("%s: ", qPrintable(it.key()));
             printArg(it.value());
         }
-    } else if (v.userType() == qMetaTypeId<QDBusVariant>()) {
+    } else if (v.metaType() == QMetaType::fromType<QDBusVariant>()) {
         printArg(qvariant_cast<QDBusVariant>(v).variant());
-    } else if (v.userType() == qMetaTypeId<QDBusArgument>()) {
+    } else if (v.metaType() == QMetaType::fromType<QDBusArgument>()) {
         QDBusArgument arg = qvariant_cast<QDBusArgument>(v);
         if (arg.currentSignature() == QLatin1String("av"))
             printArg(qdbus_cast<QVariantList>(arg));
@@ -105,7 +78,7 @@ static void printArg(const QVariant &v)
         else
             printf("qdbus: I don't know how to display an argument of type '%s', run with --literal.\n",
                    qPrintable(arg.currentSignature()));
-    } else if (v.userType() != QVariant::Invalid) {
+    } else if (v.metaType().isValid()) {
         printf("%s\n", qPrintable(v.toString()));
     }
 }
@@ -136,7 +109,7 @@ static void listObjects(const QString &service, const QString &path)
     }
 
     QDomDocument doc;
-    doc.setContent(xml);
+    doc.setContent(xml.value());
     QDomElement node = doc.documentElement();
     QDomElement child = node.firstChildElement();
     while (!child.isNull()) {
@@ -191,7 +164,7 @@ static void listInterface(const QString &service, const QString &path, const QSt
         QList<QByteArray> types = mm.parameterTypes();
         QList<QByteArray> names = mm.parameterNames();
         bool first = true;
-        for (int i = 0; i < types.count(); ++i) {
+        for (int i = 0; i < types.size(); ++i) {
             printf("%s%s",
                    first ? "" : ", ",
                    types.at(i).constData());
@@ -221,7 +194,7 @@ static void listAllInterfaces(const QString &service, const QString &path)
     }
 
     QDomDocument doc;
-    doc.setContent(xml);
+    doc.setContent(xml.value());
     QDomElement node = doc.documentElement();
     QDomElement child = node.firstChildElement();
     while (!child.isNull()) {
@@ -301,41 +274,40 @@ static int placeCall(const QString &service, const QString &path, const QString 
 
             QMetaMethod mm = mo->method(knownIds.takeFirst());
             QList<QByteArray> types = mm.parameterTypes();
-            for (int i = 0; i < types.count(); ++i) {
+            for (int i = 0; i < types.size(); ++i) {
                 if (types.at(i).endsWith('&')) {
                     // reference (and not a reference to const): output argument
                     // we're done with the inputs
-                    while (types.count() > i)
+                    while (types.size() > i)
                         types.removeLast();
                     break;
                 }
             }
 
-            for (int i = 0; !args.isEmpty() && i < types.count(); ++i) {
-                int id = QVariant::nameToType(types.at(i));
-                if (id == QVariant::UserType)
-                    id = QMetaType::type(types.at(i));
-                if (!id) {
+            for (int i = 0; !args.isEmpty() && i < types.size(); ++i) {
+                const QMetaType metaType = QMetaType::fromName(types.at(i));
+                if (!metaType.isValid()) {
                     fprintf(stderr, "Cannot call method '%s' because type '%s' is unknown to this tool\n",
                             qPrintable(member), types.at(i).constData());
                     return 1;
                 }
+                const int id = metaType.id();
 
                 QVariant p;
                 QString argument;
-                if ((id == QVariant::List || id == QVariant::StringList)
+                if ((id == QMetaType::QVariantList || id == QMetaType::QStringList)
                      && args.at(0) == QLatin1String("("))
                     p = readList(args);
                 else
                     p = argument = args.takeFirst();
 
-                if (id == int(QMetaType::UChar)) {
+                if (id == QMetaType::UChar) {
                     // special case: QVariant::convert doesn't convert to/from
                     // UChar because it can't decide if it's a character or a number
                     p = QVariant::fromValue<uchar>(p.toUInt());
-                } else if (id < int(QMetaType::User) && id != int(QVariant::Map)) {
-                    p.convert(id);
-                    if (p.type() == QVariant::Invalid) {
+                } else if (id < QMetaType::User && id != QMetaType::QVariantMap) {
+                    p.convert(metaType);
+                    if (!p.isValid()) {
                         fprintf(stderr, "Could not convert '%s' to type '%s'.\n",
                                 qPrintable(argument), types.at(i).constData());
                         return 1 ;
@@ -366,7 +338,7 @@ static int placeCall(const QString &service, const QString &path, const QString 
                 }
                 params += p;
             }
-            if (params.count() == types.count() && args.isEmpty())
+            if (params.size() == types.size() && args.isEmpty())
                 matchFound = true;
             else if (knownIds.isEmpty()) {
                 fprintf(stderr, "Invalid number of parameters\n");
@@ -399,7 +371,8 @@ static int placeCall(const QString &service, const QString &path, const QString 
         return 1;
     }
 
-    foreach (QVariant v, reply.arguments())
+    const QVariantList replyArguments = reply.arguments();
+    for (const QVariant &v : replyArguments)
         printArg(v);
 
     return 0;
@@ -407,14 +380,14 @@ static int placeCall(const QString &service, const QString &path, const QString 
 
 static bool globServices(QDBusConnectionInterface *bus, const QString &glob)
 {
-    QRegExp pattern(glob, Qt::CaseSensitive, QRegExp::Wildcard);
+    QRegularExpression pattern(QRegularExpression::wildcardToRegularExpression(glob));
     if (!pattern.isValid())
         return false;
 
     QStringList names = bus->registeredServiceNames();
     names.sort();
-    foreach (const QString &name, names)
-        if (pattern.exactMatch(name))
+    for (const QString &name : std::as_const(names))
+        if (pattern.match(name).hasMatch())
             printf("%s\n", qPrintable(name));
 
     return true;
@@ -425,7 +398,7 @@ static void printAllServices(QDBusConnectionInterface *bus)
     const QStringList services = bus->registeredServiceNames();
     QMap<QString, QStringList> servicesWithAliases;
 
-    foreach (QString serviceName, services) {
+    for (const QString &serviceName : services) {
         QDBusReply<QString> reply = bus->serviceOwner(serviceName);
         QString owner = reply;
         if (owner.isEmpty())

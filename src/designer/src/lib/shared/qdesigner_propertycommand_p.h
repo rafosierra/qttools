@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 //
 //  W A R N I N G
@@ -47,10 +17,12 @@
 
 #include "qdesigner_formwindowcommand_p.h"
 
-#include <QtCore/QVariant>
-#include <QtCore/QList>
-#include <QtCore/QPair>
-#include <QtCore/QSharedPointer>
+#include <QtCore/qvariant.h>
+#include <QtCore/qhash.h>
+#include <QtCore/qlist.h>
+#include <QtCore/qpair.h>
+#include <QtCore/qpointer.h>
+#include <QtCore/qsharedpointer.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -77,7 +49,7 @@ class QDESIGNER_SHARED_EXPORT PropertyHelper {
     Q_DISABLE_COPY(PropertyHelper)
 public:
     // A pair of Value and changed flag
-    typedef QPair<QVariant, bool> Value;
+    using Value = std::pair<QVariant, bool>;
 
     enum ObjectType {OT_Object, OT_FreeAction, OT_AssociatedAction, OT_Widget};
 
@@ -85,13 +57,14 @@ public:
                    SpecialProperty specialProperty,
                    QDesignerPropertySheetExtension *sheet,
                    int index);
-    virtual ~PropertyHelper() {}
+    virtual ~PropertyHelper() = default;
 
     QObject *object() const { return m_object; }
     SpecialProperty specialProperty() const { return m_specialProperty; }
     // set a new value. Can be overwritten to perform a transformation (see
     // handling of Arrow key move in FormWindow class).
-    virtual Value setValue(QDesignerFormWindowInterface *fw, const QVariant &value, bool changed, unsigned subPropertyMask);
+    virtual Value setValue(QDesignerFormWindowInterface *fw, const QVariant &value,
+                           bool changed, quint64 subPropertyMask);
 
     // restore old value
     Value restoreOldValue(QDesignerFormWindowInterface *fw);
@@ -140,9 +113,7 @@ private:
 
 class QDESIGNER_SHARED_EXPORT PropertyListCommand : public QDesignerFormWindowCommand {
 public:
-    typedef QList<QObject *> ObjectList;
-
-    explicit PropertyListCommand(QDesignerFormWindowInterface *formWindow, QUndoCommand *parent = 0);
+    explicit PropertyListCommand(QDesignerFormWindowInterface *formWindow, QUndoCommand *parent = nullptr);
 
     QObject* object(int index = 0) const;
 
@@ -151,20 +122,20 @@ public:
     void setOldValue(const QVariant &oldValue, int index = 0);
 
     // Calls restoreDefaultValue() and update()
-    virtual void undo();
+    void undo() override;
 
 protected:
-    typedef QSharedPointer<PropertyHelper> PropertyHelperPtr;
-    typedef QList<PropertyHelperPtr> PropertyHelperList;
+    using PropertyHelperPtr = std::unique_ptr<PropertyHelper>;
+    using PropertyHelperList = std::vector<PropertyHelperPtr>;
 
     // add an object
     bool add(QObject *object, const QString &propertyName);
 
     // Init from a list and make sure referenceObject is added first to obtain the right property group
-    bool initList(const ObjectList &list, const QString &apropertyName, QObject *referenceObject = 0);
+    bool initList(const QObjectList &list, const QString &apropertyName, QObject *referenceObject = nullptr);
 
     // set a new value, return update mask
-    unsigned setValue(QVariant value, bool changed, unsigned subPropertyMask);
+    unsigned setValue(const QVariant &value, bool changed, quint64 subPropertyMask);
 
     // restore old value,  return update mask
     unsigned  restoreOldValue();
@@ -187,21 +158,22 @@ protected:
     // properties of different widgets are equivalent
     struct PropertyDescription {
     public:
-        PropertyDescription();
+        PropertyDescription() = default;
         PropertyDescription(const QString &propertyName, QDesignerPropertySheetExtension *propertySheet, int index);
         bool equals(const PropertyDescription &p) const;
         void debug() const;
 
         QString m_propertyName;
         QString m_propertyGroup;
-        QVariant::Type m_propertyType;
-        SpecialProperty m_specialProperty;
+        int m_propertyType = QMetaType::UnknownType;
+        SpecialProperty m_specialProperty = SP_None;
     };
     const PropertyDescription &propertyDescription() const { return  m_propertyDescription; }
 
 protected:
-    virtual PropertyHelper *createPropertyHelper(QObject *o, SpecialProperty sp,
-                                                 QDesignerPropertySheetExtension *sheet, int sheetIndex) const;
+    virtual std::unique_ptr<PropertyHelper>
+    createPropertyHelper(QObject *o, SpecialProperty sp,
+                         QDesignerPropertySheetExtension *sheet, int sheetIndex) const;
 
 private:
     PropertyDescription m_propertyDescription;
@@ -212,13 +184,11 @@ class QDESIGNER_SHARED_EXPORT SetPropertyCommand: public PropertyListCommand
 {
 
 public:
-    typedef QList<QObject *> ObjectList;
-
-    explicit SetPropertyCommand(QDesignerFormWindowInterface *formWindow, QUndoCommand *parent = 0);
+    explicit SetPropertyCommand(QDesignerFormWindowInterface *formWindow, QUndoCommand *parent = nullptr);
 
     bool init(QObject *object, const QString &propertyName, const QVariant &newValue);
-    bool init(const ObjectList &list, const QString &propertyName, const QVariant &newValue,
-              QObject *referenceObject = 0, bool enableSubPropertyHandling = true);
+    bool init(const QObjectList &list, const QString &propertyName, const QVariant &newValue,
+              QObject *referenceObject = nullptr, bool enableSubPropertyHandling = true);
 
 
     inline QVariant newValue() const
@@ -227,36 +197,34 @@ public:
     inline void setNewValue(const QVariant &newValue)
     { m_newValue = newValue; }
 
-    int id() const;
-    bool mergeWith(const QUndoCommand *other);
+    int id() const override;
+    bool mergeWith(const QUndoCommand *other) override;
 
-    virtual void redo();
+    void redo() override;
 
 protected:
     virtual QVariant mergeValue(const QVariant &newValue);
 
 private:
-    unsigned subPropertyMask(const QVariant &newValue, QObject *referenceObject);
+    quint64 subPropertyMask(const QVariant &newValue, QObject *referenceObject);
     void setDescription();
     QVariant m_newValue;
-    unsigned m_subPropertyMask;
+    quint64 m_subPropertyMask;
 };
 
 class QDESIGNER_SHARED_EXPORT ResetPropertyCommand: public PropertyListCommand
 {
 
 public:
-    typedef QList<QObject *> ObjectList;
-
     explicit ResetPropertyCommand(QDesignerFormWindowInterface *formWindow);
 
     bool init(QObject *object, const QString &propertyName);
-    bool init(const ObjectList &list, const QString &propertyName, QObject *referenceObject = 0);
+    bool init(const QObjectList &list, const QString &propertyName, QObject *referenceObject = nullptr);
 
-    virtual void redo();
+    void redo() override;
 
 protected:
-    virtual bool mergeWith(const QUndoCommand *) { return false; }
+    bool mergeWith(const QUndoCommand *) override { return false; }
 
 private:
     void setDescription();
@@ -270,14 +238,14 @@ class QDESIGNER_SHARED_EXPORT AddDynamicPropertyCommand: public QDesignerFormWin
 public:
     explicit AddDynamicPropertyCommand(QDesignerFormWindowInterface *formWindow);
 
-    bool init(const QList<QObject *> &selection, QObject *current, const QString &propertyName, const QVariant &value);
+    bool init(const QObjectList &selection, QObject *current, const QString &propertyName, const QVariant &value);
 
-    virtual void redo();
-    virtual void undo();
+    void redo() override;
+    void undo() override;
 private:
     void setDescription();
     QString m_propertyName;
-    QList<QObject *> m_selection;
+    QObjectList m_selection;
     QVariant m_value;
 };
 
@@ -287,14 +255,14 @@ class QDESIGNER_SHARED_EXPORT RemoveDynamicPropertyCommand: public QDesignerForm
 public:
     explicit RemoveDynamicPropertyCommand(QDesignerFormWindowInterface *formWindow);
 
-    bool init(const QList<QObject *> &selection, QObject *current, const QString &propertyName);
+    bool init(const QObjectList &selection, QObject *current, const QString &propertyName);
 
-    virtual void redo();
-    virtual void undo();
+    void redo() override;
+    void undo() override;
 private:
     void setDescription();
     QString m_propertyName;
-    QMap<QObject *, QPair<QVariant, bool> > m_objectToValueAndChanged;
+    QHash<QObject *, std::pair<QVariant, bool> > m_objectToValueAndChanged;
 };
 
 } // namespace qdesigner_internal

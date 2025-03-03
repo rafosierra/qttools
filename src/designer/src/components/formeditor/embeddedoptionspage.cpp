@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "embeddedoptionspage.h"
 #include "deviceprofiledialog.h"
@@ -44,28 +14,30 @@
 
 
 // SDK
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerFormWindowManagerInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractformwindowmanager.h>
 
-#include <QtWidgets/QLabel>
-#include <QtWidgets/QHBoxLayout>
-#include <QtWidgets/QVBoxLayout>
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QComboBox>
-#include <QtWidgets/QToolButton>
-#include <QtWidgets/QMessageBox>
-#include <QtWidgets/QLabel>
-#include <QtWidgets/QGroupBox>
+#include <QtWidgets/qlabel.h>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qcombobox.h>
+#include <QtWidgets/qtoolbutton.h>
+#include <QtWidgets/qmessagebox.h>
+#include <QtWidgets/qlabel.h>
+#include <QtWidgets/qgroupbox.h>
 
-#include <QtCore/QSet>
+#include <QtCore/qset.h>
+#include <QtCore/qlist.h>
 
 #include <algorithm>
 
 QT_BEGIN_NAMESPACE
 
+using namespace Qt::StringLiterals;
+
 namespace qdesigner_internal {
 
-typedef QList<DeviceProfile> DeviceProfileList;
+using DeviceProfileList = QList<DeviceProfile>;
 
 enum { profileComboIndexOffset = 1 };
 
@@ -87,7 +59,7 @@ static bool ask(QWidget *parent,
 
 // ------------ EmbeddedOptionsControlPrivate
 class EmbeddedOptionsControlPrivate {
-     Q_DISABLE_COPY(EmbeddedOptionsControlPrivate)
+     Q_DISABLE_COPY_MOVE(EmbeddedOptionsControlPrivate)
 public:
     EmbeddedOptionsControlPrivate(QDesignerFormEditorInterface *core);
     void init(EmbeddedOptionsControl *q);
@@ -115,9 +87,9 @@ private:
     QLabel *m_descriptionLabel;
 
     DeviceProfileList m_sortedProfiles;
-    EmbeddedOptionsControl *m_q;
-    bool m_dirty;
+    EmbeddedOptionsControl *m_q = nullptr;
     QSet<QString> m_usedProfiles;
+    bool m_dirty = false;
 };
 
 EmbeddedOptionsControlPrivate::EmbeddedOptionsControlPrivate(QDesignerFormEditorInterface *core) :
@@ -126,9 +98,7 @@ EmbeddedOptionsControlPrivate::EmbeddedOptionsControlPrivate(QDesignerFormEditor
     m_addButton(new QToolButton),
     m_editButton(new QToolButton),
     m_deleteButton(new QToolButton),
-    m_descriptionLabel(new QLabel),
-    m_q(0),
-    m_dirty(false)
+    m_descriptionLabel(new QLabel)
 {
     m_descriptionLabel->setMinimumHeight(80);
     // Determine used profiles to lock them
@@ -152,21 +122,25 @@ void EmbeddedOptionsControlPrivate::init(EmbeddedOptionsControl *q)
     m_profileCombo->setEditable(false);
     hLayout->addWidget(m_profileCombo);
     m_profileCombo->addItem(EmbeddedOptionsControl::tr("None"));
-    EmbeddedOptionsControl::connect(m_profileCombo, SIGNAL(currentIndexChanged(int)), m_q, SLOT(slotProfileIndexChanged(int)));
+    EmbeddedOptionsControl::connect(m_profileCombo, &QComboBox::currentIndexChanged,
+                                    m_q, &EmbeddedOptionsControl::slotProfileIndexChanged);
 
-    m_addButton->setIcon(createIconSet(QString::fromUtf8("plus.png")));
+    m_addButton->setIcon(createIconSet("plus.png"_L1));
     m_addButton->setToolTip(EmbeddedOptionsControl::tr("Add a profile"));
-    EmbeddedOptionsControl::connect(m_addButton, SIGNAL(clicked()), m_q, SLOT(slotAdd()));
+    EmbeddedOptionsControl::connect(m_addButton, &QAbstractButton::clicked,
+                                    m_q, &EmbeddedOptionsControl::slotAdd);
     hLayout->addWidget(m_addButton);
 
-    EmbeddedOptionsControl::connect(m_editButton, SIGNAL(clicked()), m_q, SLOT(slotEdit()));
-    m_editButton->setIcon(createIconSet(QString::fromUtf8("edit.png")));
+    EmbeddedOptionsControl::connect(m_editButton, &QAbstractButton::clicked,
+                                    m_q, &EmbeddedOptionsControl::slotEdit);
+    m_editButton->setIcon(createIconSet("edit.png"_L1));
     m_editButton->setToolTip(EmbeddedOptionsControl::tr("Edit the selected profile"));
     hLayout->addWidget(m_editButton);
 
-    m_deleteButton->setIcon(createIconSet(QString::fromUtf8("minus.png")));
+    m_deleteButton->setIcon(createIconSet("minus.png"_L1));
     m_deleteButton->setToolTip(EmbeddedOptionsControl::tr("Delete the selected profile"));
-    EmbeddedOptionsControl::connect(m_deleteButton, SIGNAL(clicked()), m_q, SLOT(slotDelete()));
+    EmbeddedOptionsControl::connect(m_deleteButton, &QAbstractButton::clicked,
+                                    m_q, &EmbeddedOptionsControl::slotDelete);
     hLayout->addWidget(m_deleteButton);
 
     hLayout->addStretch();
@@ -178,9 +152,8 @@ void EmbeddedOptionsControlPrivate::init(EmbeddedOptionsControl *q)
 QStringList EmbeddedOptionsControlPrivate::existingProfileNames() const
 {
     QStringList rc;
-    const DeviceProfileList::const_iterator dcend = m_sortedProfiles.constEnd();
-    for (DeviceProfileList::const_iterator it = m_sortedProfiles.constBegin(); it != dcend; ++it)
-        rc.push_back(it->name());
+    for (const auto &dp : m_sortedProfiles)
+        rc.append(dp.name());
     return rc;
 }
 
@@ -269,7 +242,7 @@ void EmbeddedOptionsControlPrivate::sortAndPopulateProfileCombo()
     // Clear items until only "None" is left
     for (int i = m_profileCombo->count() - 1; i > 0; i--)
         m_profileCombo->removeItem(i);
-    if (!m_sortedProfiles.empty()) {
+    if (!m_sortedProfiles.isEmpty()) {
         std::sort(m_sortedProfiles.begin(), m_sortedProfiles.end(), deviceProfileLessThan);
         m_profileCombo->addItems(existingProfileNames());
     }

@@ -1,86 +1,59 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Assistant of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qhelpenginecore.h"
-#include "qhelpengine_p.h"
-#include "qhelpdbreader_p.h"
 #include "qhelpcollectionhandler_p.h"
+#include "qhelpdbreader_p.h"
+#include "qhelpfilterengine.h"
+#include "qhelplink.h"
 
-#include <QtCore/QDir>
-#include <QtCore/QFile>
-#include <QtCore/QLibrary>
-#include <QtCore/QPluginLoader>
-#include <QtCore/QFileInfo>
-#include <QtCore/QThread>
-#include <QtWidgets/QApplication>
-#include <QtSql/QSqlQuery>
+#if QT_CONFIG(future)
+#include <QtConcurrent/qtconcurrentrun.h>
+#include <QtCore/qpromise.h>
+#endif
+
+#include <QtCore/qdir.h>
+#include <QtCore/qfileinfo.h>
 
 QT_BEGIN_NAMESPACE
 
-QHelpEngineCorePrivate::QHelpEngineCorePrivate()
-{
-    QHelpGlobal::uniquifyConnectionName(QString(), this);
-    autoSaveFilter = true;
-}
+using namespace Qt::StringLiterals;
 
-void QHelpEngineCorePrivate::init(const QString &collectionFile,
-                                  QHelpEngineCore *helpEngineCore)
+class QHelpEngineCorePrivate
+{
+public:
+    QHelpEngineCorePrivate(const QString &collectionFile, QHelpEngineCore *helpEngineCore);
+
+    void init(const QString &collectionFile);
+    bool setup();
+
+    std::unique_ptr<QHelpCollectionHandler> collectionHandler;
+    QHelpFilterEngine *filterEngine = nullptr;
+    QString currentFilter;
+    QString error;
+    bool needsSetup = true;
+    bool autoSaveFilter = true;
+    bool usesFilterEngine = false;
+    bool readOnly = true;
+
+    QHelpEngineCore *q;
+};
+
+QHelpEngineCorePrivate::QHelpEngineCorePrivate(const QString &collectionFile,
+                                               QHelpEngineCore *helpEngineCore)
 {
     q = helpEngineCore;
-    collectionHandler = new QHelpCollectionHandler(collectionFile, helpEngineCore);
-    connect(collectionHandler, SIGNAL(error(QString)),
-        this, SLOT(errorReceived(QString)));
+    filterEngine = new QHelpFilterEngine(q);
+    init(collectionFile);
+}
+
+void QHelpEngineCorePrivate::init(const QString &collectionFile)
+{
+    collectionHandler.reset(new QHelpCollectionHandler(collectionFile, q));
+    QObject::connect(collectionHandler.get(), &QHelpCollectionHandler::error, q,
+                     [this](const QString &msg) { error = msg; });
+    filterEngine->setCollectionHandler(collectionHandler.get());
     needsSetup = true;
-}
-
-QHelpEngineCorePrivate::~QHelpEngineCorePrivate()
-{
-    delete collectionHandler;
-    clearMaps();
-}
-
-void QHelpEngineCorePrivate::clearMaps()
-{
-    emit q->readersAboutToBeInvalidated();
-    QMap<QString, QHelpDBReader*>::iterator it = readerMap.begin();
-    while (it != readerMap.end()) {
-        delete it.value();
-        ++it;
-    }
-    readerMap.clear();
-    fileNameReaderMap.clear();
-    virtualFolderMap.clear();
-    orderedFileNameList.clear();
 }
 
 bool QHelpEngineCorePrivate::setup()
@@ -91,48 +64,15 @@ bool QHelpEngineCorePrivate::setup()
 
     needsSetup = false;
     emit q->setupStarted();
-    clearMaps();
 
-    if (!collectionHandler->openCollectionFile()) {
-        emit q->setupFinished();
-        return false;
-    }
+    collectionHandler->setReadOnly(q->isReadOnly());
+    const bool opened = collectionHandler->openCollectionFile();
+    if (opened)
+        q->currentFilter();
 
-    const QHelpCollectionHandler::DocInfoList docList =
-        collectionHandler->registeredDocumentations();
-    QFileInfo fi(collectionHandler->collectionFile());
-    QString absFileName;
-    foreach(const QHelpCollectionHandler::DocInfo &info, docList) {
-        if (QDir::isAbsolutePath(info.fileName)) {
-            absFileName = info.fileName;
-        } else {
-            absFileName = QFileInfo(fi.absolutePath() + QDir::separator() + info.fileName)
-                .absoluteFilePath();
-        }
-        QHelpDBReader *reader = new QHelpDBReader(absFileName,
-            QHelpGlobal::uniquifyConnectionName(info.fileName, this), this);
-        if (!reader->init()) {
-            emit q->warning(QHelpEngineCore::tr("Cannot open documentation file %1: %2.")
-                .arg(absFileName, reader->errorMessage()));
-            continue;
-        }
-
-        readerMap.insert(info.namespaceName, reader);
-        fileNameReaderMap.insert(absFileName, reader);
-        virtualFolderMap.insert(info.folderName, reader);
-        orderedFileNameList.append(absFileName);
-    }
-    q->currentFilter();
     emit q->setupFinished();
-    return true;
+    return opened;
 }
-
-void QHelpEngineCorePrivate::errorReceived(const QString &msg)
-{
-    error = msg;
-}
-
-
 
 /*!
     \class QHelpEngineCore
@@ -148,33 +88,39 @@ void QHelpEngineCorePrivate::errorReceived(const QString &msg)
     undefined meaning unusable state.
 
     The core help engine can be used to perform different tasks.
-    By calling linksForIdentifier() the engine returns
-    urls specifying the file locations inside the help system. The
-    actual file data can then be retrived by calling fileData(). In
-    contrast to all other functions in this class, linksForIdentifier()
-    depends on the currently set custom filter. Depending on the filter,
-    the function may return different hits.
+    By calling documentsForIdentifier() the engine returns
+    URLs specifying the file locations inside the help system. The
+    actual file data can then be retrieved by calling fileData().
 
-    Every help engine can contain any number of custom filters. A custom
-    filter is defined by a name and set of filter attributes and can be
-    added to the help engine by calling addCustomFilter(). Analogous,
-    it is removed by calling removeCustomFilter(). customFilters() returns
-    all defined filters.
+    The help engine can contain any number of custom filters.
+    The management of the filters, including adding new filters,
+    changing filter definitions, or removing existing filters,
+    is done through the QHelpFilterEngine class, which can be accessed
+    by the filterEngine() method.
+
+    \note QHelpFilterEngine replaces the older filter API that is
+    deprecated since Qt 5.13. Call setUsesFilterEngine() with \c true to
+    enable the new functionality.
+
+    The core help engine has two modes:
+    \list
+        \li Read-only mode, where the help collection file is not changed
+            unless explicitly requested. This also works if the
+            collection file is in a read-only location,
+            and is the default.
+        \li Fully writable mode, which requires the help collection
+            file to be writable.
+    \endlist
+    The mode can be changed by calling setReadOnly() method, prior to
+    calling setupData().
 
     The help engine also offers the possibility to set and read values
-    in a persistant way comparable to ini files or Windows registry
+    in a persistent way comparable to ini files or Windows registry
     entries. For more information see setValue() or value().
 
     This class does not offer any GUI components or functionality for
     indices or contents. If you need one of those use QHelpEngine
     instead.
-
-    When creating a custom help viewer the viewer can be
-    configured by writing a custom collection file which could contain various
-    keywords to be used to configure the help engine. These keywords and values
-    and their meaning can be found in the help information for
-    \l{assistant-custom-help-viewer.html#creating-a-custom-help-collection-file}
-    {creating a custom help collection file} for Assistant.
 */
 
 /*!
@@ -190,7 +136,15 @@ void QHelpEngineCorePrivate::errorReceived(const QString &msg)
 */
 
 /*!
+    \fn void QHelpEngineCore::readersAboutToBeInvalidated()
+    \deprecated
+*/
+
+/*!
     \fn void QHelpEngineCore::currentFilterChanged(const QString &newFilter)
+    \deprecated
+
+    QHelpFilterEngine::filterActivated() should be used instead.
 
     This signal is emitted when the current filter is changed to
     \a newFilter.
@@ -210,20 +164,18 @@ void QHelpEngineCorePrivate::errorReceived(const QString &msg)
 */
 QHelpEngineCore::QHelpEngineCore(const QString &collectionFile, QObject *parent)
     : QObject(parent)
-{
-    d = new QHelpEngineCorePrivate();
-    d->init(collectionFile, this);
-}
+    , d(new QHelpEngineCorePrivate(collectionFile, this))
+{}
 
 /*!
     \internal
 */
-QHelpEngineCore::QHelpEngineCore(QHelpEngineCorePrivate *helpEngineCorePrivate,
-                                 QObject *parent)
+#if QT_DEPRECATED_SINCE(6, 8)
+QHelpEngineCore::QHelpEngineCore(QHelpEngineCorePrivate *helpEngineCorePrivate, QObject *parent)
     : QObject(parent)
-{
-    d = helpEngineCorePrivate;
-}
+    , d(helpEngineCorePrivate)
+{}
+#endif
 
 /*!
     Destructs the help engine.
@@ -249,16 +201,50 @@ QString QHelpEngineCore::collectionFile() const
 
 void QHelpEngineCore::setCollectionFile(const QString &fileName)
 {
-    if (fileName == collectionFile())
+    if (fileName != collectionFile())
+        d->init(fileName);
+}
+
+/*!
+    \property QHelpEngineCore::readOnly
+    \brief whether the help engine is read-only.
+    \since 6.0
+
+    In read-only mode, the user can use the help engine
+    with a collection file installed in a read-only location.
+    In this case, some functionality won't be accessible,
+    like registering additional documentation, filter editing,
+    or any action that would require changes to the
+    collection file. Setting it to \c false enables the full
+    functionality of the help engine.
+
+    By default, this property is \c true.
+*/
+bool QHelpEngineCore::isReadOnly() const
+{
+    return d->readOnly;
+}
+
+void QHelpEngineCore::setReadOnly(bool enable)
+{
+    if (d->readOnly == enable)
         return;
 
-    if (d->collectionHandler) {
-        delete d->collectionHandler;
-        d->collectionHandler = 0;
-        d->clearMaps();
-    }
-    d->init(fileName, this);
-    d->needsSetup = true;
+    d->readOnly = enable;
+    d->init(collectionFile());
+}
+
+/*!
+    \since 5.13
+
+    Returns the filter engine associated with this help engine.
+    The filter engine allows for adding, changing, and removing existing
+    filters for this help engine. To use the engine you also have to call
+    \l setUsesFilterEngine() set to \c true.
+*/
+QHelpFilterEngine *QHelpEngineCore::filterEngine() const
+{
+    return d->filterEngine;
 }
 
 /*!
@@ -305,12 +291,12 @@ bool QHelpEngineCore::copyCollectionFile(const QString &fileName)
 */
 QString QHelpEngineCore::namespaceName(const QString &documentationFileName)
 {
-    QHelpDBReader reader(documentationFileName,
-        QHelpGlobal::uniquifyConnectionName(QLatin1String("GetNamespaceName"),
-        QThread::currentThread()), 0);
+    void *pointer = const_cast<QString *>(&documentationFileName);
+    QHelpDBReader reader(documentationFileName, QHelpGlobal::uniquifyConnectionName(
+                         "GetNamespaceName"_L1, pointer), nullptr);
     if (reader.init())
         return reader.namespaceName();
-    return QString();
+    return {};
 }
 
 /*!
@@ -352,21 +338,20 @@ bool QHelpEngineCore::unregisterDocumentation(const QString &namespaceName)
 */
 QString QHelpEngineCore::documentationFileName(const QString &namespaceName)
 {
-    if (d->setup()) {
-        const QHelpCollectionHandler::DocInfoList docList =
-            d->collectionHandler->registeredDocumentations();
-        foreach(const QHelpCollectionHandler::DocInfo &info, docList) {
-            if (info.namespaceName == namespaceName) {
-                if (QDir::isAbsolutePath(info.fileName))
-                    return info.fileName;
+    if (!d->setup())
+        return {};
 
-                QFileInfo fi(d->collectionHandler->collectionFile());
-                fi.setFile(fi.absolutePath() + QDir::separator() + info.fileName);
-                return fi.absoluteFilePath();
-            }
-        }
-    }
-    return QString();
+    const QHelpCollectionHandler::FileInfo fileInfo =
+            d->collectionHandler->registeredDocumentation(namespaceName);
+
+    if (fileInfo.namespaceName.isEmpty())
+        return {};
+
+    if (QDir::isAbsolutePath(fileInfo.fileName))
+        return fileInfo.fileName;
+
+    return QFileInfo(QFileInfo(d->collectionHandler->collectionFile()).absolutePath()
+                     + u'/' + fileInfo.fileName).absoluteFilePath();
 }
 
 /*!
@@ -375,17 +360,20 @@ QString QHelpEngineCore::documentationFileName(const QString &namespaceName)
 */
 QStringList QHelpEngineCore::registeredDocumentations() const
 {
-    QStringList list;
     if (!d->setup())
-        return list;
-    const QHelpCollectionHandler::DocInfoList docList = d->collectionHandler->registeredDocumentations();
-    foreach(const QHelpCollectionHandler::DocInfo &info, docList) {
+        return {};
+    const auto &docList = d->collectionHandler->registeredDocumentations();
+    QStringList list;
+    for (const QHelpCollectionHandler::FileInfo &info : docList)
         list.append(info.namespaceName);
-    }
     return list;
 }
 
 /*!
+    \deprecated
+
+    QHelpFilterEngine::filters() should be used instead.
+
     Returns a list of custom filters.
 
     \sa addCustomFilter(), removeCustomFilter()
@@ -393,11 +381,15 @@ QStringList QHelpEngineCore::registeredDocumentations() const
 QStringList QHelpEngineCore::customFilters() const
 {
     if (!d->setup())
-        return QStringList();
+        return {};
     return d->collectionHandler->customFilters();
 }
 
 /*!
+    \deprecated
+
+    QHelpFilterEngine::setFilterData() should be used instead.
+
     Adds the new custom filter \a filterName. The filter attributes
     are specified by \a attributes. If the filter already exists,
     its attribute set is replaced. The function returns true if
@@ -410,11 +402,14 @@ bool QHelpEngineCore::addCustomFilter(const QString &filterName,
 {
     d->error.clear();
     d->needsSetup = true;
-    return d->collectionHandler->addCustomFilter(filterName,
-        attributes);
+    return d->collectionHandler->addCustomFilter(filterName, attributes);
 }
 
 /*!
+    \deprecated
+
+    QHelpFilterEngine::removeFilter() should be used instead.
+
     Returns true if the filter \a filterName was removed successfully,
     otherwise false.
 
@@ -428,30 +423,41 @@ bool QHelpEngineCore::removeCustomFilter(const QString &filterName)
 }
 
 /*!
+    \deprecated
+
+    QHelpFilterEngine::availableComponents() should be used instead.
+
     Returns a list of all defined filter attributes.
 */
 QStringList QHelpEngineCore::filterAttributes() const
 {
     if (!d->setup())
-        return QStringList();
+        return {};
     return d->collectionHandler->filterAttributes();
 }
 
 /*!
+    \deprecated
+
+    QHelpFilterEngine::filterData() should be used instead.
+
     Returns a list of filter attributes used by the custom
     filter \a filterName.
 */
 QStringList QHelpEngineCore::filterAttributes(const QString &filterName) const
 {
     if (!d->setup())
-        return QStringList();
+        return {};
     return d->collectionHandler->filterAttributes(filterName);
 }
 
 /*!
+    \deprecated
     \property QHelpEngineCore::currentFilter
     \brief the name of the custom filter currently applied.
     \since 4.5
+
+    QHelpFilterEngine::activeFilter() should be used instead.
 
     Setting this property will save the new custom filter permanently in the
     help collection file. To set a custom filter without saving it
@@ -462,14 +468,12 @@ QStringList QHelpEngineCore::filterAttributes(const QString &filterName) const
 QString QHelpEngineCore::currentFilter() const
 {
     if (!d->setup())
-        return QString();
+        return {};
 
     if (d->currentFilter.isEmpty()) {
-        QString filter =
-            d->collectionHandler->customValue(QLatin1String("CurrentFilter"),
-                QString()).toString();
-        if (!filter.isEmpty()
-            && d->collectionHandler->customFilters().contains(filter))
+        const QString &filter =
+                d->collectionHandler->customValue("CurrentFilter"_L1, QString()).toString();
+        if (!filter.isEmpty() && d->collectionHandler->customFilters().contains(filter))
             d->currentFilter = filter;
     }
     return d->currentFilter;
@@ -480,29 +484,32 @@ void QHelpEngineCore::setCurrentFilter(const QString &filterName)
     if (!d->setup() || filterName == d->currentFilter)
         return;
     d->currentFilter = filterName;
-    if (d->autoSaveFilter) {
-        d->collectionHandler->setCustomValue(QLatin1String("CurrentFilter"),
-            d->currentFilter);
-    }
+    if (d->autoSaveFilter)
+        d->collectionHandler->setCustomValue("CurrentFilter"_L1, d->currentFilter);
     emit currentFilterChanged(d->currentFilter);
 }
 
 /*!
+    \deprecated
+
+    QHelpFilterEngine::filterData() should be used instead.
+
     Returns a list of filter attributes for the different filter sections
     defined in the Qt compressed help file with the given namespace
     \a namespaceName.
 */
 QList<QStringList> QHelpEngineCore::filterAttributeSets(const QString &namespaceName) const
 {
-    if (d->setup()) {
-        QHelpDBReader *reader = d->readerMap.value(namespaceName);
-        if (reader)
-            return reader->filterAttributeSets();
-    }
-    return QList<QStringList>();
+    if (!d->setup())
+        return {};
+    return d->collectionHandler->filterAttributeSets(namespaceName);
 }
 
 /*!
+    \deprecated
+
+    files() should be used instead.
+
     Returns a list of files contained in the Qt compressed help file \a
     namespaceName. The files can be filtered by \a filterAttributes as
     well as by their extension \a extensionFilter (e.g. 'html').
@@ -514,73 +521,74 @@ QList<QUrl> QHelpEngineCore::files(const QString namespaceName,
     QList<QUrl> res;
     if (!d->setup())
         return res;
-    QHelpDBReader *reader = d->readerMap.value(namespaceName);
-    if (!reader) {
-        d->error = tr("The specified namespace does not exist.");
-        return res;
-    }
 
     QUrl url;
-    url.setScheme(QLatin1String("qthelp"));
+    url.setScheme("qthelp"_L1);
     url.setAuthority(namespaceName);
 
-    const QStringList files = reader->files(filterAttributes, extensionFilter);
-    foreach (const QString &file, files) {
-        url.setPath(QLatin1String("/") + file);
+    const QStringList &files = d->collectionHandler->files(
+                namespaceName, filterAttributes, extensionFilter);
+    for (const QString &file : files) {
+        url.setPath("/"_L1 + file);
         res.append(url);
     }
     return res;
 }
 
 /*!
-    Returns an invalid URL if the file \a url cannot be found.
-    If the file exists, either the same url is returned or a
-    different url if the file is located in a different namespace
-    which is merged via a common virtual folder.
+    Returns a list of files contained in the Qt compressed help file
+    for \a namespaceName. The files can be filtered by \a filterName as
+    well as by their extension \a extensionFilter (for example, 'html').
+*/
+QList<QUrl> QHelpEngineCore::files(const QString namespaceName,
+    const QString &filterName,
+    const QString &extensionFilter)
+{
+    QList<QUrl> res;
+    if (!d->setup())
+        return res;
+
+    QUrl url;
+    url.setScheme("qthelp"_L1);
+    url.setAuthority(namespaceName);
+
+    const QStringList &files = d->collectionHandler->files(
+                namespaceName, filterName, extensionFilter);
+    for (const QString &file : files) {
+        url.setPath("/"_L1 + file);
+        res.append(url);
+    }
+    return res;
+}
+
+/*!
+    Returns the corrected URL for the \a url that may refer to
+    a different namespace defined by the virtual folder defined
+    as a part of the \a url. If the virtual folder matches the namespace
+    of the \a url, the method just checks if the file exists and returns
+    the same \a url. When the virtual folder doesn't match the namespace
+    of the \a url, it tries to find the best matching namespace according
+    to the active filter. When the namespace is found, it returns the
+    corrected URL if the file exists, otherwise it returns an invalid URL.
 */
 QUrl QHelpEngineCore::findFile(const QUrl &url) const
 {
-    QUrl res;
-    if (!d->setup() || !url.isValid() || url.toString().count(QLatin1Char('/')) < 4
-        || url.scheme() != QLatin1String("qthelp"))
-        return res;
+    if (!d->setup())
+        return url;
 
-    QString ns = url.authority();
-    QString filePath = url.path();
-    if (filePath.startsWith(QLatin1Char('/')))
-        filePath = filePath.mid(1);
-    QString virtualFolder = filePath.mid(0, filePath.indexOf(QLatin1Char('/'), 1));
-    filePath = filePath.mid(virtualFolder.length()+1);
+    QUrl result = d->usesFilterEngine
+            ? d->collectionHandler->findFile(url, d->filterEngine->activeFilter())
+            : d->collectionHandler->findFile(url, filterAttributes(currentFilter())); // obsolete
+    if (!result.isEmpty())
+        return result;
 
-    QHelpDBReader *defaultReader = 0;
-    if (d->readerMap.contains(ns)) {
-        defaultReader = d->readerMap.value(ns);
-        if (defaultReader->fileExists(virtualFolder, filePath))
-            return url;
-    }
+    result = d->usesFilterEngine
+            ? d->collectionHandler->findFile(url, QString())
+            : d->collectionHandler->findFile(url, QStringList()); // obsolete
+    if (!result.isEmpty())
+        return result;
 
-    QStringList filterAtts = filterAttributes(currentFilter());
-    foreach (QHelpDBReader *reader, d->virtualFolderMap.values(virtualFolder)) {
-        if (reader == defaultReader)
-            continue;
-        if (reader->fileExists(virtualFolder, filePath, filterAtts)) {
-            res = url;
-            res.setAuthority(reader->namespaceName());
-            return res;
-        }
-    }
-
-    foreach (QHelpDBReader *reader, d->virtualFolderMap.values(virtualFolder)) {
-        if (reader == defaultReader)
-            continue;
-        if (reader->fileExists(virtualFolder, filePath)) {
-            res = url;
-            res.setAuthority(reader->namespaceName());
-            break;
-        }
-    }
-
-    return res;
+    return url;
 }
 
 /*!
@@ -591,53 +599,71 @@ QUrl QHelpEngineCore::findFile(const QUrl &url) const
 */
 QByteArray QHelpEngineCore::fileData(const QUrl &url) const
 {
-    if (!d->setup() || !url.isValid() || url.toString().count(QLatin1Char('/')) < 4
-        || url.scheme() != QLatin1String("qthelp"))
-        return QByteArray();
-
-    QString ns = url.authority();
-    QString filePath = url.path();
-    if (filePath.startsWith(QLatin1Char('/')))
-        filePath = filePath.mid(1);
-    QString virtualFolder = filePath.mid(0, filePath.indexOf(QLatin1Char('/'), 1));
-    filePath = filePath.mid(virtualFolder.length()+1);
-
-    QByteArray ba;
-    QHelpDBReader *defaultReader = 0;
-    if (d->readerMap.contains(ns)) {
-        defaultReader = d->readerMap.value(ns);
-        ba = defaultReader->fileData(virtualFolder, filePath);
-    }
-
-    if (ba.isEmpty()) {
-        foreach (QHelpDBReader *reader, d->virtualFolderMap.values(virtualFolder)) {
-            if (reader == defaultReader)
-                continue;
-            ba = reader->fileData(virtualFolder, filePath);
-            if (!ba.isEmpty())
-                return ba;
-        }
-    }
-    return ba;
+    if (!d->setup())
+        return {};
+    return d->collectionHandler->fileData(url);
 }
 
 /*!
-    Returns a map of hits found for the \a id. A hit contains the
-    title of the document and the url where the keyword is located.
-    The result depends on the current filter, meaning only the keywords
+    \since 5.15
+
+    Returns a list of all the document links found for the \a id.
+    The returned list contents depend on the current filter, and therefore only the keywords
     registered for the current filter will be returned.
 */
-QMap<QString, QUrl> QHelpEngineCore::linksForIdentifier(const QString &id) const
+QList<QHelpLink> QHelpEngineCore::documentsForIdentifier(const QString &id) const
 {
-    QMap<QString, QUrl> linkMap;
+    return documentsForIdentifier(
+            id, d->usesFilterEngine ? d->filterEngine->activeFilter() : d->currentFilter);
+}
+
+/*!
+    \since 5.15
+
+    Returns a list of the document links found for the \a id, filtered by \a filterName.
+    The returned list contents depend on the passed filter, and therefore only the keywords
+    registered for this filter will be returned. If you want to get all results unfiltered,
+    pass empty string as \a filterName.
+*/
+QList<QHelpLink> QHelpEngineCore::documentsForIdentifier(const QString &id, const QString &filterName) const
+{
     if (!d->setup())
-        return linkMap;
+        return {};
 
-    QStringList atts = filterAttributes(d->currentFilter);
-    foreach (QHelpDBReader *reader, d->readerMap)
-        reader->linksForIdentifier(id, atts, linkMap);
+    if (d->usesFilterEngine)
+        return d->collectionHandler->documentsForIdentifier(id, filterName);
+    return d->collectionHandler->documentsForIdentifier(id, filterAttributes(filterName));
+}
 
-    return linkMap;
+/*!
+    \since 5.15
+
+    Returns a list of all the document links found for the \a keyword.
+    The returned list contents depend on the current filter, and therefore only the keywords
+    registered for the current filter will be returned.
+*/
+QList<QHelpLink> QHelpEngineCore::documentsForKeyword(const QString &keyword) const
+{
+    return documentsForKeyword(
+            keyword, d->usesFilterEngine ? d->filterEngine->activeFilter() : d->currentFilter);
+}
+
+/*!
+    \since 5.15
+
+    Returns a list of the document links found for the \a keyword, filtered by \a filterName.
+    The returned list contents depend on the passed filter, and therefore only the keywords
+    registered for this filter will be returned. If you want to get all results unfiltered,
+    pass empty string as \a filterName.
+*/
+QList<QHelpLink> QHelpEngineCore::documentsForKeyword(const QString &keyword, const QString &filterName) const
+{
+    if (!d->setup())
+        return {};
+
+    if (d->usesFilterEngine)
+        return d->collectionHandler->documentsForKeyword(keyword, filterName);
+    return d->collectionHandler->documentsForKeyword(keyword, filterAttributes(filterName));
 }
 
 /*!
@@ -663,7 +689,7 @@ bool QHelpEngineCore::removeCustomValue(const QString &key)
 QVariant QHelpEngineCore::customValue(const QString &key, const QVariant &defaultValue) const
 {
     if (!d->setup())
-        return QVariant();
+        return {};
     return d->collectionHandler->customValue(key, defaultValue);
 }
 
@@ -691,11 +717,11 @@ bool QHelpEngineCore::setCustomValue(const QString &key, const QVariant &value)
 QVariant QHelpEngineCore::metaData(const QString &documentationFileName,
                                    const QString &name)
 {
-    QHelpDBReader reader(documentationFileName, QLatin1String("GetMetaData"), 0);
+    QHelpDBReader reader(documentationFileName, "GetMetaData"_L1, nullptr);
 
     if (reader.init())
         return reader.metaData(name);
-    return QVariant();
+    return {};
 }
 
 /*!
@@ -712,7 +738,7 @@ QString QHelpEngineCore::error() const
     \since 4.5
 
     If QHelpEngineCore is in auto save filter mode, the current filter is
-    automatically saved when it is changed by the setCurrentFilter()
+    automatically saved when it is changed by the QHelpFilterEngine::setActiveFilter()
     function. The filter is saved persistently in the help collection file.
 
     By default, this mode is on.
@@ -726,5 +752,191 @@ bool QHelpEngineCore::autoSaveFilter() const
 {
     return d->autoSaveFilter;
 }
+
+/*!
+    \since 5.13
+
+    Enables or disables the new filter engine functionality
+    inside the help engine, according to the passed \a uses parameter.
+
+    \sa filterEngine()
+*/
+void QHelpEngineCore::setUsesFilterEngine(bool uses)
+{
+    d->usesFilterEngine = uses;
+}
+
+/*!
+    \since 5.13
+
+    Returns whether the help engine uses the new filter functionality.
+
+    \sa filterEngine()
+*/
+bool QHelpEngineCore::usesFilterEngine() const
+{
+    return d->usesFilterEngine;
+}
+
+#if QT_CONFIG(future)
+static QUrl constructUrl(const QString &namespaceName, const QString &folderName,
+                         const QString &relativePath)
+{
+    const int idx = relativePath.indexOf(u'#');
+    const QString &rp = idx < 0 ? relativePath : relativePath.left(idx);
+    const QString anchor = idx < 0 ? QString() : relativePath.mid(idx + 1);
+    return QHelpCollectionHandler::buildQUrl(namespaceName, folderName, rp, anchor);
+}
+
+using ContentProviderResult = QList<QHelpCollectionHandler::ContentsData>;
+using ContentProvider = std::function<ContentProviderResult(const QString &)>;
+using ContentResult = std::shared_ptr<QHelpContentItem>;
+
+// This trick is needed because the c'tor of QHelpContentItem is private.
+QHelpContentItem *createContentItem(const QString &name = {}, const QUrl &link = {},
+                                    QHelpContentItem *parent = {})
+{
+    return new QHelpContentItem(name, link, parent);
+}
+
+static void requestContentHelper(QPromise<ContentResult> &promise, const ContentProvider &provider,
+                                 const QString &collectionFile)
+{
+    ContentResult rootItem(createContentItem());
+    const ContentProviderResult result = provider(collectionFile);
+    for (const auto &contentsData : result) {
+        const QString namespaceName = contentsData.namespaceName;
+        const QString folderName = contentsData.folderName;
+        for (const QByteArray &contents : contentsData.contentsList) {
+            if (promise.isCanceled())
+                return;
+
+            if (contents.isEmpty())
+                continue;
+
+            QList<QHelpContentItem *> stack;
+            QDataStream s(contents);
+            while (true) {
+                int depth = 0;
+                QString link, title;
+                s >> depth;
+                s >> link;
+                s >> title;
+                if (title.isEmpty())
+                    break;
+
+// The example input (depth, link, title):
+//
+// 0 "graphicaleffects5.html" "Qt 5 Compatibility APIs: Qt Graphical Effects"
+// 1 "qtgraphicaleffects5-index.html" "QML Types"
+// 2 "qml-qt5compat-graphicaleffects-blend.html" "Blend Type Reference"
+// 3 "qml-qt5compat-graphicaleffects-blend-members.html" "List of all members"
+// 2 "qml-qt5compat-graphicaleffects-brightnesscontrast.html" "BrightnessContrast Type Reference"
+//
+// Thus, the valid order of depths is:
+// 1. Whenever the item's depth is < 0, we insert the item as its depth is 0.
+// 2. The first item's depth must be 0, otherwise we insert the item as its depth is 0.
+// 3. When the previous depth was N, the next depth must be in range [0, N+1] inclusively.
+//    If next item's depth is M > N+1, we insert the item as its depth is N+1.
+
+                if (depth <= 0) {
+                    stack.clear();
+                } else if (depth < stack.size()) {
+                    stack = stack.sliced(0, depth);
+                } else if (depth > stack.size()) {
+                    // Fill the gaps with the last item from the stack (or with the root).
+                    // This branch handles the case when depths are broken, e.g. 0, 2, 2, 1.
+                    // In this case, the 1st item is a root, and 2nd - 4th are all direct
+                    // children of the 1st.
+                    QHelpContentItem *substituteItem =
+                            stack.isEmpty() ? rootItem.get() : stack.constLast();
+                    while (depth > stack.size())
+                        stack.append(substituteItem);
+                }
+
+                const QUrl url = constructUrl(namespaceName, folderName, link);
+                QHelpContentItem *parent = stack.isEmpty() ? rootItem.get() : stack.constLast();
+                stack.push_back(createContentItem(title, url, parent));
+            }
+        }
+    }
+    promise.addResult(rootItem);
+}
+
+static ContentProvider contentProviderFromFilterEngine(const QString &filter)
+{
+    return [filter](const QString &collectionFile) -> ContentProviderResult {
+        QHelpCollectionHandler collectionHandler(collectionFile);
+        if (!collectionHandler.openCollectionFile())
+            return {};
+        return collectionHandler.contentsForFilter(filter);
+    };
+}
+
+static ContentProvider contentProviderFromAttributes(const QStringList &attributes)
+{
+    return [attributes](const QString &collectionFile) -> ContentProviderResult {
+        QHelpCollectionHandler collectionHandler(collectionFile);
+        if (!collectionHandler.openCollectionFile())
+            return {};
+        return collectionHandler.contentsForFilter(attributes);
+    };
+}
+
+QFuture<ContentResult> QHelpEngineCore::requestContentForCurrentFilter() const
+{
+    const ContentProvider provider = usesFilterEngine()
+            ? contentProviderFromFilterEngine(filterEngine()->activeFilter())
+            : contentProviderFromAttributes(filterAttributes(d->currentFilter));
+    return QtConcurrent::run(requestContentHelper, provider, collectionFile());
+}
+
+QFuture<ContentResult> QHelpEngineCore::requestContent(const QString &filter) const
+{
+    const ContentProvider provider = usesFilterEngine()
+            ? contentProviderFromFilterEngine(filter)
+            : contentProviderFromAttributes(filterAttributes(filter));
+    return QtConcurrent::run(requestContentHelper, provider, collectionFile());
+}
+
+using IndexProvider = std::function<QStringList(const QString &)>;
+using IndexResult = QStringList;
+
+static IndexProvider indexProviderFromFilterEngine(const QString &filter)
+{
+    return [filter](const QString &collectionFile) -> IndexResult {
+        QHelpCollectionHandler collectionHandler(collectionFile);
+        if (!collectionHandler.openCollectionFile())
+            return {};
+        return collectionHandler.indicesForFilter(filter);
+    };
+}
+
+static IndexProvider indexProviderFromAttributes(const QStringList &attributes)
+{
+    return [attributes](const QString &collectionFile) -> IndexResult {
+        QHelpCollectionHandler collectionHandler(collectionFile);
+        if (!collectionHandler.openCollectionFile())
+            return {};
+        return collectionHandler.indicesForFilter(attributes);
+    };
+}
+
+QFuture<IndexResult> QHelpEngineCore::requestIndexForCurrentFilter() const
+{
+    const IndexProvider provider = usesFilterEngine()
+            ? indexProviderFromFilterEngine(filterEngine()->activeFilter())
+            : indexProviderFromAttributes(filterAttributes(d->currentFilter));
+    return QtConcurrent::run(std::move(provider), collectionFile());
+}
+
+QFuture<IndexResult> QHelpEngineCore::requestIndex(const QString &filter) const
+{
+    const IndexProvider provider = usesFilterEngine()
+            ? indexProviderFromFilterEngine(filter)
+            : indexProviderFromAttributes(filterAttributes(filter));
+    return QtConcurrent::run(std::move(provider), collectionFile());
+}
+#endif
 
 QT_END_NAMESPACE

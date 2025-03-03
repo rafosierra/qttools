@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #ifndef MESSAGEEDITOR_H
 #define MESSAGEEDITOR_H
@@ -47,6 +17,7 @@ QT_BEGIN_NAMESPACE
 class QBoxLayout;
 class QMainWindow;
 class QTextEdit;
+class QCheckBox;
 
 class MessageEditor;
 class FormatTextEdit;
@@ -69,14 +40,15 @@ class MessageEditor : public QScrollArea
 
 public:
     MessageEditor(MultiDataModel *dataModel, QMainWindow *parent = 0);
+    ~MessageEditor();
 
     void showNothing();
     void showMessage(const MultiDataIndex &index);
     void setNumerusForms(int model, const QStringList &numerusForms);
-    bool eventFilter(QObject *, QEvent *);
-    void setTranslation(int model, const QString &translation, int numerus);
-    int activeModel() const { return (m_editors.count() != 1) ? m_currentModel : 0; }
-    void setEditorFocus(int model);
+    bool eventFilter(QObject *, QEvent *) override;
+    void setNumerusTranslation(int model, const QString &translation, int numerus);
+    int activeModel() const { return (m_editors.size() != 1) ? m_currentModel : 0; }
+    void setEditorFocusForModel(int model);
     void setUnfinishedEditorFocus();
     bool focusNextUnfinished();
     void setVisualizeWhitespace(bool value);
@@ -95,7 +67,6 @@ signals:
     void copyAvailable(bool avail);
     void pasteAvailable(bool avail);
 #endif
-    void beginFromSourceAvailable(bool enable);
 
 public slots:
     void undo();
@@ -118,6 +89,7 @@ private slots:
     void editorCreated(QTextEdit *);
     void editorDestroyed();
     void selectionChanged(QTextEdit *);
+    void toggleNcrMode();
     void resetHoverSelection();
     void emitTranslationChanged(QTextEdit *);
     void emitTranslatorCommentChanged(QTextEdit *);
@@ -147,7 +119,6 @@ private:
     MessageEditorData *modelForWidget(const QObject *o);
     int activeTranslationNumerus() const;
     QStringList translations(int model) const;
-    void updateBeginFromSource();
     void updateUndoRedo();
 #ifndef QT_NO_CLIPBOARD
     void updateCanCutCopy();
@@ -180,6 +151,7 @@ private:
     FormWidget *m_source;
     FormWidget *m_pluralSource;
     FormWidget *m_commentText;
+    QCheckBox *m_ncrModeBox;
     QList<MessageEditorData> m_editors;
 
     QTimer m_tabOrderTimer;

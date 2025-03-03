@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #ifndef MESSAGEMODEL_H
 #define MESSAGEMODEL_H
@@ -42,13 +12,12 @@
 #include <QtCore/QLocale>
 #include <QtGui/QColor>
 #include <QtGui/QBitmap>
-#include <QtXml/QXmlDefaultHandler>
-
 
 QT_BEGIN_NAMESPACE
 
 class DataModel;
 class MultiDataModel;
+struct StatisticalData;
 
 class MessageItem
 {
@@ -57,29 +26,30 @@ public:
 
     bool danger() const { return m_danger; }
     void setDanger(bool danger) { m_danger = danger; }
+    bool ncrMode() const { return m_ncrMode; }
+    void setNcrMode(bool mode) { m_ncrMode = mode; }
 
-    void setTranslation(const QString &translation)
-        { m_message.setTranslation(translation); }
+    void setTranslation(const QString &translation);
 
     QString id() const { return m_message.id(); }
     QString context() const { return m_message.context(); }
-    QString text() const { return m_message.sourceText(); }
-    QString pluralText() const { return m_message.extra(QLatin1String("po-msgid_plural")); }
+    QString text() const;
+    QString pluralText() const;
     QString comment() const { return m_message.comment(); }
     QString fileName() const { return m_message.fileName(); }
     QString extraComment() const { return m_message.extraComment(); }
     QString translatorComment() const { return m_message.translatorComment(); }
     void setTranslatorComment(const QString &cmt) { m_message.setTranslatorComment(cmt); }
     int lineNumber() const { return m_message.lineNumber(); }
-    QString translation() const { return m_message.translation(); }
-    QStringList translations() const { return m_message.translations(); }
-    void setTranslations(const QStringList &translations)
-        { m_message.setTranslations(translations); }
+    QString translation() const;
+    QStringList translations() const;
+    void setTranslations(const QStringList &translations);
 
     TranslatorMessage::Type type() const { return m_message.type(); }
     void setType(TranslatorMessage::Type type) { m_message.setType(type); }
 
     bool isFinished() const { return type() == TranslatorMessage::Finished; }
+    bool isUnfinished() const { return type() == TranslatorMessage::Unfinished; }
     bool isObsolete() const
         { return type() == TranslatorMessage::Obsolete || type() == TranslatorMessage::Vanished; }
     const TranslatorMessage &message() const { return m_message; }
@@ -90,6 +60,7 @@ public:
 private:
     TranslatorMessage m_message;
     bool m_danger;
+    bool m_ncrMode;
 };
 
 
@@ -114,7 +85,7 @@ public:
     bool isFinished() const { return unfinishedCount() == 0; }
 
     MessageItem *messageItem(int i) const;
-    int messageCount() const { return msgItemList.count(); }
+    int messageCount() const { return msgItemList.size(); }
 
     MessageItem *findMessage(const QString &sourcetext, const QString &comment) const;
 
@@ -177,7 +148,7 @@ public:
     enum FindLocation { NoLocation = 0, SourceText = 0x1, Translations = 0x2, Comments = 0x4 };
 
     // Specializations
-    int contextCount() const { return m_contextList.count(); }
+    int contextCount() const { return m_contextList.size(); }
     ContextItem *findContext(const QString &context) const;
     MessageItem *findMessage(const QString &context, const QString &sourcetext,
         const QString &comment) const;
@@ -204,12 +175,12 @@ public:
     static QString prettifyPlainFileName(const QString &fn);
     static QString prettifyFileName(const QString &fn);
 
-    bool setLanguageAndCountry(QLocale::Language lang, QLocale::Country country);
+    bool setLanguageAndTerritory(QLocale::Language lang, QLocale::Territory territory);
     QLocale::Language language() const { return m_language; }
-    QLocale::Country country() const { return m_country; }
-    void setSourceLanguageAndCountry(QLocale::Language lang, QLocale::Country country);
+    QLocale::Territory territory() const { return m_territory; }
+    void setSourceLanguageAndTerritory(QLocale::Language lang, QLocale::Territory territory);
     QLocale::Language sourceLanguage() const { return m_sourceLanguage; }
-    QLocale::Country sourceCountry() const { return m_sourceCountry; }
+    QLocale::Territory sourceTerritory() const { return m_sourceTerritory; }
 
     const QString &localizedLanguage() const { return m_localizedLanguage; }
     const QStringList &numerusForms() const { return m_numerusForms; }
@@ -224,7 +195,7 @@ public:
     int getSrcCharsSpc() const { return m_srcCharsSpc; }
 
 signals:
-    void statsChanged(int words, int characters, int cs, int words2, int characters2, int cs2);
+    void statsChanged(const StatisticalData &newStats);
     void progressChanged(int finishedCount, int oldFinishedCount);
     void languageChanged();
     void modifiedChanged();
@@ -249,8 +220,8 @@ private:
     QString m_srcFileName;
     QLocale::Language m_language;
     QLocale::Language m_sourceLanguage;
-    QLocale::Country m_country;
-    QLocale::Country m_sourceCountry;
+    QLocale::Territory m_territory;
+    QLocale::Territory m_sourceTerritory;
     bool m_relativeLocations;
     Translator::ExtraData m_extra;
 
@@ -314,7 +285,7 @@ public:
 
     QString context() const { return m_context; }
     QString comment() const { return m_comment; }
-    int messageCount() const { return m_messageLists.isEmpty() ? 0 : m_messageLists[0].count(); }
+    int messageCount() const { return m_messageLists.isEmpty() ? 0 : m_messageLists[0].size(); }
     // For item count in context list
     int getNumFinished() const { return m_finishedCount; }
     int getNumEditable() const { return m_editableCount; }
@@ -407,8 +378,8 @@ public:
     void moveModel(int oldPos, int newPos); // newPos is *before* removing at oldPos; note that this does not emit update signals
 
     // Entire multi-model
-    int modelCount() const { return m_dataModels.count(); }
-    int contextCount() const { return m_multiContextList.count(); }
+    int modelCount() const { return m_dataModels.size(); }
+    int contextCount() const { return m_multiContextList.size(); }
     int messageCount() const { return m_numMessages; }
     // Next two needed for progress indicator in main window
     int getNumFinished() const { return m_numFinished; }
@@ -438,18 +409,21 @@ public:
         { return multiContextItem(index.context())->multiMessageItem(index.message()); }
     MessageItem *messageItem(const MultiDataIndex &index, int model) const;
     MessageItem *messageItem(const MultiDataIndex &index) const { return messageItem(index, index.model()); }
+    int findContextIndex(const QString &context) const;
+    MultiContextItem *findContext(const QString &context) const;
 
     static QString condenseFileNames(const QStringList &names);
     static QStringList prettifyFileNames(const QStringList &names);
 
     QBrush brushForModel(int model) const;
+    void updateColors();
 
 signals:
     void modelAppended();
     void modelDeleted(int model);
     void allModelsDeleted();
     void languageChanged(int model);
-    void statsChanged(int words, int characters, int cs, int words2, int characters2, int cs2);
+    void statsChanged(const StatisticalData &newStats);
     void modifiedChanged(bool);
     void multiContextDataChanged(const MultiDataIndex &index);
     void contextDataChanged(const MultiDataIndex &index);
@@ -463,9 +437,6 @@ private slots:
 private:
     friend class MultiDataModelIterator;
     friend class MessageModel;
-
-    int findContextIndex(const QString &context) const;
-    MultiContextItem *findContext(const QString &context) const;
 
     ContextItem *contextItem(const MultiDataIndex &index) const
         { return multiContextItem(index.context())->contextItem(index.model()); }
@@ -488,7 +459,7 @@ private:
 
     MessageModel *m_msgModel;
 
-    QColor m_colors[7];
+    QColor const *m_colors;
     QBitmap m_bitmap;
 };
 
@@ -502,11 +473,11 @@ public:
     MessageModel(QObject *parent, MultiDataModel *data);
 
     // QAbstractItemModel
-    QModelIndex index(int row, int column, const QModelIndex &parent = QModelIndex()) const;
-    QModelIndex parent(const QModelIndex& index) const;
-    int rowCount(const QModelIndex &parent = QModelIndex()) const;
-    int columnCount(const QModelIndex &parent = QModelIndex()) const;
-    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const;
+    QModelIndex index(int row, int column, const QModelIndex &parent = QModelIndex()) const override;
+    QModelIndex parent(const QModelIndex& index) const override;
+    int rowCount(const QModelIndex &parent = QModelIndex()) const override;
+    int columnCount(const QModelIndex &parent = QModelIndex()) const override;
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
 
     // Convenience
     MultiDataIndex dataIndex(const QModelIndex &index, int model) const;

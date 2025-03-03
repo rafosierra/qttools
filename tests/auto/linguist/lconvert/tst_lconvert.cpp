@@ -1,45 +1,20 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #include <QtTest/QtTest>
 #include <QtCore/QFile>
+#include <QtCore/QTextStream>
+
+using namespace Qt::Literals::StringLiterals;
 
 class tst_lconvert : public QObject
 {
     Q_OBJECT
 
 public:
-    tst_lconvert() : dataDir(QFINDTESTDATA("data/")), binDir(QLibraryInfo::location(QLibraryInfo::BinariesPath)) {}
+    tst_lconvert()
+      : dataDir(QFINDTESTDATA("data/"))
+      , lconvert(QLibraryInfo::path(QLibraryInfo::BinariesPath) + "/lconvert") {}
 
 private slots:
     void initTestCase();
@@ -49,10 +24,8 @@ private slots:
     void converts();
     void roundtrips_data();
     void roundtrips();
-#if 0
     void chains_data();
     void chains();
-#endif
     void merge();
 
 private:
@@ -66,13 +39,59 @@ private:
             const QList<QStringList> &args);
 
     QString dataDir;
-    QString binDir;
+    QString lconvert;
 };
+
+static void writePoMessages(QTextStream &out, int num, const QString &str)
+{
+    for (int i = 0; i < (1 << num); ++i) {
+        out << "\n";
+        out << "msgid \"singular " << str << " " << i << "\"\n";
+        out << "msgid_plural \"plural " << str << " " << i << "\"\n";
+        for (int j = 0; j < num; ++j) {
+            QString tr;
+            if ((i & (1 << j)) == 0)
+                tr = u"translated %1 %2 %3"_s.arg(str).arg(i).arg(j);
+            out << "msgstr[" << j << "] \"" << tr << "\"\n";
+        }
+    }
+}
+
+static void createPluralPoFile(const QString &outdir, int num, const QString &lang,
+                               const QString &pluralForms)
+{
+    QString filename = outdir + u"plural-%1.po"_s.arg(num);
+    QFile file(filename);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        qWarning() << "Cannot write file in" << outdir;
+        return;
+    }
+
+    QTextStream out(&file);
+    out << R"(msgid ""
+msgstr ""
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-FooBar: yup\n"
+"X-Language: )" << lang << R"(\n"
+"Plural-Forms: )" << pluralForms << "\\n\"\n";
+
+    writePoMessages(out, num, "one"_L1);
+    writePoMessages(out, num, "two"_L1);
+    writePoMessages(out, num, "three"_L1);
+    writePoMessages(out, num, "four"_L1);
+}
 
 void tst_lconvert::initTestCase()
 {
-    if (!QFile::exists(dataDir + QLatin1String("plural-1.po")))
-        QProcess::execute(QLatin1String("perl"), QStringList() << dataDir + QLatin1String("makeplurals.pl") << dataDir + QLatin1String(""));
+    if (!QFile::exists(dataDir + QLatin1String("plural-1.po"))) {
+        createPluralPoFile(dataDir, 1, u"zh_CN"_s, u"nplurals=1; plural=0;"_s);
+        createPluralPoFile(dataDir, 2, u"de_DE"_s, u"nplurals=2; plural=(n != 1);"_s);
+        createPluralPoFile(dataDir, 3, u"pl_PL"_s,
+                           u"nplurals=3; plural=(n==1 ? 0 : n%10>=2 && "_s
+                           u"n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);"_s);
+    }
     QVERIFY(QFile::exists(dataDir + QLatin1String("plural-1.po")));
 }
 
@@ -145,7 +164,8 @@ void tst_lconvert::doCompare(QIODevice *actualDev, const QString &expectedFn)
 void tst_lconvert::verifyReadFail(const QString &fn)
 {
     QProcess cvt;
-    cvt.start(binDir + "/lconvert", QStringList() << (dataDir + fn));
+    cvt.start(lconvert, QStringList() << (dataDir + fn));
+    QVERIFY2(cvt.waitForStarted(), qPrintable(cvt.errorString()));
     QVERIFY(cvt.waitForFinished(10000));
     QVERIFY(cvt.exitStatus() == QProcess::NormalExit);
     QVERIFY2(cvt.exitCode() == 2, "Accepted invalid input");
@@ -172,10 +192,12 @@ void tst_lconvert::convertChain(const QString &_inFileName, const QString &_outF
         if (!argList.isEmpty())
             args += argList[i];
         args << "-if" << stations[i] << "-i" << "-" << "-of" << stations[i + 1];
-        cvts.at(i)->start(binDir + "/lconvert", args, QIODevice::ReadWrite | QIODevice::Text);
+        cvts.at(i)->start(lconvert, args, QIODevice::ReadWrite | QIODevice::Text);
     }
+    for (QProcess *cvt : std::as_const(cvts))
+        QVERIFY2(cvt->waitForStarted(), qPrintable(cvt->errorString()));
     int st = 0;
-    foreach (QProcess *cvt, cvts)
+    for (QProcess *cvt : std::as_const(cvts))
         doWait(cvt, ++st);
 
     if (!QTest::currentTestFailed())
@@ -227,6 +249,7 @@ void tst_lconvert::converts_data()
     QTest::newRow("broken utf8") << "test-broken-utf8.po" << "test-broken-utf8.po.out" << "po";
     QTest::newRow("line joins") << "test-slurp.po" << "test-slurp.po.out" << "po";
     QTest::newRow("escapes") << "test-escapes.po" << "test-escapes.po.out" << "po";
+    QTest::newRow("xlf seg") << "test-trans_seg.xlf" << "test-trans_seg.ts.out" << "ts";
 }
 
 void tst_lconvert::converts()
@@ -238,9 +261,10 @@ void tst_lconvert::converts()
     QString outFileNameFq = dataDir + outFileName;
 
     QProcess cvt;
-    cvt.start(binDir + "/lconvert",
+    cvt.start(lconvert,
               QStringList() << "-i" << (dataDir + inFileName) << "-of" << format,
               QIODevice::ReadWrite | QIODevice::Text);
+    QVERIFY2(cvt.waitForStarted(), qPrintable(cvt.errorString()));
     doWait(&cvt, 0);
     if (QTest::currentTestFailed())
         return;
@@ -250,7 +274,6 @@ void tst_lconvert::converts()
 
 Q_DECLARE_METATYPE(QList<QStringList>);
 
-#if 0
 void tst_lconvert::chains_data()
 {
     QTest::addColumn<QString>("inFileName");
@@ -258,6 +281,9 @@ void tst_lconvert::chains_data()
     QTest::addColumn<QStringList>("stations");
     QTest::addColumn<QList<QStringList> >("args");
 
+    QTest::newRow("no-untranslated") << "untranslated.ts" << "untranslated.ts.out"
+                                     << QStringList({"ts", "ts"})
+                                     << QList<QStringList>({QStringList("-no-untranslated")});
 }
 
 void tst_lconvert::chains()
@@ -269,7 +295,6 @@ void tst_lconvert::chains()
 
     convertChain(inFileName, outFileName, stations, args);
 }
-#endif
 
 void tst_lconvert::roundtrips_data()
 {
@@ -282,6 +307,7 @@ void tst_lconvert::roundtrips_data()
     QStringList tsPoTs; tsPoTs << "ts" << "po" << "ts";
     QStringList tsXlfTs; tsXlfTs << "ts" << "xlf" << "ts";
     QStringList tsQmTs; tsQmTs << "ts" << "qm" << "ts";
+    QStringList qmTsQm; qmTsQm << "qm" << "ts" << "qm";
 
     QList<QStringList> noArgs;
     QList<QStringList> filterPoArgs; filterPoArgs << QStringList() << (QStringList() << "-drop-tag" << "po:*");
@@ -315,8 +341,12 @@ void tst_lconvert::roundtrips_data()
     QTest::newRow("ts-qm-ts (variants)") << "variants.ts" << tsQmTs << outDeArgs;
     QTest::newRow("ts-po-ts (msgid)") << "msgid.ts" << tsPoTs << noArgs;
     QTest::newRow("ts-xliff-ts (msgid)") << "msgid.ts" << tsXlfTs << noArgs;
+    QTest::newRow("ts-qm-ts (emptymsg)") << "emptymsg.ts" << tsQmTs << noArgs;
+    QTest::newRow("ts-xliff-ts (emptymsg)") << "emptymsg.ts" << tsXlfTs << noArgs;
 
     QTest::newRow("ts-po-ts (endless loop)") << "endless-po-loop.ts" << tsPoTs << noArgs;
+    QTest::newRow("ts-qm-ts (whitespace)") << "whitespace.ts" << tsQmTs << noArgs;
+    QTest::newRow("qm-ts-qm (untranslated)") << "untranslated.qm" << qmTsQm << noArgs;
 }
 
 void tst_lconvert::roundtrips()
@@ -333,7 +363,7 @@ void tst_lconvert::merge()
     QProcess cvt;
     QStringList args;
     args << (dataDir + "idxmerge.ts") << (dataDir + "idxmerge-add.ts");
-    cvt.start(binDir + "/lconvert", args, QIODevice::ReadWrite | QIODevice::Text);
+    cvt.start(lconvert, args, QIODevice::ReadWrite | QIODevice::Text);
     doWait(&cvt, 1);
     if (!QTest::currentTestFailed())
         doCompare(&cvt, dataDir + "idxmerge.ts.out");

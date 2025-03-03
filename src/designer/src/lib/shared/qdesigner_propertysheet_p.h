@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 //
 //  W A R N I N G
@@ -49,12 +19,12 @@
 #include "dynamicpropertysheet.h"
 #include <QtDesigner/propertysheet.h>
 #include <QtDesigner/default_extensionfactory.h>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/qextensionmanager.h>
 
-#include <QtCore/QVariant>
-#include <QtCore/QPair>
+#include <QtCore/qvariant.h>
+#include <QtCore/qpair.h>
 
-#include <QtCore/QPointer>
+#include <QtCore/qpointer.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -74,38 +44,38 @@ class QDESIGNER_SHARED_EXPORT QDesignerPropertySheet: public QObject, public QDe
     Q_OBJECT
     Q_INTERFACES(QDesignerPropertySheetExtension QDesignerDynamicPropertySheetExtension)
 public:
-    explicit QDesignerPropertySheet(QObject *object, QObject *parent = 0);
-    virtual ~QDesignerPropertySheet();
+    explicit QDesignerPropertySheet(QObject *object, QObject *parent = nullptr);
+    ~QDesignerPropertySheet() override;
 
-    int indexOf(const QString &name) const Q_DECL_OVERRIDE;
+    int indexOf(const QString &name) const override;
 
-    int count() const Q_DECL_OVERRIDE;
-    QString propertyName(int index) const Q_DECL_OVERRIDE;
+    int count() const override;
+    QString propertyName(int index) const override;
 
-    QString propertyGroup(int index) const Q_DECL_OVERRIDE;
-    void setPropertyGroup(int index, const QString &group) Q_DECL_OVERRIDE;
+    QString propertyGroup(int index) const override;
+    void setPropertyGroup(int index, const QString &group) override;
 
-    bool hasReset(int index) const Q_DECL_OVERRIDE;
-    bool reset(int index) Q_DECL_OVERRIDE;
+    bool hasReset(int index) const override;
+    bool reset(int index) override;
 
-    bool isAttribute(int index) const Q_DECL_OVERRIDE;
-    void setAttribute(int index, bool b) Q_DECL_OVERRIDE;
+    bool isAttribute(int index) const override;
+    void setAttribute(int index, bool b) override;
 
-    bool isVisible(int index) const Q_DECL_OVERRIDE;
-    void setVisible(int index, bool b) Q_DECL_OVERRIDE;
+    bool isVisible(int index) const override;
+    void setVisible(int index, bool b) override;
 
-    QVariant property(int index) const Q_DECL_OVERRIDE;
-    void setProperty(int index, const QVariant &value) Q_DECL_OVERRIDE;
+    QVariant property(int index) const override;
+    void setProperty(int index, const QVariant &value) override;
 
-    bool isChanged(int index) const Q_DECL_OVERRIDE;
+    bool isChanged(int index) const override;
 
-    void setChanged(int index, bool changed) Q_DECL_OVERRIDE;
+    void setChanged(int index, bool changed) override;
 
-    bool dynamicPropertiesAllowed() const Q_DECL_OVERRIDE;
-    int addDynamicProperty(const QString &propertyName, const QVariant &value) Q_DECL_OVERRIDE;
-    bool removeDynamicProperty(int index) Q_DECL_OVERRIDE;
-    bool isDynamicProperty(int index) const Q_DECL_OVERRIDE;
-    bool canAddDynamicProperty(const QString &propertyName) const Q_DECL_OVERRIDE;
+    bool dynamicPropertiesAllowed() const override;
+    int addDynamicProperty(const QString &propertyName, const QVariant &value) override;
+    bool removeDynamicProperty(int index) override;
+    bool isDynamicProperty(int index) const override;
+    bool canAddDynamicProperty(const QString &propertyName) const override;
 
     bool isDefaultDynamicProperty(int index) const;
 
@@ -118,11 +88,13 @@ public:
     void setIconCache(qdesigner_internal::DesignerIconCache *cache);
     int createFakeProperty(const QString &propertyName, const QVariant &value = QVariant());
 
-    bool isEnabled(int index) const Q_DECL_OVERRIDE;
+    bool isEnabled(int index) const override;
     QObject *object() const;
 
     static bool internalDynamicPropertiesEnabled();
     static void setInternalDynamicPropertiesEnabled(bool v);
+
+    static QDesignerFormEditorInterface *formEditorForObject(QObject *o);
 
 protected:
     bool isAdditionalProperty(int index) const;
@@ -160,7 +132,9 @@ public:
                         PropertyBuddy,
                         PropertyAccessibility,
                         PropertyGeometry,
+                        PropertyChecked,
                         PropertyCheckable,
+                        PropertyVisible,
                         PropertyWindowTitle,
                         PropertyWindowIcon,
                         PropertyWindowFilePath,
@@ -173,8 +147,14 @@ public:
     };
 
     enum ObjectType { ObjectNone, ObjectLabel, ObjectLayout, ObjectLayoutWidget };
+    enum ObjectFlag
+    {
+        CheckableProperty = 0x1 // Has a "checked" property depending on "checkable"
+    };
+    Q_DECLARE_FLAGS(ObjectFlags, ObjectFlag)
 
     static ObjectType objectTypeFromObject(const QObject *o);
+    static ObjectFlags objectFlagsFromObject(const QObject *o);
     static PropertyType propertyTypeFromName(const QString &name);
 
 protected:
@@ -195,10 +175,10 @@ class QDESIGNER_SHARED_EXPORT QDesignerAbstractPropertySheetFactory: public QExt
     Q_OBJECT
     Q_INTERFACES(QAbstractExtensionFactory)
 public:
-    explicit QDesignerAbstractPropertySheetFactory(QExtensionManager *parent = 0);
-    virtual ~QDesignerAbstractPropertySheetFactory();
+    explicit QDesignerAbstractPropertySheetFactory(QExtensionManager *parent = nullptr);
+    ~QDesignerAbstractPropertySheetFactory() override;
 
-    QObject *extension(QObject *object, const QString &iid) const;
+    QObject *extension(QObject *object, const QString &iid) const override;
 
 private slots:
     void objectDestroyed(QObject *object);
@@ -217,13 +197,13 @@ private:
 template <class Object, class PropertySheet>
 class QDesignerPropertySheetFactory : public QDesignerAbstractPropertySheetFactory {
 public:
-    explicit QDesignerPropertySheetFactory(QExtensionManager *parent = 0);
+    explicit QDesignerPropertySheetFactory(QExtensionManager *parent = nullptr);
 
     static void registerExtension(QExtensionManager *mgr);
 
 private:
     // Does a  qobject_cast on  the object.
-    QObject *createPropertySheet(QObject *qObject, QObject *parent) const Q_DECL_OVERRIDE;
+    QObject *createPropertySheet(QObject *qObject, QObject *parent) const override;
 };
 
 template <class Object, class PropertySheet>
@@ -237,7 +217,7 @@ QObject *QDesignerPropertySheetFactory<Object, PropertySheet>::createPropertyShe
 {
     Object *object = qobject_cast<Object *>(qObject);
     if (!object)
-        return 0;
+        return nullptr;
     return new PropertySheet(object, parent);
 }
 
@@ -251,7 +231,9 @@ void QDesignerPropertySheetFactory<Object, PropertySheet>::registerExtension(QEx
 
 
 // Standard property sheet
-typedef QDesignerPropertySheetFactory<QObject, QDesignerPropertySheet> QDesignerDefaultPropertySheetFactory;
+using QDesignerDefaultPropertySheetFactory = QDesignerPropertySheetFactory<QObject, QDesignerPropertySheet>;
+
+Q_DECLARE_OPERATORS_FOR_FLAGS(QDesignerPropertySheet::ObjectFlags)
 
 QT_END_NAMESPACE
 

@@ -1,55 +1,27 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "textpropertyeditor_p.h"
 #include "propertylineedit_p.h"
 #include "stylesheeteditor_p.h"
 
-#include <QtWidgets/QLineEdit>
-#include <QtGui/QRegExpValidator>
-#include <QtGui/QResizeEvent>
-#include <QtWidgets/QCompleter>
-#include <QtWidgets/QAbstractItemView>
-#include <QtCore/QRegExp>
-#include <QtCore/QUrl>
-#include <QtCore/QFile>
-#include <QtCore/QDebug>
+#include <QtWidgets/qlineedit.h>
+#include <QtGui/qvalidator.h>
+#include <QtGui/qevent.h>
+#include <QtWidgets/qcompleter.h>
+#include <QtWidgets/qabstractitemview.h>
+#include <QtCore/qregularexpression.h>
+#include <QtCore/qurl.h>
+#include <QtCore/qfile.h>
+#include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
 
+using namespace Qt::StringLiterals;
+
 namespace {
-    const QChar NewLineChar(QLatin1Char('\n'));
-    const QLatin1String EscapedNewLine("\\n");
+    const QChar NewLineChar(u'\n');
+    const auto EscapedNewLine = "\\n"_L1;
 
     // A validator that replaces offending strings
     class ReplacementValidator : public QValidator {
@@ -57,8 +29,8 @@ namespace {
         ReplacementValidator (QObject * parent,
                               const QString &offending,
                               const QString &replacement);
-        void fixup ( QString & input ) const Q_DECL_OVERRIDE;
-        State validate ( QString & input, int &pos) const Q_DECL_OVERRIDE;
+        void fixup ( QString & input ) const override;
+        State validate ( QString & input, int &pos) const override;
     private:
         const QString m_offending;
         const QString m_replacement;
@@ -86,7 +58,7 @@ namespace {
     class StyleSheetValidator : public ReplacementValidator {
     public:
         StyleSheetValidator (QObject * parent);
-        State validate(QString & input, int &pos) const Q_DECL_OVERRIDE;
+        State validate(QString & input, int &pos) const override;
     };
 
     StyleSheetValidator::StyleSheetValidator (QObject * parent) :
@@ -112,8 +84,8 @@ namespace {
     public:
         UrlValidator(QCompleter *completer, QObject *parent);
 
-        State validate(QString &input, int &pos) const Q_DECL_OVERRIDE;
-        void fixup(QString &input) const Q_DECL_OVERRIDE;
+        State validate(QString &input, int &pos) const override;
+        void fixup(QString &input) const override;
     private:
         QUrl guessUrlFromString(const QString &string) const;
         QCompleter *m_completer;
@@ -160,10 +132,11 @@ namespace {
     QUrl UrlValidator::guessUrlFromString(const QString &string) const
     {
         const QString urlStr = string.trimmed();
-        QRegExp qualifiedUrl(QStringLiteral("^[a-zA-Z]+\\:.*"));
+        const QRegularExpression qualifiedUrl(u"^[a-zA-Z]+\\:.*$"_s);
+        Q_ASSERT(qualifiedUrl.isValid());
 
         // Check if it looks like a qualified URL. Try parsing it and see.
-        const bool hasSchema = qualifiedUrl.exactMatch(urlStr);
+        const bool hasSchema = qualifiedUrl.match(urlStr).hasMatch();
         if (hasSchema) {
             const QUrl url(urlStr, QUrl::TolerantMode);
             if (url.isValid())
@@ -171,8 +144,8 @@ namespace {
         }
 
         // Might be a Qt resource
-        if (string.startsWith(QStringLiteral(":/")))
-            return QUrl(QStringLiteral("qrc") + string);
+        if (string.startsWith(":/"_L1))
+            return QUrl("qrc"_L1 + string);
 
         // Might be a file.
         if (QFile::exists(urlStr))
@@ -180,15 +153,15 @@ namespace {
 
         // Might be a short url - try to detect the schema.
         if (!hasSchema) {
-            const int dotIndex = urlStr.indexOf(QLatin1Char('.'));
+            const int dotIndex = urlStr.indexOf(u'.');
             if (dotIndex != -1) {
                 const QString prefix = urlStr.left(dotIndex).toLower();
                 QString urlString;
-                if (prefix == QStringLiteral("ftp"))
+                if (prefix == "ftp"_L1)
                     urlString += prefix;
                 else
-                    urlString += QStringLiteral("http");
-                urlString += QStringLiteral("://");
+                    urlString += "http"_L1;
+                urlString += "://"_L1;
                 urlString += urlStr;
                 const QUrl url(urlString, QUrl::TolerantMode);
                 if (url.isValid())
@@ -207,10 +180,7 @@ namespace qdesigner_internal {
                                            EmbeddingMode embeddingMode,
                                            TextPropertyValidationMode validationMode) :
         QWidget(parent),
-        m_validationMode(ValidationSingleLine),
-        m_updateMode(UpdateAsYouType),
-        m_lineEdit(new PropertyLineEdit(this)),
-        m_textEdited(false)
+        m_lineEdit(new PropertyLineEdit(this))
     {
         switch (embeddingMode) {
         case EmbeddingNone:
@@ -227,10 +197,10 @@ namespace qdesigner_internal {
 
         setFocusProxy(m_lineEdit);
 
-        connect(m_lineEdit,SIGNAL(editingFinished()), this, SIGNAL(editingFinished()));
-        connect(m_lineEdit,SIGNAL(returnPressed()), this, SLOT(slotEditingFinished()));
-        connect(m_lineEdit,SIGNAL(textChanged(QString)), this, SLOT(slotTextChanged(QString)));
-        connect(m_lineEdit,SIGNAL(textEdited(QString)), this, SLOT(slotTextEdited()));
+        connect(m_lineEdit,&QLineEdit::editingFinished, this, &TextPropertyEditor::editingFinished);
+        connect(m_lineEdit,&QLineEdit::returnPressed, this, &TextPropertyEditor::slotEditingFinished);
+        connect(m_lineEdit,&QLineEdit::textChanged, this, &TextPropertyEditor::slotTextChanged);
+        connect(m_lineEdit,&QLineEdit::textEdited, this, &TextPropertyEditor::slotTextEdited);
 
         setTextPropertyValidationMode(validationMode);
     }
@@ -241,7 +211,7 @@ namespace qdesigner_internal {
         switch (m_validationMode) {
         case ValidationStyleSheet:
             m_lineEdit->setValidator(new  StyleSheetValidator(m_lineEdit));
-            m_lineEdit->setCompleter(0);
+            m_lineEdit->setCompleter(nullptr);
             break;
         case ValidationMultiLine:
         case ValidationRichText:
@@ -249,34 +219,33 @@ namespace qdesigner_internal {
             // While it is not possible to actually type a newline  characters,
             // it can be pasted into the line edit.
             m_lineEdit->setValidator(new ReplacementValidator(m_lineEdit, NewLineChar, EscapedNewLine));
-            m_lineEdit->setCompleter(0);
+            m_lineEdit->setCompleter(nullptr);
             break;
         case ValidationSingleLine:
             // Set a  validator that replaces newline characters by a blank.
-            m_lineEdit->setValidator(new ReplacementValidator(m_lineEdit, NewLineChar, QString(QLatin1Char(' '))));
-             m_lineEdit->setCompleter(0);
+            m_lineEdit->setValidator(new ReplacementValidator(m_lineEdit, NewLineChar, QString(u' ')));
+             m_lineEdit->setCompleter(nullptr);
             break;
         case ValidationObjectName:
-            setRegExpValidator(QStringLiteral("[_a-zA-Z][_a-zA-Z0-9]{,1023}"));
-             m_lineEdit->setCompleter(0);
+            setRegularExpressionValidator(u"^[_a-zA-Z][_a-zA-Z0-9]{1,1023}$"_s);
+             m_lineEdit->setCompleter(nullptr);
              break;
         case ValidationObjectNameScope:
-            setRegExpValidator(QStringLiteral("[_a-zA-Z:][_a-zA-Z0-9:]{,1023}"));
-            m_lineEdit->setCompleter(0);
+            setRegularExpressionValidator(u"^[_a-zA-Z:][_a-zA-Z0-9:]{1,1023}$"_s);
+            m_lineEdit->setCompleter(nullptr);
             break;
         case ValidationURL: {
-            static QStringList urlCompletions;
-            if (urlCompletions.empty()) {
-                urlCompletions.push_back(QStringLiteral("about:blank"));
-                urlCompletions.push_back(QStringLiteral("http://"));
-                urlCompletions.push_back(QStringLiteral("http://www."));
-                urlCompletions.push_back(QStringLiteral("http://qt-project.org/"));
-                urlCompletions.push_back(QStringLiteral("file://"));
-                urlCompletions.push_back(QStringLiteral("ftp://"));
-                urlCompletions.push_back(QStringLiteral("data:"));
-                urlCompletions.push_back(QStringLiteral("data:text/html,"));
-                urlCompletions.push_back(QStringLiteral("qrc:/"));
-            }
+            static const QStringList urlCompletions = {
+                u"about:blank"_s,
+                u"http://"_s,
+                u"http://www."_s,
+                u"http://qt.io"_s,
+                u"file://"_s,
+                u"ftp://"_s,
+                u"data:"_s,
+                u"data:text/html,"_s,
+                u"qrc:/"_s,
+            };
             QCompleter *completer = new QCompleter(urlCompletions, m_lineEdit);
             m_lineEdit->setCompleter(completer);
             m_lineEdit->setValidator(new UrlValidator(completer, m_lineEdit));
@@ -289,11 +258,11 @@ namespace qdesigner_internal {
         markIntermediateState();
     }
 
-    void TextPropertyEditor::setRegExpValidator(const QString &pattern)
+    void TextPropertyEditor::setRegularExpressionValidator(const QString &pattern)
     {
-        QRegExp regExp(pattern);
+        QRegularExpression regExp(pattern);
         Q_ASSERT(regExp.isValid());
-        m_lineEdit->setValidator(new QRegExpValidator(regExp,m_lineEdit));
+        m_lineEdit->setValidator(new QRegularExpressionValidator(regExp, m_lineEdit));
     }
 
     QString TextPropertyEditor::text() const
@@ -383,9 +352,9 @@ namespace qdesigner_internal {
 
         QString rc(s);
         // protect backslashes
-        rc.replace(QLatin1Char('\\'), QStringLiteral("\\\\"));
+        rc.replace('\\'_L1, "\\\\"_L1);
         // escape newlines
-        rc.replace(NewLineChar, QString(EscapedNewLine));
+        rc.replace(u'\n', EscapedNewLine);
         return rc;
 
     }
@@ -399,14 +368,14 @@ namespace qdesigner_internal {
             return s;
 
         QString rc(s);
-        for (int pos = 0; (pos = rc.indexOf(QLatin1Char('\\'),pos)) >= 0 ; ) {
+        for (qsizetype pos = 0; (pos = rc.indexOf(u'\\', pos)) >= 0 ; ) {
             // found an escaped character. If not a newline or at end of string, leave as is, else insert '\n'
-            const int nextpos = pos + 1;
-            if (nextpos  >= rc.length())  // trailing '\\'
+            const qsizetype nextpos = pos + 1;
+            if (nextpos  >= rc.size())  // trailing '\\'
                  break;
             // Escaped NewLine
-            if (rc.at(nextpos) ==  QChar(QLatin1Char('n')))
-                 rc[nextpos] =  NewLineChar;
+            if (rc.at(nextpos) == u'n')
+                 rc[nextpos] = u'\n';
             // Remove escape, go past escaped
             rc.remove(pos,1);
             pos++;

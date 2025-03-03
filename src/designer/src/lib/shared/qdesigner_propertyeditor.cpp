@@ -1,97 +1,71 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qdesigner_propertyeditor_p.h"
 #include "pluginmanager_p.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerDynamicPropertySheetExtension>
-#include <QtDesigner/QDesignerPropertySheetExtension>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/dynamicpropertysheet.h>
+#include <QtDesigner/propertysheet.h>
+#include <QtDesigner/qextensionmanager.h>
 #include <widgetfactory_p.h>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QLineEdit>
-#include <QtWidgets/QAbstractButton>
+
+#include <QtWidgets/qlineedit.h>
+#include <QtWidgets/qabstractbutton.h>
+
+#include <QtGui/qaction.h>
 
 QT_BEGIN_NAMESPACE
 
+using namespace Qt::StringLiterals;
+
 namespace qdesigner_internal {
-typedef QDesignerPropertyEditor::StringPropertyParameters StringPropertyParameters;
+using StringPropertyParameters = QDesignerPropertyEditor::StringPropertyParameters;
 // A map of property name to type
-typedef QHash<QString, StringPropertyParameters> PropertyNameTypeMap;
+using PropertyNameTypeMap = QHash<QString, StringPropertyParameters>;
 
 // Compile a map of hard-coded string property types
 static const PropertyNameTypeMap &stringPropertyTypes()
 {
     static PropertyNameTypeMap propertyNameTypeMap;
-    if (propertyNameTypeMap.empty()) {
+    if (propertyNameTypeMap.isEmpty()) {
         const StringPropertyParameters richtext(ValidationRichText, true);
         // Accessibility. Both are texts the narrator reads
-        propertyNameTypeMap.insert(QStringLiteral("accessibleDescription"), richtext);
-        propertyNameTypeMap.insert(QStringLiteral("accessibleName"), richtext);
+        propertyNameTypeMap.insert(u"accessibleDescription"_s, richtext);
+        propertyNameTypeMap.insert(u"accessibleName"_s, richtext);
         // object names
         const StringPropertyParameters objectName(ValidationObjectName, false);
-        propertyNameTypeMap.insert(QStringLiteral("buddy"), objectName);
-        propertyNameTypeMap.insert(QStringLiteral("currentItemName"), objectName);
-        propertyNameTypeMap.insert(QStringLiteral("currentPageName"), objectName);
-        propertyNameTypeMap.insert(QStringLiteral("currentTabName"), objectName);
-        propertyNameTypeMap.insert(QStringLiteral("layoutName"), objectName);
-        propertyNameTypeMap.insert(QStringLiteral("spacerName"), objectName);
+        propertyNameTypeMap.insert(u"buddy"_s, objectName);
+        propertyNameTypeMap.insert(u"currentItemName"_s, objectName);
+        propertyNameTypeMap.insert(u"currentPageName"_s, objectName);
+        propertyNameTypeMap.insert(u"currentTabName"_s, objectName);
+        propertyNameTypeMap.insert(u"layoutName"_s, objectName);
+        propertyNameTypeMap.insert(u"spacerName"_s, objectName);
         // Style sheet
-        propertyNameTypeMap.insert(QStringLiteral("styleSheet"), StringPropertyParameters(ValidationStyleSheet, false));
+        propertyNameTypeMap.insert(u"styleSheet"_s, StringPropertyParameters(ValidationStyleSheet, false));
         // Buttons/  QCommandLinkButton
         const StringPropertyParameters multiline(ValidationMultiLine, true);
-        propertyNameTypeMap.insert(QStringLiteral("description"), multiline);
-        propertyNameTypeMap.insert(QStringLiteral("iconText"), multiline);
+        propertyNameTypeMap.insert(u"description"_s, multiline);
+        propertyNameTypeMap.insert(u"iconText"_s, multiline);
         // Tooltips, etc.
-        propertyNameTypeMap.insert(QStringLiteral("toolTip"), richtext);
-        propertyNameTypeMap.insert(QStringLiteral("whatsThis"), richtext);
-        propertyNameTypeMap.insert(QStringLiteral("windowIconText"), richtext);
-        propertyNameTypeMap.insert(QStringLiteral("html"), richtext);
+        propertyNameTypeMap.insert(u"toolTip"_s, richtext);
+        propertyNameTypeMap.insert(u"whatsThis"_s, richtext);
+        propertyNameTypeMap.insert(u"windowIconText"_s, richtext);
+        propertyNameTypeMap.insert(u"html"_s, richtext);
         //  A QWizard page id
-        propertyNameTypeMap.insert(QStringLiteral("pageId"), StringPropertyParameters(ValidationSingleLine, false));
+        propertyNameTypeMap.insert(u"pageId"_s, StringPropertyParameters(ValidationSingleLine, false));
         // QPlainTextEdit
-        propertyNameTypeMap.insert(QStringLiteral("plainText"), StringPropertyParameters(ValidationMultiLine, true));
+        propertyNameTypeMap.insert(u"plainText"_s, StringPropertyParameters(ValidationMultiLine, true));
     }
     return propertyNameTypeMap;
 }
 
 QDesignerPropertyEditor::QDesignerPropertyEditor(QWidget *parent, Qt::WindowFlags flags) :
-    QDesignerPropertyEditorInterface(parent, flags),
-    m_propertyChangedForwardingBlocked(false)
+    QDesignerPropertyEditorInterface(parent, flags)
 {
     // Make old signal work for  compatibility
-    connect(this, SIGNAL(propertyChanged(QString,QVariant)), this, SLOT(slotPropertyChanged(QString,QVariant)));
+    connect(this, &QDesignerPropertyEditorInterface::propertyChanged,
+            this, &QDesignerPropertyEditor::slotPropertyChanged);
 }
 
 static inline bool isDynamicProperty(QDesignerFormEditorInterface *core, QObject *object,
@@ -113,7 +87,7 @@ QDesignerPropertyEditor::StringPropertyParameters QDesignerPropertyEditor::textP
         const QString &propertyName, bool isMainContainer)
 {
     // object name - no comment
-    if (propertyName == QStringLiteral("objectName")) {
+    if (propertyName == "objectName"_L1) {
         const TextPropertyValidationMode vm =  isMainContainer ? ValidationObjectNameScope : ValidationObjectName;
         return StringPropertyParameters(vm, false);
     }
@@ -131,12 +105,12 @@ QDesignerPropertyEditor::StringPropertyParameters QDesignerPropertyEditor::textP
         return StringPropertyParameters(ValidationMultiLine, true);
 
     // Check hardcoded property ames
-   const PropertyNameTypeMap::const_iterator hit = stringPropertyTypes().constFind(propertyName);
+   const auto hit = stringPropertyTypes().constFind(propertyName);
    if (hit != stringPropertyTypes().constEnd())
        return hit.value();
 
     // text: Check according to widget type.
-    if (propertyName == QStringLiteral("text")) {
+    if (propertyName == "text"_L1) {
         if (qobject_cast<const QAction *>(object) || qobject_cast<const QLineEdit *>(object))
             return StringPropertyParameters(ValidationSingleLine, true);
         if (qobject_cast<const QAbstractButton *>(object))
@@ -145,14 +119,14 @@ QDesignerPropertyEditor::StringPropertyParameters QDesignerPropertyEditor::textP
     }
 
    // Fuzzy matching
-    if (propertyName.endsWith(QStringLiteral("Name")))
+    if (propertyName.endsWith("Name"_L1))
         return StringPropertyParameters(ValidationSingleLine, true);
 
-    if (propertyName.endsWith(QStringLiteral("ToolTip")))
+    if (propertyName.endsWith("ToolTip"_L1))
         return StringPropertyParameters(ValidationRichText, true);
 
 #ifdef Q_OS_WIN // No translation for the active X "control" property
-    if (propertyName == QStringLiteral("control") && className == QStringLiteral("QAxWidget"))
+    if (propertyName == "control"_L1 && className == "QAxWidget"_L1)
         return StringPropertyParameters(ValidationSingleLine, false);
 #endif
 

@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "previewconfigurationwidget_p.h"
 #include "ui_previewconfigurationwidget.h"
@@ -39,46 +9,42 @@
 #include <iconloader_p.h>
 #include <stylesheeteditor_p.h>
 
-#include <deviceskin.h>
+#include <deviceskin_p.h>
 
-#include <QtDesigner/QDesignerSettingsInterface>
+#include <QtDesigner/abstractsettings.h>
 
-#include <QtWidgets/QFileDialog>
-#include <QtWidgets/QStyleFactory>
-#include <QtWidgets/QFileDialog>
-#include <QtWidgets/QMessageBox>
-#include <QtCore/QPair>
-#include <QtCore/QList>
-#include <QtCore/QDebug>
-#include <QtCore/QFileInfo>
-#include <QtCore/QSharedData>
-
-
-static const char *skinResourcePathC = ":/skins/";
+#include <QtWidgets/qfiledialog.h>
+#include <QtWidgets/qstylefactory.h>
+#include <QtWidgets/qfiledialog.h>
+#include <QtWidgets/qmessagebox.h>
+#include <QtCore/qpair.h>
+#include <QtCore/qlist.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qshareddata.h>
 
 QT_BEGIN_NAMESPACE
 
-static const char *skinExtensionC = "skin";
+using namespace Qt::StringLiterals;
+
+static constexpr auto skinResourcePathC = ":/skins/"_L1;
+static constexpr auto skinExtensionC = "skin"_L1;
 
 // Pair of skin name, path
-typedef QPair<QString, QString> SkinNamePath;
-typedef QList<SkinNamePath> Skins;
+using SkinNamePath = std::pair<QString, QString>;
+using Skins = QList<SkinNamePath>;
 enum { SkinComboNoneIndex = 0 };
 
 // find default skins (resources)
 static const Skins &defaultSkins() {
     static Skins rc;
-    if (rc.empty()) {
-        const QString skinPath = QLatin1String(skinResourcePathC);
-        QString pattern = QStringLiteral("*.");
-        pattern += QLatin1String(skinExtensionC);
-        const QDir dir(skinPath, pattern);
+    if (rc.isEmpty()) {
+        const QDir dir(skinResourcePathC, "*."_L1 + skinExtensionC);
         const QFileInfoList list = dir.entryInfoList(QDir::Dirs|QDir::NoDotAndDotDot, QDir::Name);
-        if (list.empty())
+        if (list.isEmpty())
             return rc;
-        const QFileInfoList::const_iterator lcend = list.constEnd();
-        for (QFileInfoList::const_iterator it = list.constBegin(); it != lcend; ++it)
-            rc.push_back(SkinNamePath(it->baseName(), it->filePath()));
+        for (const auto &fi : list)
+            rc.append(SkinNamePath(fi.baseName(), fi.filePath()));
     }
     return rc;
 }
@@ -114,7 +80,7 @@ private:
 
     const QString m_defaultStyle;
     QGroupBox *m_parent;
-    Ui::PreviewConfigurationWidget m_ui;
+    QT_PREPEND_NAMESPACE(Ui)::PreviewConfigurationWidget m_ui;
 
     int m_firstUserSkinIndex;
     int m_browseSkinIndex;
@@ -139,18 +105,19 @@ PreviewConfigurationWidget::PreviewConfigurationWidgetPrivate::PreviewConfigurat
 
     // sheet
     m_ui.m_appStyleSheetLineEdit->setTextPropertyValidationMode(qdesigner_internal::ValidationStyleSheet);
-    m_ui.m_appStyleSheetClearButton->setIcon(qdesigner_internal::createIconSet(QString::fromUtf8("resetproperty.png")));
-    QObject::connect(m_ui.m_appStyleSheetClearButton, SIGNAL(clicked()), m_ui.m_appStyleSheetLineEdit, SLOT(clear()));
+    m_ui.m_appStyleSheetClearButton->setIcon(qdesigner_internal::createIconSet("resetproperty.png"_L1));
+    QObject::connect(m_ui.m_appStyleSheetClearButton, &QAbstractButton::clicked,
+                     m_ui.m_appStyleSheetLineEdit, &qdesigner_internal::TextPropertyEditor::clear);
 
-    m_ui.m_skinRemoveButton->setIcon(qdesigner_internal::createIconSet(QString::fromUtf8("editdelete.png")));
+    m_ui.m_skinRemoveButton->setIcon(qdesigner_internal::createIconSet(QIcon::ThemeIcon::EditDelete,
+                                                                       "editdelete.png"_L1));
     // skins: find default skins (resources)
     m_ui.m_skinRemoveButton->setEnabled(false);
     Skins skins = defaultSkins();
     skins.push_front(SkinNamePath(PreviewConfigurationWidget::tr("None"), QString()));
 
-    const Skins::const_iterator scend = skins.constEnd();
-    for (Skins::const_iterator it = skins.constBegin(); it != scend; ++it)
-        m_ui.m_skinCombo->addItem (it->first, QVariant(it->second));
+    for (const auto &skin : std::as_const(skins))
+        m_ui.m_skinCombo->addItem(skin.first, QVariant(skin.second));
     m_browseSkinIndex = m_firstUserSkinIndex = skins.size();
     m_ui.m_skinCombo->addItem(PreviewConfigurationWidget::tr("Browse..."), QString());
 
@@ -175,16 +142,14 @@ QStringList PreviewConfigurationWidget::PreviewConfigurationWidgetPrivate::userS
 
 void PreviewConfigurationWidget::PreviewConfigurationWidgetPrivate::addUserSkins(const QStringList &files)
 {
-    if (files.empty())
+    if (files.isEmpty())
         return;
-    const QStringList ::const_iterator fcend = files.constEnd();
-    for (QStringList::const_iterator it = files.constBegin(); it != fcend; ++it) {
-        const QFileInfo fi(*it);
-        if (fi.isDir() && fi.isReadable()) {
-            m_ui.m_skinCombo->insertItem(m_browseSkinIndex++, fi.baseName(), QVariant(*it));
-        } else {
-            qWarning() << "Unable to access the skin directory '" << *it << "'.";
-        }
+    for (const auto &f : files) {
+        const QFileInfo fi(f);
+        if (fi.isDir() && fi.isReadable())
+            m_ui.m_skinCombo->insertItem(m_browseSkinIndex++, fi.baseName(), QVariant(f));
+        else
+            qWarning() << "Unable to access the skin directory '" << f << "'.";
     }
 }
 
@@ -269,10 +234,11 @@ void PreviewConfigurationWidget::PreviewConfigurationWidgetPrivate::storeSetting
 int  PreviewConfigurationWidget::PreviewConfigurationWidgetPrivate::browseSkin()
 {
     QFileDialog dlg(m_parent);
-    dlg.setFileMode(QFileDialog::DirectoryOnly);
+    dlg.setFileMode(QFileDialog::Directory);
+    dlg.setOption(QFileDialog::ShowDirsOnly);
     const QString title = tr("Load Custom Device Skin");
     dlg.setWindowTitle(title);
-    dlg.setNameFilter(tr("All QVFB Skins (*.%1)").arg(QLatin1String(skinExtensionC)));
+    dlg.setNameFilter(tr("All QVFB Skins (*.%1)").arg(skinExtensionC));
 
     int rc = m_lastSkinIndex;
     do {
@@ -284,7 +250,7 @@ int  PreviewConfigurationWidget::PreviewConfigurationWidgetPrivate::browseSkin()
             break;
 
         // check: 1) name already there
-        const QString directory = directories.front();
+        const QString directory = directories.constFirst();
         const QString name = QFileInfo(directory).baseName();
         const int existingIndex = m_ui.m_skinCombo->findText(name);
         if (existingIndex != -1 && existingIndex != SkinComboNoneIndex &&  existingIndex != m_browseSkinIndex) {
@@ -302,11 +268,11 @@ int  PreviewConfigurationWidget::PreviewConfigurationWidgetPrivate::browseSkin()
             rc = m_browseSkinIndex++;
 
             break;
-        } else {
-            const QString msgTitle = tr("%1 - Error").arg(title);
-            const QString msg = tr("%1 is not a valid skin directory:\n%2").arg(directory).arg(readError);
-            QMessageBox::warning (m_parent, msgTitle, msg);
         }
+        const QString msgTitle = tr("%1 - Error").arg(title);
+        const QString msg = tr("%1 is not a valid skin directory:\n%2")
+                            .arg(directory, readError);
+        QMessageBox::warning (m_parent, msgTitle, msg);
     } while (true);
     return rc;
 }
@@ -317,9 +283,12 @@ PreviewConfigurationWidget::PreviewConfigurationWidget(QDesignerFormEditorInterf
     QGroupBox(parent),
     m_impl(new PreviewConfigurationWidgetPrivate(core, this))
 {
-    connect(m_impl->appStyleSheetChangeButton(), SIGNAL(clicked()), this, SLOT(slotEditAppStyleSheet()));
-    connect(m_impl->skinRemoveButton(), SIGNAL(clicked()), this, SLOT(slotDeleteSkinEntry()));
-    connect(m_impl->skinCombo(), SIGNAL(currentIndexChanged(int)), this, SLOT(slotSkinChanged(int)));
+    connect(m_impl->appStyleSheetChangeButton(), &QAbstractButton::clicked,
+            this, &PreviewConfigurationWidget::slotEditAppStyleSheet);
+    connect(m_impl->skinRemoveButton(), &QAbstractButton::clicked,
+            this, &PreviewConfigurationWidget::slotDeleteSkinEntry);
+    connect(m_impl->skinCombo(), &QComboBox::currentIndexChanged,
+            this, &PreviewConfigurationWidget::slotSkinChanged);
 
     m_impl->retrieveSettings();
 }

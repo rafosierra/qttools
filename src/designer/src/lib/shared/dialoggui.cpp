@@ -1,50 +1,20 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "dialoggui_p.h"
 
-#include <QtWidgets/QFileIconProvider>
-#include <QtGui/QIcon>
-#include <QtGui/QImage>
-#include <QtGui/QImageReader>
-#include <QtGui/QPixmap>
+#include <QtWidgets/qfileiconprovider.h>
+#include <QtGui/qicon.h>
+#include <QtGui/qimage.h>
+#include <QtGui/qimagereader.h>
+#include <QtGui/qpixmap.h>
 
-#include <QtCore/QFileInfo>
-#include <QtCore/QFile>
-#include <QtCore/QSet>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qfile.h>
+#include <QtCore/qset.h>
 
 // QFileDialog on X11 does not provide an image preview. Display icons.
-#if defined(Q_OS_UNIX) && !defined(Q_OS_MAC)
+#if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
 #  define IMAGE_PREVIEW
 #endif
 
@@ -54,11 +24,11 @@ namespace qdesigner_internal {
 
 // Icon provider that reads out the known image formats
 class IconProvider : public QFileIconProvider {
-    Q_DISABLE_COPY(IconProvider)
+    Q_DISABLE_COPY_MOVE(IconProvider)
 
 public:
     IconProvider();
-    QIcon icon (const QFileInfo &info) const Q_DECL_OVERRIDE;
+    QIcon icon (const QFileInfo &info) const override;
 
     inline bool loadCheck(const QFileInfo &info) const;
     QImage loadImage(const QString &fileName) const;
@@ -70,14 +40,11 @@ private:
 IconProvider::IconProvider()
 {
     // Determine a list of readable extensions (upper and lower case)
-    typedef QList<QByteArray> ByteArrayList;
-    const ByteArrayList fmts = QImageReader::supportedImageFormats();
-    const ByteArrayList::const_iterator cend = fmts.constEnd();
-    for (ByteArrayList::const_iterator it = fmts.constBegin(); it != cend; ++it) {
-        const QString suffix = QString::fromUtf8(it->constData());
+    const auto &fmts = QImageReader::supportedImageFormats();
+    for (const QByteArray &fmt : fmts) {
+        const QString suffix = QString::fromUtf8(fmt);
         m_imageFormats.insert(suffix.toLower());
         m_imageFormats.insert(suffix.toUpper());
-
     }
 }
 
@@ -119,10 +86,7 @@ QIcon IconProvider::icon (const QFileInfo &info) const
 }
 
 // ---------------- DialogGui
-DialogGui::DialogGui() :
-    m_iconProvider(0)
-{
-}
+DialogGui::DialogGui() = default;
 
 DialogGui::~DialogGui()
 {
@@ -206,8 +170,8 @@ QString DialogGui::getSaveFileName(QWidget *parent, const QString &caption, cons
 
 void DialogGui::initializeImageFileDialog(QFileDialog &fileDialog, QFileDialog::Options options, QFileDialog::FileMode fm)
 {
-    fileDialog.setConfirmOverwrite( !(options & QFileDialog::DontConfirmOverwrite) );
-    fileDialog.setResolveSymlinks( !(options & QFileDialog::DontResolveSymlinks) );
+    fileDialog.setOption(QFileDialog::DontConfirmOverwrite, options.testFlag(QFileDialog::DontConfirmOverwrite));
+    fileDialog.setOption(QFileDialog::DontResolveSymlinks, options.testFlag(QFileDialog::DontResolveSymlinks));
     fileDialog.setIconProvider(ensureIconProvider());
     fileDialog.setFileMode(fm);
 }
@@ -222,13 +186,13 @@ QString DialogGui::getOpenImageFileName(QWidget *parent, const QString &caption,
         return QString();
 
     const QStringList selectedFiles = fileDialog.selectedFiles();
-    if (selectedFiles.empty())
+    if (selectedFiles.isEmpty())
         return QString();
 
     if (selectedFilter)
         *selectedFilter =  fileDialog.selectedNameFilter();
 
-    return selectedFiles.front();
+    return selectedFiles.constFirst();
 #else
     return getOpenFileName(parent, caption, dir, filter, selectedFilter, options);
 #endif
@@ -243,7 +207,7 @@ QStringList DialogGui::getOpenImageFileNames(QWidget *parent, const QString &cap
         return QStringList();
 
     const QStringList selectedFiles = fileDialog.selectedFiles();
-    if (!selectedFiles.empty() && selectedFilter)
+    if (!selectedFiles.isEmpty() && selectedFilter)
         *selectedFilter =  fileDialog.selectedNameFilter();
 
     return selectedFiles;

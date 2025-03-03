@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "tablewidgeteditor.h"
 #include <abstractformbuilder.h>
@@ -38,73 +8,75 @@
 #include "formwindowbase_p.h"
 #include "qdesigner_utils_p.h"
 #include <designerpropertymanager.h>
-#include <qttreepropertybrowser.h>
+#include <qttreepropertybrowser_p.h>
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformeditor.h>
 
-#include <QtCore/QDir>
-#include <QtCore/QQueue>
-#include <QtCore/QTextStream>
+#include <QtCore/qdir.h>
+#include <QtCore/qqueue.h>
+#include <QtCore/qtextstream.h>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 namespace qdesigner_internal {
 
 TableWidgetEditor::TableWidgetEditor(QDesignerFormWindowInterface *form, QDialog *dialog)
-    : AbstractItemEditor(form, 0), m_updatingBrowser(false)
+    : AbstractItemEditor(form, nullptr), m_updatingBrowser(false)
 {
     m_columnEditor = new ItemListEditor(form, this);
-    m_columnEditor->setObjectName(QStringLiteral("columnEditor"));
+    m_columnEditor->setObjectName(u"columnEditor"_s);
+    m_columnEditor->setAlignDefault(Qt::AlignCenter);
     m_columnEditor->setNewItemText(tr("New Column"));
     m_rowEditor = new ItemListEditor(form, this);
-    m_rowEditor->setObjectName(QStringLiteral("rowEditor"));
+    m_rowEditor->setObjectName(u"rowEditor"_s);
     m_rowEditor->setNewItemText(tr("New Row"));
     ui.setupUi(dialog);
 
     injectPropertyBrowser(ui.itemsTab, ui.widget);
-    connect(ui.showPropertiesButton, SIGNAL(clicked()),
-            this, SLOT(togglePropertyBrowser()));
+    connect(ui.showPropertiesButton, &QAbstractButton::clicked,
+            this, &TableWidgetEditor::togglePropertyBrowser);
     setPropertyBrowserVisible(false);
 
     ui.tabWidget->insertTab(0, m_columnEditor, tr("&Columns"));
     ui.tabWidget->insertTab(1, m_rowEditor, tr("&Rows"));
     ui.tabWidget->setCurrentIndex(0);
-    setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
     ui.tableWidget->setSelectionMode(QAbstractItemView::SingleSelection);
 
-    connect(iconCache(), SIGNAL(reloaded()), this, SLOT(cacheReloaded()));
+    connect(iconCache(), &DesignerIconCache::reloaded, this, &TableWidgetEditor::cacheReloaded);
 
-    connect(ui.tableWidget, SIGNAL(currentCellChanged(int,int,int,int)),
-            this, SLOT(on_tableWidget_currentCellChanged(int,int,int,int)));
-    connect(ui.tableWidget, SIGNAL(itemChanged(QTableWidgetItem*)),
-            this, SLOT(on_tableWidget_itemChanged(QTableWidgetItem*)));
-    connect(m_columnEditor, SIGNAL(indexChanged(int)),
-            this, SLOT(on_columnEditor_indexChanged(int)));
-    connect(m_columnEditor, SIGNAL(itemChanged(int,int,QVariant)),
-            this, SLOT(on_columnEditor_itemChanged(int,int,QVariant)));
-    connect(m_columnEditor, SIGNAL(itemInserted(int)),
-            this, SLOT(on_columnEditor_itemInserted(int)));
-    connect(m_columnEditor, SIGNAL(itemDeleted(int)),
-            this, SLOT(on_columnEditor_itemDeleted(int)));
-    connect(m_columnEditor, SIGNAL(itemMovedUp(int)),
-            this, SLOT(on_columnEditor_itemMovedUp(int)));
-    connect(m_columnEditor, SIGNAL(itemMovedDown(int)),
-            this, SLOT(on_columnEditor_itemMovedDown(int)));
+    connect(ui.tableWidget, &QTableWidget::currentCellChanged,
+            this, &TableWidgetEditor::tableWidgetCurrentCellChanged);
+    connect(ui.tableWidget, &QTableWidget::itemChanged,
+            this, &TableWidgetEditor::tableWidgetItemChanged);
+    connect(m_columnEditor, &ItemListEditor::indexChanged,
+            this, &TableWidgetEditor::columnEditorIndexChanged);
+    connect(m_columnEditor, &ItemListEditor::itemChanged,
+            this, &TableWidgetEditor::columnEditorItemChanged);
+    connect(m_columnEditor, &ItemListEditor::itemInserted,
+            this, &TableWidgetEditor::columnEditorItemInserted);
+    connect(m_columnEditor, &ItemListEditor::itemDeleted,
+            this, &TableWidgetEditor::columnEditorItemDeleted);
+    connect(m_columnEditor, &ItemListEditor::itemMovedUp,
+            this, &TableWidgetEditor::columnEditorItemMovedUp);
+    connect(m_columnEditor, &ItemListEditor::itemMovedDown,
+            this, &TableWidgetEditor::columnEditorItemMovedDown);
 
-    connect(m_rowEditor, SIGNAL(indexChanged(int)),
-            this, SLOT(on_rowEditor_indexChanged(int)));
-    connect(m_rowEditor, SIGNAL(itemChanged(int,int,QVariant)),
-            this, SLOT(on_rowEditor_itemChanged(int,int,QVariant)));
-    connect(m_rowEditor, SIGNAL(itemInserted(int)),
-            this, SLOT(on_rowEditor_itemInserted(int)));
-    connect(m_rowEditor, SIGNAL(itemDeleted(int)),
-            this, SLOT(on_rowEditor_itemDeleted(int)));
-    connect(m_rowEditor, SIGNAL(itemMovedUp(int)),
-            this, SLOT(on_rowEditor_itemMovedUp(int)));
-    connect(m_rowEditor, SIGNAL(itemMovedDown(int)),
-            this, SLOT(on_rowEditor_itemMovedDown(int)));
+    connect(m_rowEditor, &ItemListEditor::indexChanged,
+            this, &TableWidgetEditor::rowEditorIndexChanged);
+    connect(m_rowEditor, &ItemListEditor::itemChanged,
+            this, &TableWidgetEditor::rowEditorItemChanged);
+    connect(m_rowEditor, &ItemListEditor::itemInserted,
+            this, &TableWidgetEditor::rowEditorItemInserted);
+    connect(m_rowEditor, &ItemListEditor::itemDeleted,
+            this, &TableWidgetEditor::rowEditorItemDeleted);
+    connect(m_rowEditor, &ItemListEditor::itemMovedUp,
+            this, &TableWidgetEditor::rowEditorItemMovedUp);
+    connect(m_rowEditor, &ItemListEditor::itemMovedDown,
+            this, &TableWidgetEditor::rowEditorItemMovedDown);
 }
 
 static AbstractItemEditor::PropertyDefinition tableHeaderPropList[] = {
@@ -113,11 +85,11 @@ static AbstractItemEditor::PropertyDefinition tableHeaderPropList[] = {
     { Qt::ToolTipPropertyRole, 0, DesignerPropertyManager::designerStringTypeId, "toolTip" },
 //    { Qt::StatusTipPropertyRole, 0, DesignerPropertyManager::designerStringTypeId, "statusTip" },
     { Qt::WhatsThisPropertyRole, 0, DesignerPropertyManager::designerStringTypeId, "whatsThis" },
-    { Qt::FontRole, QVariant::Font, 0, "font" },
+    { Qt::FontRole, QMetaType::QFont, nullptr, "font" },
     { Qt::TextAlignmentRole, 0, DesignerPropertyManager::designerAlignmentTypeId, "textAlignment" },
-    { Qt::BackgroundRole, QVariant::Color, 0, "background" },
-    { Qt::ForegroundRole, QVariant::Brush, 0, "foreground" },
-    { 0, 0, 0, 0 }
+    { Qt::BackgroundRole, QMetaType::QColor, nullptr, "background" },
+    { Qt::ForegroundRole, QMetaType::QBrush, nullptr, "foreground" },
+    { 0, 0, nullptr, nullptr }
 };
 
 static AbstractItemEditor::PropertyDefinition tableItemPropList[] = {
@@ -126,13 +98,13 @@ static AbstractItemEditor::PropertyDefinition tableItemPropList[] = {
     { Qt::ToolTipPropertyRole, 0, DesignerPropertyManager::designerStringTypeId, "toolTip" },
 //    { Qt::StatusTipPropertyRole, 0, DesignerPropertyManager::designerStringTypeId, "statusTip" },
     { Qt::WhatsThisPropertyRole, 0, DesignerPropertyManager::designerStringTypeId, "whatsThis" },
-    { Qt::FontRole, QVariant::Font, 0, "font" },
+    { Qt::FontRole, QMetaType::QFont, nullptr, "font" },
     { Qt::TextAlignmentRole, 0, DesignerPropertyManager::designerAlignmentTypeId, "textAlignment" },
-    { Qt::BackgroundRole, QVariant::Brush, 0, "background" },
-    { Qt::ForegroundRole, QVariant::Brush, 0, "foreground" },
+    { Qt::BackgroundRole, QMetaType::QBrush, nullptr, "background" },
+    { Qt::ForegroundRole, QMetaType::QBrush, nullptr, "foreground" },
     { ItemFlagsShadowRole, 0, QtVariantPropertyManager::flagTypeId, "flags" },
     { Qt::CheckStateRole, 0, QtVariantPropertyManager::enumTypeId, "checkState" },
-    { 0, 0, 0, 0 }
+    { 0, 0, nullptr, nullptr }
 };
 
 TableWidgetContents TableWidgetEditor::fillContentsFromTableWidget(QTableWidget *tableWidget)
@@ -141,11 +113,19 @@ TableWidgetContents TableWidgetEditor::fillContentsFromTableWidget(QTableWidget 
     tblCont.fromTableWidget(tableWidget, false);
     tblCont.applyToTableWidget(ui.tableWidget, iconCache(), true);
 
-    tblCont.m_verticalHeader.applyToListWidget(m_rowEditor->listWidget(), iconCache(), true);
-    m_rowEditor->setupEditor(tableWidget, tableHeaderPropList);
+    auto *header = tableWidget->verticalHeader();
+    auto headerAlignment = header != nullptr
+            ? header->defaultAlignment() : Qt::Alignment(Qt::AlignLeading | Qt::AlignVCenter);
+    tblCont.m_verticalHeader.applyToListWidget(m_rowEditor->listWidget(), iconCache(),
+                                               true, headerAlignment);
+    m_rowEditor->setupEditor(tableWidget, tableHeaderPropList, headerAlignment);
 
-    tblCont.m_horizontalHeader.applyToListWidget(m_columnEditor->listWidget(), iconCache(), true);
-    m_columnEditor->setupEditor(tableWidget, tableHeaderPropList);
+    header = tableWidget->horizontalHeader();
+    headerAlignment = header != nullptr
+        ? header->defaultAlignment() : Qt::Alignment(Qt::AlignCenter);
+    tblCont.m_horizontalHeader.applyToListWidget(m_columnEditor->listWidget(), iconCache(),
+                                                 true, headerAlignment);
+    m_columnEditor->setupEditor(tableWidget, tableHeaderPropList, headerAlignment);
 
     setupEditor(tableWidget, tableItemPropList);
     if (ui.tableWidget->columnCount() > 0 && ui.tableWidget->rowCount() > 0)
@@ -172,7 +152,7 @@ void TableWidgetEditor::setItemData(int role, const QVariant &v)
         ui.tableWidget->setItem(ui.tableWidget->currentRow(), ui.tableWidget->currentColumn(), item);
     }
     QVariant newValue = v;
-    if (role == Qt::FontRole && newValue.type() == QVariant::Font) {
+    if (role == Qt::FontRole && newValue.metaType().id() == QMetaType::QFont) {
         QFont oldFont = ui.tableWidget->font();
         QFont newFont = qvariant_cast<QFont>(newValue).resolve(oldFont);
         newValue = QVariant::fromValue(newFont);
@@ -189,14 +169,20 @@ QVariant TableWidgetEditor::getItemData(int role) const
     return item->data(role);
 }
 
-void TableWidgetEditor::on_tableWidget_currentCellChanged(int currentRow, int currentCol, int, int /* XXX remove me */)
+int TableWidgetEditor::defaultItemFlags() const
+{
+    static const int flags = QTableWidgetItem().flags();
+    return flags;
+}
+
+void TableWidgetEditor::tableWidgetCurrentCellChanged(int currentRow, int currentCol)
 {
     m_rowEditor->setCurrentIndex(currentRow);
     m_columnEditor->setCurrentIndex(currentCol);
     updateBrowser();
 }
 
-void TableWidgetEditor::on_tableWidget_itemChanged(QTableWidgetItem *item)
+void TableWidgetEditor::tableWidgetItemChanged(QTableWidgetItem *item)
 {
     if (m_updatingBrowser)
         return;
@@ -209,22 +195,22 @@ void TableWidgetEditor::on_tableWidget_itemChanged(QTableWidgetItem *item)
     updateBrowser();
 }
 
-void TableWidgetEditor::on_columnEditor_indexChanged(int col)
+void TableWidgetEditor::columnEditorIndexChanged(int col)
 {
     ui.tableWidget->setCurrentCell(ui.tableWidget->currentRow(), col);
 }
 
-void TableWidgetEditor::on_columnEditor_itemChanged(int idx, int role, const QVariant &v)
+void TableWidgetEditor::columnEditorItemChanged(int idx, int role, const QVariant &v)
 {
     ui.tableWidget->horizontalHeaderItem(idx)->setData(role, v);
 }
 
-void TableWidgetEditor::on_rowEditor_indexChanged(int col)
+void TableWidgetEditor::rowEditorIndexChanged(int col)
 {
     ui.tableWidget->setCurrentCell(col, ui.tableWidget->currentColumn());
 }
 
-void TableWidgetEditor::on_rowEditor_itemChanged(int idx, int role, const QVariant &v)
+void TableWidgetEditor::rowEditorItemChanged(int idx, int role, const QVariant &v)
 {
     ui.tableWidget->verticalHeaderItem(idx)->setData(role, v);
 }
@@ -332,7 +318,7 @@ void TableWidgetEditor::moveRowsUp(int fromRow, int toRow)
     }
 }
 
-void TableWidgetEditor::on_columnEditor_itemInserted(int idx)
+void TableWidgetEditor::columnEditorItemInserted(int idx)
 {
     const int columnCount = ui.tableWidget->columnCount();
     ui.tableWidget->setColumnCount(columnCount + 1);
@@ -350,7 +336,7 @@ void TableWidgetEditor::on_columnEditor_itemInserted(int idx)
     updateEditor();
 }
 
-void TableWidgetEditor::on_columnEditor_itemDeleted(int idx)
+void TableWidgetEditor::columnEditorItemDeleted(int idx)
 {
     const int columnCount = ui.tableWidget->columnCount();
 
@@ -360,21 +346,21 @@ void TableWidgetEditor::on_columnEditor_itemDeleted(int idx)
     updateEditor();
 }
 
-void TableWidgetEditor::on_columnEditor_itemMovedUp(int idx)
+void TableWidgetEditor::columnEditorItemMovedUp(int idx)
 {
     moveColumnsRight(idx - 1, idx);
 
     ui.tableWidget->setCurrentCell(ui.tableWidget->currentRow(), idx - 1);
 }
 
-void TableWidgetEditor::on_columnEditor_itemMovedDown(int idx)
+void TableWidgetEditor::columnEditorItemMovedDown(int idx)
 {
     moveColumnsLeft(idx, idx + 1);
 
     ui.tableWidget->setCurrentCell(ui.tableWidget->currentRow(), idx + 1);
 }
 
-void TableWidgetEditor::on_rowEditor_itemInserted(int idx)
+void TableWidgetEditor::rowEditorItemInserted(int idx)
 {
     const int rowCount = ui.tableWidget->rowCount();
     ui.tableWidget->setRowCount(rowCount + 1);
@@ -392,7 +378,7 @@ void TableWidgetEditor::on_rowEditor_itemInserted(int idx)
     updateEditor();
 }
 
-void TableWidgetEditor::on_rowEditor_itemDeleted(int idx)
+void TableWidgetEditor::rowEditorItemDeleted(int idx)
 {
     const int rowCount = ui.tableWidget->rowCount();
 
@@ -402,14 +388,14 @@ void TableWidgetEditor::on_rowEditor_itemDeleted(int idx)
     updateEditor();
 }
 
-void TableWidgetEditor::on_rowEditor_itemMovedUp(int idx)
+void TableWidgetEditor::rowEditorItemMovedUp(int idx)
 {
     moveRowsUp(idx - 1, idx);
 
     ui.tableWidget->setCurrentCell(idx - 1, ui.tableWidget->currentColumn());
 }
 
-void TableWidgetEditor::on_rowEditor_itemMovedDown(int idx)
+void TableWidgetEditor::rowEditorItemMovedDown(int idx)
 {
     moveRowsDown(idx, idx + 1);
 
@@ -424,7 +410,6 @@ void TableWidgetEditor::cacheReloaded()
 TableWidgetEditorDialog::TableWidgetEditorDialog(QDesignerFormWindowInterface *form, QWidget *parent) :
     QDialog(parent), m_editor(form, this)
 {
-    setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 }
 
 TableWidgetContents TableWidgetEditorDialog::fillContentsFromTableWidget(QTableWidget *tableWidget)

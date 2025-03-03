@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 //
 //  W A R N I N G
@@ -48,13 +18,13 @@
 
 #include "shared_global_p.h"
 
-#include <QtDesigner/QDesignerWidgetDataBaseInterface>
+#include <QtDesigner/abstractwidgetdatabase.h>
 
-#include <QtGui/QIcon>
-#include <QtCore/QString>
-#include <QtCore/QVariant>
-#include <QtCore/QPair>
-#include <QtCore/QStringList>
+#include <QtGui/qicon.h>
+#include <QtCore/qstring.h>
+#include <QtCore/qvariant.h>
+#include <QtCore/qpair.h>
+#include <QtCore/qstringlist.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -69,47 +39,50 @@ public:
     explicit WidgetDataBaseItem(const QString &name = QString(),
                                 const QString &group = QString());
 
-    QString name() const;
-    void setName(const QString &name);
+    QString name() const override;
+    void setName(const QString &name) override;
 
-    QString group() const;
-    void setGroup(const QString &group);
+    QString group() const override;
+    void setGroup(const QString &group) override;
 
-    QString toolTip() const;
-    void setToolTip(const QString &toolTip);
+    QString toolTip() const override;
+    void setToolTip(const QString &toolTip) override;
 
-    QString whatsThis() const;
-    void setWhatsThis(const QString &whatsThis);
+    QString whatsThis() const override;
+    void setWhatsThis(const QString &whatsThis) override;
 
-    QString includeFile() const;
-    void setIncludeFile(const QString &includeFile);
+    QString includeFile() const override;
+    void setIncludeFile(const QString &includeFile) override;
 
 
-    QIcon icon() const;
-    void setIcon(const QIcon &icon);
+    QIcon icon() const override;
+    void setIcon(const QIcon &icon) override;
 
-    bool isCompat() const;
-    void setCompat(bool compat);
+    bool isCompat() const override;
+    void setCompat(bool compat) override;
 
-    bool isContainer() const;
-    void setContainer(bool b);
+    bool isContainer() const override;
+    void setContainer(bool b) override;
 
-    bool isCustom() const;
-    void setCustom(bool b);
+    bool isCustom() const override;
+    void setCustom(bool b) override;
 
-    QString pluginPath() const;
-    void setPluginPath(const QString &path);
+    QString pluginPath() const override;
+    void setPluginPath(const QString &path) override;
 
-    bool isPromoted() const;
-    void setPromoted(bool b);
+    bool isPromoted() const override;
+    void setPromoted(bool b) override;
 
-    QString extends() const;
-    void setExtends(const QString &s);
+    QString extends() const override;
+    void setExtends(const QString &s) override;
 
-    void setDefaultPropertyValues(const QList<QVariant> &list);
-    QList<QVariant> defaultPropertyValues() const;
+    void setDefaultPropertyValues(const QList<QVariant> &list) override;
+    QList<QVariant> defaultPropertyValues() const override;
 
     static WidgetDataBaseItem *clone(const QDesignerWidgetDataBaseItemInterface *item);
+
+    QString baseClassName() const; // FIXME Qt 7: Move to QDesignerWidgetDataBaseItemInterface
+    void setBaseClassName(const QString &b);
 
     QStringList fakeSlots() const;
     void setFakeSlots(const QStringList &);
@@ -122,6 +95,7 @@ public:
 
 private:
     QString m_name;
+    QString m_baseClassName;
     QString m_group;
     QString m_toolTip;
     QString m_whatsThis;
@@ -141,7 +115,7 @@ private:
 
 enum IncludeType { IncludeLocal, IncludeGlobal  };
 
-typedef  QPair<QString, IncludeType> IncludeSpecification;
+using IncludeSpecification = std::pair<QString, IncludeType>;
 
 QDESIGNER_SHARED_EXPORT IncludeSpecification  includeSpecification(QString includeFile);
 QDESIGNER_SHARED_EXPORT QString buildIncludeFile(QString includeFile, IncludeType includeType);
@@ -150,12 +124,12 @@ class QDESIGNER_SHARED_EXPORT WidgetDataBase: public QDesignerWidgetDataBaseInte
 {
     Q_OBJECT
 public:
-    explicit WidgetDataBase(QDesignerFormEditorInterface *core, QObject *parent = 0);
-    virtual ~WidgetDataBase();
+    explicit WidgetDataBase(QDesignerFormEditorInterface *core, QObject *parent = nullptr);
+    ~WidgetDataBase() override;
 
-    QDesignerFormEditorInterface *core() const Q_DECL_OVERRIDE;
+    QDesignerFormEditorInterface *core() const override;
 
-    int indexOfObject(QObject *o, bool resolveName = true) const Q_DECL_OVERRIDE;
+    int indexOfObject(QObject *o, bool resolveName = true) const override;
 
     void remove(int index);
 
@@ -189,7 +163,7 @@ QDESIGNER_SHARED_EXPORT QDesignerWidgetDataBaseItemInterface
                        bool promoted,
                        bool custom);
 
-typedef  QList<QDesignerWidgetDataBaseItemInterface*> WidgetDataBaseItemList;
+using WidgetDataBaseItemList = QList<QDesignerWidgetDataBaseItemInterface *>;
 
 QDESIGNER_SHARED_EXPORT WidgetDataBaseItemList
         promotionCandidates(const QDesignerWidgetDataBaseInterface *db,

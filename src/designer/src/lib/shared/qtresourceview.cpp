@@ -1,88 +1,65 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qtresourceview_p.h"
 #include "qtresourcemodel_p.h"
 #include "qtresourceeditordialog_p.h"
 #include "iconloader_p.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerSettingsInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractsettings.h>
 
-#include <QtWidgets/QToolBar>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QSplitter>
-#include <QtWidgets/QTreeWidget>
-#include <QtWidgets/QListWidget>
-#include <QtWidgets/QHeaderView>
-#include <QtWidgets/QVBoxLayout>
-#include <QtGui/QPainter>
-#include <QtCore/QFileInfo>
-#include <QtCore/QDir>
-#include <QtCore/QQueue>
-#include <QtGui/QPainter>
-#include <QtWidgets/QDialogButtonBox>
-#include <QtWidgets/QPushButton>
-#include <QtWidgets/QMessageBox>
-#include <QtWidgets/QApplication>
-#ifndef QT_NO_CLIPBOARD
-#include <QtGui/QClipboard>
+#include <QtWidgets/qtoolbar.h>
+#include <QtWidgets/qsplitter.h>
+#include <QtWidgets/qtreewidget.h>
+#include <QtWidgets/qlistwidget.h>
+#include <QtWidgets/qheaderview.h>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qdialogbuttonbox.h>
+#include <QtWidgets/qpushbutton.h>
+#include <QtWidgets/qmessagebox.h>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qlineedit.h>
+
+#include <QtGui/qaction.h>
+#if QT_CONFIG(clipboard)
+#  include <QtGui/qclipboard.h>
 #endif
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QLineEdit>
-#include <QtGui/QDrag>
-#include <QtCore/QMimeData>
-#include <QtXml/QDomDocument>
+#include <QtGui/qdrag.h>
+#include <QtGui/qpainter.h>
+
+#include <QtCore/qmimedata.h>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qdir.h>
+#include <QtCore/qhash.h>
+#include <QtCore/qqueue.h>
+
+#include <QtXml/qdom.h>
+
+#include <algorithm>
 
 QT_BEGIN_NAMESPACE
 
-static const char *elementResourceData = "resource";
-static const char *typeAttribute = "type";
-static const char *typeImage = "image";
-static const char *typeStyleSheet = "stylesheet";
-static const char *typeOther = "other";
-static const char *fileAttribute = "file";
-static const char *SplitterPosition = "SplitterPosition";
-static const char *Geometry = "Geometry";
-static const char *ResourceViewDialogC = "ResourceDialog";
+using namespace Qt::StringLiterals;
+
+static constexpr auto elementResourceData = "resource"_L1;
+static constexpr auto typeAttribute = "type"_L1;
+static constexpr auto typeImage = "image"_L1;
+static constexpr auto typeStyleSheet = "stylesheet"_L1;
+static constexpr auto typeOther = "other"_L1;
+static constexpr auto fileAttribute = "file"_L1;
+static constexpr auto qrvSplitterPosition = "SplitterPosition"_L1;
+static constexpr auto qrvGeometry = "Geometry"_L1;
+static constexpr auto ResourceViewDialogC = "ResourceDialog"_L1;
 
 // ---------------- ResourceListWidget: A list widget that has drag enabled
 class ResourceListWidget : public QListWidget {
 public:
-    ResourceListWidget(QWidget *parent = 0);
+    ResourceListWidget(QWidget *parent = nullptr);
 
 protected:
-    void startDrag(Qt::DropActions supportedActions) Q_DECL_OVERRIDE;
+    void startDrag(Qt::DropActions supportedActions) override;
 };
 
 ResourceListWidget::ResourceListWidget(QWidget *parent) :
@@ -126,7 +103,7 @@ void ResourceListWidget::startDrag(Qt::DropActions supportedActions)
 // ---------------------------- QtResourceViewPrivate
 class QtResourceViewPrivate
 {
-    QtResourceView *q_ptr;
+    QtResourceView *q_ptr = nullptr;
     Q_DECLARE_PUBLIC(QtResourceView)
 public:
     QtResourceViewPrivate(QDesignerFormEditorInterface *core);
@@ -137,7 +114,7 @@ public:
     void slotResourceActivated(QListWidgetItem *);
     void slotEditResources();
     void slotReloadResources();
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     void slotCopyResourcePath();
 #endif
     void slotListWidgetContextMenuRequested(const QPoint &pos);
@@ -155,45 +132,38 @@ public:
     QPixmap makeThumbnail(const QPixmap &pix) const;
 
     QDesignerFormEditorInterface *m_core;
-    QtResourceModel *m_resourceModel;
+    QtResourceModel *m_resourceModel = nullptr;
     QToolBar *m_toolBar;
-    QWidget *m_filterWidget;
+    QWidget *m_filterWidget = nullptr;
     QTreeWidget *m_treeWidget;
     QListWidget *m_listWidget;
-    QSplitter *m_splitter;
-    QMap<QString, QStringList>       m_pathToContents; // full path to contents file names (full path to its resource filenames)
-    QMap<QString, QString>           m_pathToParentPath; // full path to full parent path
-    QMap<QString, QStringList>       m_pathToSubPaths; // full path to full sub paths
+    QSplitter *m_splitter = nullptr;
+    QMap<QString, QStringList> m_pathToContents; // full path to contents file names (full path to its resource filenames)
+    QMap<QString, QString> m_pathToParentPath; // full path to full parent path
+    QMap<QString, QStringList> m_pathToSubPaths; // full path to full sub paths
     QMap<QString, QTreeWidgetItem *> m_pathToItem;
-    QMap<QTreeWidgetItem *, QString> m_itemToPath;
+    QHash<QTreeWidgetItem *, QString> m_itemToPath;
     QMap<QString, QListWidgetItem *> m_resourceToItem;
-    QMap<QListWidgetItem *, QString> m_itemToResource;
-    QAction *m_editResourcesAction;
-    QAction *m_reloadResourcesAction;
-    QAction *m_copyResourcePathAction;
+    QHash<QListWidgetItem *, QString> m_itemToResource;
+    QAction *m_editResourcesAction = nullptr;
+    QAction *m_reloadResourcesAction = nullptr;
+    QAction *m_copyResourcePathAction = nullptr;
 
     QMap<QString, bool> m_expansionState;
 
-    bool m_ignoreGuiSignals;
     QString m_settingsKey;
-    bool m_resourceEditingEnabled;
     QString m_filterPattern;
+    bool m_ignoreGuiSignals = false;
+    bool m_resourceEditingEnabled = true;
 };
 
 QtResourceViewPrivate::QtResourceViewPrivate(QDesignerFormEditorInterface *core) :
-    q_ptr(0),
     m_core(core),
-    m_resourceModel(0),
     m_toolBar(new QToolBar),
     m_treeWidget(new QTreeWidget),
-    m_listWidget(new ResourceListWidget),
-    m_splitter(0),
-    m_editResourcesAction(0),
-    m_reloadResourcesAction(0),
-    m_copyResourcePathAction(0),
-    m_ignoreGuiSignals(false),
-    m_resourceEditingEnabled(true)
+    m_listWidget(new ResourceListWidget)
 {
+    m_toolBar->setIconSize(QSize(22, 22));
 }
 
 void QtResourceViewPrivate::restoreSettings()
@@ -204,7 +174,7 @@ void QtResourceViewPrivate::restoreSettings()
     QDesignerSettingsInterface *settings = m_core->settingsManager();
     settings->beginGroup(m_settingsKey);
 
-    m_splitter->restoreState(settings->value(QLatin1String(SplitterPosition)).toByteArray());
+    m_splitter->restoreState(settings->value(qrvSplitterPosition).toByteArray());
     settings->endGroup();
 }
 
@@ -216,7 +186,7 @@ void QtResourceViewPrivate::saveSettings()
     QDesignerSettingsInterface *settings = m_core->settingsManager();
     settings->beginGroup(m_settingsKey);
 
-    settings->setValue(QLatin1String(SplitterPosition), m_splitter->saveState());
+    settings->setValue(qrvSplitterPosition, m_splitter->saveState());
     settings->endGroup();
 }
 
@@ -240,7 +210,7 @@ void QtResourceViewPrivate::slotReloadResources()
     }
 }
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
 void QtResourceViewPrivate::slotCopyResourcePath()
 {
     const QString path = q_ptr->selectedResource();
@@ -264,20 +234,14 @@ void QtResourceViewPrivate::slotFilterChanged(const QString &pattern)
 
 void QtResourceViewPrivate::storeExpansionState()
 {
-    QMapIterator<QString, QTreeWidgetItem *> it(m_pathToItem);
-    while (it.hasNext()) {
-        it.next();
-        m_expansionState[it.key()] = it.value()->isExpanded();
-    }
+    for (auto it = m_pathToItem.cbegin(), end = m_pathToItem.cend(); it != end; ++it)
+        m_expansionState.insert(it.key(), it.value()->isExpanded());
 }
 
 void QtResourceViewPrivate::applyExpansionState()
 {
-    QMapIterator<QString, QTreeWidgetItem *> it(m_pathToItem);
-    while (it.hasNext()) {
-        it.next();
+    for (auto it = m_pathToItem.cbegin(), end = m_pathToItem.cend(); it != end; ++it)
         it.value()->setExpanded(m_expansionState.value(it.key(), true));
-    }
 }
 
 QPixmap QtResourceViewPrivate::makeThumbnail(const QPixmap &pix) const
@@ -310,7 +274,7 @@ void QtResourceViewPrivate::updateActions()
 
 void QtResourceViewPrivate::slotResourceSetActivated(QtResourceSet *resourceSet)
 {
-    Q_UNUSED(resourceSet)
+    Q_UNUSED(resourceSet);
 
     updateActions();
 
@@ -376,13 +340,11 @@ void QtResourceViewPrivate::createPaths()
         return;
 
     // Resource root up until 4.6 was ':', changed to ":/" as of 4.7
-    const QString root(QStringLiteral(":/"));
+    const QString root(u":/"_s);
 
     QMap<QString, QString> contents = m_resourceModel->contents();
-    QMapIterator<QString, QString> itContents(contents);
-    while (itContents.hasNext()) {
-        const QString filePath = itContents.next().key();
-        const QFileInfo fi(filePath);
+    for (auto it = contents.cbegin(), end = contents.cend(); it != end; ++it) {
+        const QFileInfo fi(it.key());
         QString dirPath = fi.absolutePath();
         m_pathToContents[dirPath].append(fi.fileName());
         while (!m_pathToParentPath.contains(dirPath) && dirPath != root) { // create all parent paths
@@ -394,16 +356,15 @@ void QtResourceViewPrivate::createPaths()
         }
     }
 
-    QQueue<QPair<QString, QTreeWidgetItem *> > pathToParentItemQueue;
-    pathToParentItemQueue.enqueue(qMakePair(root, static_cast<QTreeWidgetItem *>(0)));
+    QQueue<std::pair<QString, QTreeWidgetItem *>> pathToParentItemQueue;
+    pathToParentItemQueue.enqueue(std::make_pair(root, static_cast<QTreeWidgetItem *>(nullptr)));
     while (!pathToParentItemQueue.isEmpty()) {
-        QPair<QString, QTreeWidgetItem *> pathToParentItem = pathToParentItemQueue.dequeue();
+        std::pair<QString, QTreeWidgetItem *> pathToParentItem = pathToParentItemQueue.dequeue();
         const QString path = pathToParentItem.first;
         QTreeWidgetItem *item = createPath(path, pathToParentItem.second);
-        QStringList subPaths = m_pathToSubPaths.value(path);
-        QStringListIterator itSubPaths(subPaths);
-        while (itSubPaths.hasNext())
-            pathToParentItemQueue.enqueue(qMakePair(itSubPaths.next(), item));
+        const QStringList subPaths = m_pathToSubPaths.value(path);
+        for (const QString &subPath : subPaths)
+            pathToParentItemQueue.enqueue(std::make_pair(subPath, item));
     }
 }
 
@@ -419,23 +380,20 @@ void QtResourceViewPrivate::filterOutResources()
     // 3) we hide these items which has pathToVisible value false.
 
     const bool matchAll = m_filterPattern.isEmpty();
-    const QString root(QStringLiteral(":/"));
+    const QString root(u":/"_s);
 
     QQueue<QString> pathQueue;
     pathQueue.enqueue(root);
     while (!pathQueue.isEmpty()) {
         const QString path = pathQueue.dequeue();
 
-        QStringList fileNames = m_pathToContents.value(path);
-        QStringListIterator it(fileNames);
         bool hasContents = matchAll;
         if (!matchAll) { // the case filter is not empty - we check if the path contains anything
-            while (it.hasNext()) {
-                QString fileName = it.next();
-                hasContents = fileName.contains(m_filterPattern, Qt::CaseInsensitive);
-                if (hasContents) // the path contains at least one resource which matches the filter
-                    break;
-            }
+            // the path contains at least one resource which matches the filter
+            const QStringList fileNames = m_pathToContents.value(path);
+            hasContents =
+                std::any_of(fileNames.cbegin(), fileNames.cend(),
+                            [this] (const QString &f) { return f.contains(this->m_filterPattern, Qt::CaseInsensitive); });
         }
 
         pathToMatchingContents[path] = hasContents;
@@ -452,10 +410,9 @@ void QtResourceViewPrivate::filterOutResources()
             }
         }
 
-        QStringList subPaths = m_pathToSubPaths.value(path); // we do the same for children paths
-        QStringListIterator itSubPaths(subPaths);
-        while (itSubPaths.hasNext())
-            pathQueue.enqueue(itSubPaths.next());
+        const QStringList subPaths = m_pathToSubPaths.value(path); // we do the same for children paths
+        for (const QString &subPath : subPaths)
+            pathQueue.enqueue(subPath);
     }
 
     // we setup here new path and resource to be activated
@@ -466,30 +423,26 @@ void QtResourceViewPrivate::filterOutResources()
         bool searchForNewPathWithContents = true;
 
         if (!currentPath.isEmpty()) { // if the currentPath is empty we will search for a new path too
-            QMap<QString, bool>::ConstIterator it = pathToMatchingContents.constFind(currentPath);
+            const auto it = pathToMatchingContents.constFind(currentPath);
             if (it != pathToMatchingContents.constEnd() && it.value()) // the current item has contents, we don't need to search for another path
                 searchForNewPathWithContents = false;
         }
 
         if (searchForNewPathWithContents) {
             // we find the first path with the matching contents
-            QMap<QString, bool>::ConstIterator itContents = pathToMatchingContents.constBegin();
-            while (itContents != pathToMatchingContents.constEnd()) {
+            for (auto itContents = pathToMatchingContents.cbegin(), cend = pathToMatchingContents.cend(); itContents != cend; ++itContents) {
                 if (itContents.value()) {
                     newCurrentPath = itContents.key(); // the new path will be activated
                     break;
                 }
-
-                itContents++;
             }
         }
 
         QFileInfo fi(currentResource);
         if (!fi.fileName().contains(m_filterPattern, Qt::CaseInsensitive)) { // the case when the current resource is filtered out
             const QStringList fileNames = m_pathToContents.value(newCurrentPath);
-            QStringListIterator it(fileNames);
-            while (it.hasNext()) { // we try to select the first matching resource from the newCurrentPath
-                QString fileName = it.next();
+            // we try to select the first matching resource from the newCurrentPath
+            for (const QString &fileName : fileNames) {
                 if (fileName.contains(m_filterPattern, Qt::CaseInsensitive)) {
                     QDir dirPath(newCurrentPath);
                     currentResource = dirPath.absoluteFilePath(fileName); // the new resource inside newCurrentPath will be activated
@@ -511,18 +464,16 @@ void QtResourceViewPrivate::filterOutResources()
         m_listWidget->scrollToItem(currentResourceItem);
     }
 
-    QMapIterator<QString, bool> it(pathToVisible); // hide all paths filtered out
-    while (it.hasNext()) {
-        const QString path = it.next().key();
-        QTreeWidgetItem *item = m_pathToItem.value(path);
-        if (item)
+    // hide all paths filtered out
+    for (auto it = pathToVisible.cbegin(), end = pathToVisible.cend(); it != end; ++it) {
+        if (QTreeWidgetItem *item = m_pathToItem.value(it.key()))
             item->setHidden(!it.value());
     }
 }
 
 QTreeWidgetItem *QtResourceViewPrivate::createPath(const QString &path, QTreeWidgetItem *parent)
 {
-    QTreeWidgetItem *item = 0;
+    QTreeWidgetItem *item = nullptr;
     if (parent)
         item = new QTreeWidgetItem(parent);
     else
@@ -534,7 +485,7 @@ QTreeWidgetItem *QtResourceViewPrivate::createPath(const QString &path, QTreeWid
         QFileInfo di(path);
         substPath = di.fileName();
     } else {
-        substPath = QStringLiteral("<resource root>");
+        substPath = u"<resource root>"_s;
     }
     item->setText(0, substPath);
     item->setToolTip(0, path);
@@ -546,10 +497,8 @@ void QtResourceViewPrivate::createResources(const QString &path)
     const bool matchAll = m_filterPattern.isEmpty();
 
     QDir dir(path);
-    QStringList fileNames = m_pathToContents.value(path);
-    QStringListIterator it(fileNames);
-    while (it.hasNext()) {
-        QString fileName = it.next();
+    const QStringList fileNames = m_pathToContents.value(path);
+    for (const QString &fileName : fileNames) {
         const bool showProperty = matchAll || fileName.contains(m_filterPattern, Qt::CaseInsensitive);
         if (showProperty) {
             QString filePath = dir.absoluteFilePath(fileName);
@@ -581,30 +530,38 @@ QtResourceView::QtResourceView(QDesignerFormEditorInterface *core, QWidget *pare
 {
     d_ptr->q_ptr = this;
 
-    QIcon editIcon = QIcon::fromTheme(QStringLiteral("document-properties"), qdesigner_internal::createIconSet(QStringLiteral("edit.png")));
+    QIcon editIcon = qdesigner_internal::createIconSet(QIcon::ThemeIcon::DocumentProperties,
+                                                       "edit.png"_L1);
     d_ptr->m_editResourcesAction = new QAction(editIcon, tr("Edit Resources..."), this);
     d_ptr->m_toolBar->addAction(d_ptr->m_editResourcesAction);
-    connect(d_ptr->m_editResourcesAction, SIGNAL(triggered()), this, SLOT(slotEditResources()));
+    connect(d_ptr->m_editResourcesAction, &QAction::triggered,
+            this, [this] { d_ptr->slotEditResources(); });
     d_ptr->m_editResourcesAction->setEnabled(false);
 
-    QIcon refreshIcon = QIcon::fromTheme(QStringLiteral("view-refresh"), qdesigner_internal::createIconSet(QStringLiteral("reload.png")));
+    QIcon refreshIcon = qdesigner_internal::createIconSet(QIcon::ThemeIcon::ViewRefresh,
+                                                          "reload.png"_L1);
     d_ptr->m_reloadResourcesAction = new QAction(refreshIcon, tr("Reload"), this);
 
     d_ptr->m_toolBar->addAction(d_ptr->m_reloadResourcesAction);
-    connect(d_ptr->m_reloadResourcesAction, SIGNAL(triggered()), this, SLOT(slotReloadResources()));
+    connect(d_ptr->m_reloadResourcesAction, &QAction::triggered,
+            this, [this] { d_ptr->slotReloadResources(); });
     d_ptr->m_reloadResourcesAction->setEnabled(false);
 
-#ifndef QT_NO_CLIPBOARD
-    QIcon copyIcon = QIcon::fromTheme(QStringLiteral("edit-copy"), qdesigner_internal::createIconSet(QStringLiteral("editcopy.png")));
+#if QT_CONFIG(clipboard)
+    QIcon copyIcon = qdesigner_internal::createIconSet(QIcon::ThemeIcon::EditCopy,
+                                                       "editcopy.png"_L1);
     d_ptr->m_copyResourcePathAction = new QAction(copyIcon, tr("Copy Path"), this);
-    connect(d_ptr->m_copyResourcePathAction, SIGNAL(triggered()), this, SLOT(slotCopyResourcePath()));
+    connect(d_ptr->m_copyResourcePathAction, &QAction::triggered,
+            this, [this] { d_ptr->slotCopyResourcePath(); });
     d_ptr->m_copyResourcePathAction->setEnabled(false);
 #endif
 
     d_ptr->m_filterWidget = new QWidget(d_ptr->m_toolBar);
     QHBoxLayout *filterLayout = new QHBoxLayout(d_ptr->m_filterWidget);
+    filterLayout->setContentsMargins(0, 0, 0, 0);
     QLineEdit *filterLineEdit = new QLineEdit(d_ptr->m_filterWidget);
-    connect(filterLineEdit, SIGNAL(textChanged(QString)), this, SLOT(slotFilterChanged(QString)));
+    connect(filterLineEdit, &QLineEdit::textChanged,
+            this, [this](const QString &text) { d_ptr->slotFilterChanged(text); });
     filterLineEdit->setPlaceholderText(tr("Filter"));
     filterLineEdit->setClearButtonEnabled(true);
     filterLayout->addItem(new QSpacerItem(0, 0, QSizePolicy::MinimumExpanding, QSizePolicy::Ignored));
@@ -617,7 +574,7 @@ QtResourceView::QtResourceView(QDesignerFormEditorInterface *core, QWidget *pare
     d_ptr->m_splitter->addWidget(d_ptr->m_listWidget);
 
     QLayout *layout = new QVBoxLayout(this);
-    layout->setMargin(0);
+    layout->setContentsMargins(QMargins());
     layout->setSpacing(0);
     layout->addWidget(d_ptr->m_toolBar);
     layout->addWidget(d_ptr->m_splitter);
@@ -631,15 +588,15 @@ QtResourceView::QtResourceView(QDesignerFormEditorInterface *core, QWidget *pare
     d_ptr->m_listWidget->setIconSize(QSize(48, 48));
     d_ptr->m_listWidget->setGridSize(QSize(64, 64));
 
-    connect(d_ptr->m_treeWidget, SIGNAL(currentItemChanged(QTreeWidgetItem*,QTreeWidgetItem*)),
-                    this, SLOT(slotCurrentPathChanged(QTreeWidgetItem*)));
-    connect(d_ptr->m_listWidget, SIGNAL(currentItemChanged(QListWidgetItem*,QListWidgetItem*)),
-                    this, SLOT(slotCurrentResourceChanged(QListWidgetItem*)));
-    connect(d_ptr->m_listWidget, SIGNAL(itemActivated(QListWidgetItem*)),
-                    this, SLOT(slotResourceActivated(QListWidgetItem*)));
+    connect(d_ptr->m_treeWidget, &QTreeWidget::currentItemChanged,
+            this, [this](QTreeWidgetItem *item) { d_ptr->slotCurrentPathChanged(item); });
+    connect(d_ptr->m_listWidget, &QListWidget::currentItemChanged,
+            this, [this](QListWidgetItem *item) { d_ptr->slotCurrentResourceChanged(item); });
+    connect(d_ptr->m_listWidget, &QListWidget::itemActivated,
+            this, [this](QListWidgetItem *item) { d_ptr->slotResourceActivated(item); });
     d_ptr->m_listWidget->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(d_ptr->m_listWidget, SIGNAL(customContextMenuRequested(QPoint)),
-                this, SLOT(slotListWidgetContextMenuRequested(QPoint)));
+    connect(d_ptr->m_listWidget, &QListWidget::customContextMenuRequested,
+            this, [this](const QPoint &point) { d_ptr->slotListWidgetContextMenuRequested(point); });
 }
 
 QtResourceView::~QtResourceView()
@@ -677,13 +634,14 @@ void QtResourceView::selectResource(const QString &resource)
     if (fi.isDir())
         dir = QDir(resource);
     QString dirPath = dir.absolutePath();
-    QMap<QString, QTreeWidgetItem *>::const_iterator it;
-    while ((it = d_ptr->m_pathToItem.find(dirPath)) == d_ptr->m_pathToItem.constEnd()) {
+    const auto cend = d_ptr->m_pathToItem.constEnd();
+    auto it = cend;
+    while ((it = d_ptr->m_pathToItem.constFind(dirPath)) == cend) {
         if (!dir.cdUp())
             break;
         dirPath = dir.absolutePath();
     }
-    if (it != d_ptr->m_pathToItem.constEnd()) {
+    if (it != cend) {
         QTreeWidgetItem *treeItem = it.value();
         d_ptr->m_treeWidget->setCurrentItem(treeItem);
         d_ptr->m_treeWidget->scrollToItem(treeItem);
@@ -717,10 +675,8 @@ void QtResourceView::setSettingsKey(const QString &key)
 
 void QtResourceView::setResourceModel(QtResourceModel *model)
 {
-    if (d_ptr->m_resourceModel) {
-        disconnect(d_ptr->m_resourceModel, SIGNAL(resourceSetActivated(QtResourceSet*,bool)),
-                    this, SLOT(slotResourceSetActivated(QtResourceSet*)));
-    }
+    if (d_ptr->m_resourceModel)
+        disconnect(d_ptr->m_resourceModel, &QtResourceModel::resourceSetActivated, this, nullptr);
 
     // clear here
     d_ptr->m_treeWidget->clear();
@@ -731,8 +687,8 @@ void QtResourceView::setResourceModel(QtResourceModel *model)
     if (!d_ptr->m_resourceModel)
         return;
 
-    connect(d_ptr->m_resourceModel, SIGNAL(resourceSetActivated(QtResourceSet*,bool)),
-            this, SLOT(slotResourceSetActivated(QtResourceSet*)));
+    connect(d_ptr->m_resourceModel, &QtResourceModel::resourceSetActivated,
+            this, [this](QtResourceSet *resource) { d_ptr->slotResourceSetActivated(resource); });
 
     // fill new here
     d_ptr->slotResourceSetActivated(d_ptr->m_resourceModel->currentResourceSet());
@@ -762,19 +718,19 @@ bool QtResourceView::dragEnabled() const
 QString QtResourceView::encodeMimeData(ResourceType resourceType, const QString &path)
 {
     QDomDocument doc;
-    QDomElement elem = doc.createElement(QLatin1String(elementResourceData));
+    QDomElement elem = doc.createElement(elementResourceData);
     switch (resourceType) {
     case ResourceImage:
-        elem.setAttribute(QLatin1String(typeAttribute), QLatin1String(typeImage));
+        elem.setAttribute(typeAttribute, typeImage);
         break;
     case ResourceStyleSheet:
-        elem.setAttribute(QLatin1String(typeAttribute), QLatin1String(typeStyleSheet));
+        elem.setAttribute(typeAttribute, typeStyleSheet);
         break;
     case ResourceOther:
-        elem.setAttribute(QLatin1String(typeAttribute), QLatin1String(typeOther));
+        elem.setAttribute(typeAttribute, typeOther);
         break;
     }
-    elem.setAttribute(QLatin1String(fileAttribute), path);
+    elem.setAttribute(fileAttribute, path);
     doc.appendChild(elem);
     return doc.toString();
 }
@@ -787,8 +743,8 @@ bool QtResourceView::decodeMimeData(const QMimeData *md, ResourceType *t, QStrin
 bool QtResourceView::decodeMimeData(const QString &text, ResourceType *t, QString *file)
 {
 
-    const QString docElementName = QLatin1String(elementResourceData);
-    static const QString docElementString = QLatin1Char('<') + docElementName;
+    static auto docElementName = elementResourceData;
+    static const QString docElementString = u'<' + docElementName;
 
     if (text.isEmpty() || text.indexOf(docElementString) == -1)
         return false;
@@ -802,18 +758,18 @@ bool QtResourceView::decodeMimeData(const QString &text, ResourceType *t, QStrin
         return false;
 
     if (t) {
-        const QString typeAttr = QLatin1String(typeAttribute);
+        const QString typeAttr = typeAttribute;
         if (domElement.hasAttribute (typeAttr)) {
-            const QString typeValue = domElement.attribute(typeAttr, QLatin1String(typeOther));
-            if (typeValue == QLatin1String(typeImage)) {
+            const QString typeValue = domElement.attribute(typeAttr, typeOther);
+            if (typeValue == typeImage) {
                 *t = ResourceImage;
             } else {
-                *t = typeValue == QLatin1String(typeStyleSheet) ? ResourceStyleSheet : ResourceOther;
+                *t = typeValue == typeStyleSheet ? ResourceStyleSheet : ResourceOther;
             }
         }
     }
     if (file) {
-        const QString fileAttr = QLatin1String(fileAttribute);
+        const QString fileAttr = fileAttribute;
         if (domElement.hasAttribute(fileAttr)) {
             *file = domElement.attribute(fileAttr, QString());
         } else {
@@ -841,12 +797,12 @@ public:
 };
 
 QtResourceViewDialogPrivate::QtResourceViewDialogPrivate(QDesignerFormEditorInterface *core) :
-    q_ptr(0),
+    q_ptr(nullptr),
     m_core(core),
     m_view(new QtResourceView(core)),
     m_box(new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel))
 {
-    m_view->setSettingsKey(QLatin1String(ResourceViewDialogC));
+    m_view->setSettingsKey(ResourceViewDialogC);
 }
 
 // ------------ QtResourceViewDialog
@@ -855,23 +811,23 @@ QtResourceViewDialog::QtResourceViewDialog(QDesignerFormEditorInterface *core, Q
     d_ptr(new QtResourceViewDialogPrivate(core))
 {
     setWindowTitle(tr("Select Resource"));
-    setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
     d_ptr->q_ptr = this;
     QVBoxLayout *layout = new QVBoxLayout(this);
     layout->addWidget(d_ptr->m_view);
     layout->addWidget(d_ptr->m_box);
-    connect(d_ptr->m_box, SIGNAL(accepted()), this, SLOT(accept()));
-    connect(d_ptr->m_box, SIGNAL(rejected()), this, SLOT(reject()));
-    connect(d_ptr->m_view, SIGNAL(resourceActivated(QString)), this, SLOT(accept()));
-    connect(d_ptr->m_view, SIGNAL(resourceSelected(QString)), this, SLOT(slotResourceSelected(QString)));
+    connect(d_ptr->m_box, &QDialogButtonBox::accepted, this, &QDialog::accept);
+    connect(d_ptr->m_box, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    connect(d_ptr->m_view, &QtResourceView::resourceActivated, this, &QDialog::accept);
+    connect(d_ptr->m_view, &QtResourceView::resourceSelected,
+            this, [this](const QString &resource) { d_ptr->slotResourceSelected(resource); });
     d_ptr->setOkButtonEnabled(false);
     d_ptr->m_view->setResourceModel(core->resourceModel());
 
     QDesignerSettingsInterface *settings = core->settingsManager();
-    settings->beginGroup(QLatin1String(ResourceViewDialogC));
+    settings->beginGroup(ResourceViewDialogC);
 
-    const QVariant geometry = settings->value(QLatin1String(Geometry));
-    if (geometry.type() == QVariant::ByteArray) // Used to be a QRect up until 5.4.0, QTBUG-43374.
+    const QVariant geometry = settings->value(qrvGeometry);
+    if (geometry.metaType().id() == QMetaType::QByteArray) // Used to be a QRect up until 5.4.0, QTBUG-43374.
         restoreGeometry(geometry.toByteArray());
 
     settings->endGroup();
@@ -880,9 +836,9 @@ QtResourceViewDialog::QtResourceViewDialog(QDesignerFormEditorInterface *core, Q
 QtResourceViewDialog::~QtResourceViewDialog()
 {
     QDesignerSettingsInterface *settings = d_ptr->m_core->settingsManager();
-    settings->beginGroup(QLatin1String(ResourceViewDialogC));
+    settings->beginGroup(ResourceViewDialogC);
 
-    settings->setValue(QLatin1String(Geometry), saveGeometry());
+    settings->setValue(qrvGeometry, saveGeometry());
 
     settings->endGroup();
 }

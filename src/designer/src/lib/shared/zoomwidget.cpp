@@ -1,55 +1,25 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "zoomwidget_p.h"
 
-#include <QtWidgets/QGraphicsScene>
-#include <QtWidgets/QGraphicsProxyWidget>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QActionGroup>
-#include <QtGui/QContextMenuEvent>
-#include <QtWidgets/QScrollBar>
+#include <QtWidgets/qgraphicsscene.h>
+#include <QtWidgets/qgraphicsproxywidget.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qscrollbar.h>
 
-#include <QtCore/QTextStream>
+#include <QtGui/qaction.h>
+#include <QtGui/qactiongroup.h>
+#include <QtGui/qevent.h>
+
+#include <QtCore/qtextstream.h>
 #include <QtCore/qmath.h>
-#include <QtCore/QDebug>
-#include <QtCore/QList>
+#include <QtCore/qdebug.h>
+#include <QtCore/qlist.h>
 
 QT_BEGIN_NAMESPACE
 
-typedef QList<QAction*> ActionList;
-typedef QList<QGraphicsItem *> GraphicsItemList;
+using namespace Qt::StringLiterals;
 
 enum { debugZoomWidget = 0 };
 
@@ -63,10 +33,8 @@ ZoomMenu::ZoomMenu(QObject *parent) :
    QObject(parent),
    m_menuActions(new QActionGroup(this))
 {
-    connect(m_menuActions, SIGNAL(triggered(QAction*)), this, SLOT(slotZoomMenu(QAction*)));
-    const int nz = sizeof(menuZoomList)/sizeof(int);
-    for (int i = 0; i < nz; i++) {
-        const int zoom = menuZoomList[i];
+    connect(m_menuActions, &QActionGroup::triggered, this, &ZoomMenu::slotZoomMenu);
+    for (int zoom : menuZoomList) {
         //: Zoom factor
         QAction *a = m_menuActions->addAction(tr("%1 %").arg(zoom));
         a->setCheckable(true);
@@ -84,11 +52,10 @@ int ZoomMenu::zoomOf(const QAction *a)
 
 void ZoomMenu::addActions(QMenu *m)
 {
-    const ActionList za = m_menuActions->actions();
-    const ActionList::const_iterator cend = za.constEnd();
-    for (ActionList::const_iterator it =  za.constBegin(); it != cend; ++it) {
-        m->addAction(*it);
-        if (zoomOf(*it)  == 100)
+    const auto za = m_menuActions->actions();
+    for (QAction *a : za) {
+        m->addAction(a);
+        if (zoomOf(a) == 100)
             m->addSeparator();
     }
 }
@@ -100,13 +67,13 @@ int ZoomMenu::zoom() const
 
 void ZoomMenu::setZoom(int percent)
 {
-    const ActionList za = m_menuActions->actions();
-    const ActionList::const_iterator cend = za.constEnd();
-    for (ActionList::const_iterator it =  za.constBegin(); it != cend; ++it)
-        if (zoomOf(*it) == percent) {
-            (*it)->setChecked(true);
+    const auto za = m_menuActions->actions();
+    for (QAction *a : za) {
+        if (zoomOf(a) == percent) {
+            a->setChecked(true);
             return;
         }
+    }
 }
 
 void ZoomMenu::slotZoomMenu(QAction *a)
@@ -118,6 +85,7 @@ QList<int> ZoomMenu::zoomValues()
 {
     QList<int> rc;
     const int nz = sizeof(menuZoomList)/sizeof(int);
+    rc.reserve(nz);
     for (int i = 0; i < nz; i++)
         rc.push_back(menuZoomList[i]);
     return rc;
@@ -126,11 +94,7 @@ QList<int> ZoomMenu::zoomValues()
 // --------- ZoomView
 ZoomView::ZoomView(QWidget *parent) :
     QGraphicsView(parent),
-    m_scene(new QGraphicsScene(this)),
-    m_zoom(100),
-    m_zoomFactor(1.0),
-    m_zoomContextMenuEnabled(false),
-    m_zoomMenu(0)
+    m_scene(new QGraphicsScene(this))
 {
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -201,7 +165,7 @@ ZoomMenu *ZoomView::zoomMenu()
     if (!m_zoomMenu) {
         m_zoomMenu = new ZoomMenu(this);
         m_zoomMenu->setZoom(m_zoom);
-        connect(m_zoomMenu, SIGNAL(zoomChanged(int)), this, SLOT(setZoom(int)));
+        connect(m_zoomMenu, &ZoomMenu::zoomChanged, this, &ZoomView::setZoom);
     }
     return m_zoomMenu;
 }
@@ -222,11 +186,6 @@ void ZoomView::showContextMenu(const QPoint &globalPos)
 {
     QMenu menu;
     zoomMenu()->addActions(&menu);
-    if (debugZoomWidget) {
-        menu.addSeparator();
-        QAction *da = menu.addAction(QStringLiteral("Dump"));
-        connect(da, SIGNAL(triggered()), this, SLOT(dump()));
-    }
     menu.exec(globalPos);
 }
 
@@ -267,14 +226,14 @@ QVariant ZoomProxyWidget::itemChange(GraphicsItemChange change, const QVariant &
  * It redirects the events to another handler of ZoomWidget as its
  * base class QScrollArea also implements eventFilter() for its viewport. */
 
-static const char *zoomedEventFilterRedirectorNameC = "__qt_ZoomedEventFilterRedirector";
+static constexpr auto zoomedEventFilterRedirectorNameC = "__qt_ZoomedEventFilterRedirector"_L1;
 
 class ZoomedEventFilterRedirector : public QObject {
-    Q_DISABLE_COPY(ZoomedEventFilterRedirector)
+    Q_DISABLE_COPY_MOVE(ZoomedEventFilterRedirector)
 
 public:
     explicit ZoomedEventFilterRedirector(ZoomWidget *zw, QObject *parent);
-    bool eventFilter(QObject *watched, QEvent *event) Q_DECL_OVERRIDE;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     ZoomWidget *m_zw;
@@ -284,7 +243,7 @@ ZoomedEventFilterRedirector::ZoomedEventFilterRedirector(ZoomWidget *zw, QObject
     QObject(parent),
     m_zw(zw)
 {
-    setObjectName(QLatin1String(zoomedEventFilterRedirectorNameC));
+    setObjectName(zoomedEventFilterRedirectorNameC);
 }
 
 bool ZoomedEventFilterRedirector::eventFilter(QObject *watched, QEvent *event)
@@ -296,11 +255,7 @@ bool ZoomedEventFilterRedirector::eventFilter(QObject *watched, QEvent *event)
 // --------- ZoomWidget
 
 ZoomWidget::ZoomWidget(QWidget *parent) :
-    ZoomView(parent),
-    m_proxy(0),
-    m_viewResizeBlocked(false),
-    m_widgetResizeBlocked(false),
-    m_widgetZoomContextMenuEnabled(false)
+    ZoomView(parent)
 {
     setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -309,19 +264,19 @@ ZoomWidget::ZoomWidget(QWidget *parent) :
 void ZoomWidget::setWidget(QWidget *w, Qt::WindowFlags wFlags)
 {
     if (debugZoomWidget)
-        qDebug() << "ZoomWidget::setWidget" << w << bin << wFlags;
+        qDebug() << "ZoomWidget::setWidget" << w << Qt::bin << wFlags;
 
     if (m_proxy) {
         scene().removeItem(m_proxy);
         if (QWidget *w = m_proxy->widget()) {
             // remove the event filter
-            if (QObject *evf =  w->findChild<QObject*>(QLatin1String(zoomedEventFilterRedirectorNameC)))
+            if (QObject *evf =  w->findChild<QObject*>(zoomedEventFilterRedirectorNameC))
                 w->removeEventFilter(evf);
         }
         m_proxy->deleteLater();
     }
     // Set window flags on the outer proxy for them to take effect
-    m_proxy = createProxyWidget(0, Qt::Window);
+    m_proxy = createProxyWidget(nullptr, Qt::Window);
     m_proxy->setWidget(w);
 
     m_proxy->setWindowFlags(wFlags);
@@ -539,14 +494,14 @@ void ZoomWidget::dump() const
 {
 
     qDebug() << "ZoomWidget::dump " << geometry() << " Viewport " << viewport()->geometry()
-        << "Scroll: " << scrollPosition() << "Matrix: " << matrix() << " SceneRect: " << sceneRect();
+        << "Scroll: " << scrollPosition() << "Transform: " << transform() << " SceneRect: " << sceneRect();
     if (m_proxy) {
         qDebug() << "Proxy Pos: " << m_proxy->pos() << "Proxy " << m_proxy->size()
             << "\nProxy size hint"
             <<  m_proxy->effectiveSizeHint(Qt::MinimumSize)
             <<  m_proxy->effectiveSizeHint(Qt::PreferredSize)
             << m_proxy->effectiveSizeHint(Qt::MaximumSize)
-            << "\nMatrix: " << m_proxy->matrix()
+            << "\nTransform: " << m_proxy->transform()
             << "\nWidget: " <<  m_proxy->widget()->geometry()
             << "scaled" << (zoomFactor() * m_proxy->widget()->size());
     }

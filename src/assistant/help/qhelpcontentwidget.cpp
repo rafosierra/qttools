@@ -1,328 +1,79 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Assistant of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qhelpcontentwidget.h"
 #include "qhelpenginecore.h"
-#include "qhelpengine_p.h"
-#include "qhelpdbreader_p.h"
 
-#include <QDir>
-#include <QtCore/QStack>
-#include <QtCore/QThread>
-#include <QtCore/QMutex>
-#include <QtWidgets/QHeaderView>
+#if QT_CONFIG(future)
+#include <QtCore/qfuturewatcher.h>
+#endif
+
+#include <QtCore/qdir.h>
+#include <QtWidgets/qheaderview.h>
 
 QT_BEGIN_NAMESPACE
 
-class QHelpContentItemPrivate
-{
-public:
-    QHelpContentItemPrivate(const QString &t, const QString &l,
-                            QHelpDBReader *r, QHelpContentItem *p)
-    {
-        parent = p;
-        title = t;
-        link = l;
-        helpDBReader = r;
-    }
-
-    QList<QHelpContentItem*> childItems;
-    QHelpContentItem *parent;
-    QString title;
-    QString link;
-    QHelpDBReader *helpDBReader;
-};
-
-class QHelpContentProvider : public QThread
-{
-    Q_OBJECT
-public:
-    QHelpContentProvider(QHelpEnginePrivate *helpEngine);
-    ~QHelpContentProvider();
-    void collectContents(const QString &customFilterName);
-    void stopCollecting();
-    QHelpContentItem *rootItem();
-    int nextChildCount() const;
-
-signals:
-    void finishedSuccessFully();
-
-private:
-    void run();
-
-    QHelpEnginePrivate *m_helpEngine;
-    QStringList m_filterAttributes;
-    QQueue<QHelpContentItem*> m_rootItems;
-    QMutex m_mutex;
-    bool m_abort;
-};
+using namespace Qt::StringLiterals;
 
 class QHelpContentModelPrivate
 {
+#if QT_CONFIG(future)
+    using ItemFutureProvider = std::function<QFuture<std::shared_ptr<QHelpContentItem>>()>;
+
+    struct WatcherDeleter
+    {
+        void operator()(QFutureWatcherBase *watcher) {
+            watcher->disconnect();
+            watcher->cancel();
+            watcher->waitForFinished();
+            delete watcher;
+        }
+    };
+#endif
+
 public:
-    QHelpContentItem *rootItem;
-    QHelpContentProvider *qhelpContentProvider;
+#if QT_CONFIG(future)
+    void createContents(const ItemFutureProvider &futureProvider);
+#endif
+
+    QHelpContentModel *q = nullptr;
+    QHelpEngineCore *helpEngine = nullptr;
+    std::shared_ptr<QHelpContentItem> rootItem = {};
+#if QT_CONFIG(future)
+    std::unique_ptr<QFutureWatcher<std::shared_ptr<QHelpContentItem>>, WatcherDeleter> watcher = {};
+#endif
 };
 
-
-
-/*!
-    \class QHelpContentItem
-    \inmodule QtHelp
-    \brief The QHelpContentItem class provides an item for use with QHelpContentModel.
-    \since 4.4
-*/
-
-QHelpContentItem::QHelpContentItem(const QString &name, const QString &link,
-                                   QHelpDBReader *reader, QHelpContentItem *parent)
+#if QT_CONFIG(future)
+void QHelpContentModelPrivate::createContents(const ItemFutureProvider &futureProvider)
 {
-    d = new QHelpContentItemPrivate(name, link, reader, parent);
-}
-
-/*!
-    Destroys the help content item.
-*/
-QHelpContentItem::~QHelpContentItem()
-{
-    qDeleteAll(d->childItems);
-    delete d;
-}
-
-void QHelpContentItem::appendChild(QHelpContentItem *item)
-{
-    d->childItems.append(item);
-}
-
-/*!
-    Returns the child of the content item in the give \a row.
-
-    \sa parent()
-*/
-QHelpContentItem *QHelpContentItem::child(int row) const
-{
-    if (row >= childCount())
-        return 0;
-    return d->childItems.value(row);
-}
-
-/*!
-    Returns the number of child items.
-*/
-int QHelpContentItem::childCount() const
-{
-    return d->childItems.count();
-}
-
-/*!
-    Returns the row of this item from its parents view.
-*/
-int QHelpContentItem::row() const
-{
-    if (d->parent)
-        return d->parent->d->childItems.indexOf(const_cast<QHelpContentItem*>(this));
-    return 0;
-}
-
-/*!
-    Returns the title of the content item.
-*/
-QString QHelpContentItem::title() const
-{
-    return d->title;
-}
-
-/*!
-    Returns the URL of this content item.
-*/
-QUrl QHelpContentItem::url() const
-{
-    return d->helpDBReader->urlOfPath(d->link);
-}
-
-/*!
-    Returns the parent content item.
-*/
-QHelpContentItem *QHelpContentItem::parent() const
-{
-    return d->parent;
-}
-
-/*!
-    Returns the position of a given \a child.
-*/
-int QHelpContentItem::childPosition(QHelpContentItem *child) const
-{
-    return d->childItems.indexOf(child);
-}
-
-
-
-QHelpContentProvider::QHelpContentProvider(QHelpEnginePrivate *helpEngine)
-    : QThread(helpEngine)
-{
-    m_helpEngine = helpEngine;
-    m_abort = false;
-}
-
-QHelpContentProvider::~QHelpContentProvider()
-{
-    stopCollecting();
-}
-
-void QHelpContentProvider::collectContents(const QString &customFilterName)
-{
-    m_mutex.lock();
-    m_filterAttributes = m_helpEngine->q->filterAttributes(customFilterName);
-    m_mutex.unlock();
-    if (!isRunning()) {
-        start(LowPriority);
-    } else {
-        stopCollecting();
-        start(LowPriority);
-    }
-}
-
-void QHelpContentProvider::stopCollecting()
-{
-    if (isRunning()) {
-        m_mutex.lock();
-        m_abort = true;
-        m_mutex.unlock();
-        wait();
-        // we need to force-set m_abort to false, because the thread might either have
-        // finished between the isRunning() check and the "m_abort = true" above, or the
-        // isRunning() check might already happen after the "m_abort = false" in the run() method,
-        // either way never resetting m_abort to false from within the run() method
-        m_abort = false;
-    }
-    qDeleteAll(m_rootItems);
-    m_rootItems.clear();
-}
-
-QHelpContentItem *QHelpContentProvider::rootItem()
-{
-    QMutexLocker locker(&m_mutex);
-    if (m_rootItems.isEmpty())
-        return 0;
-    return m_rootItems.dequeue();
-}
-
-int QHelpContentProvider::nextChildCount() const
-{
-    if (m_rootItems.isEmpty())
-        return 0;
-    return m_rootItems.head()->childCount();
-}
-
-void QHelpContentProvider::run()
-{
-    QString title;
-    QString link;
-    int depth = 0;
-    QHelpContentItem *item = 0;
-
-    m_mutex.lock();
-    QHelpContentItem * const rootItem = new QHelpContentItem(QString(), QString(), 0);
-    QStringList atts = m_filterAttributes;
-    const QStringList fileNames = m_helpEngine->orderedFileNameList;
-    m_mutex.unlock();
-
-    foreach (const QString &dbFileName, fileNames) {
-        m_mutex.lock();
-        if (m_abort) {
-            delete rootItem;
-            m_abort = false;
-            m_mutex.unlock();
-            return;
-        }
-        m_mutex.unlock();
-        QHelpDBReader reader(dbFileName,
-            QHelpGlobal::uniquifyConnectionName(dbFileName +
-            QLatin1String("FromQHelpContentProvider"),
-            QThread::currentThread()), 0);
-        if (!reader.init())
-            continue;
-        foreach (const QByteArray& ba, reader.contentsForFilter(atts)) {
-            if (ba.size() < 1)
-                continue;
-
-            int _depth = 0;
-            bool _root = false;
-            QStack<QHelpContentItem*> stack;
-
-            QDataStream s(ba);
-            for (;;) {
-                s >> depth;
-                s >> link;
-                s >> title;
-                if (title.isEmpty())
-                    break;
-CHECK_DEPTH:
-                if (depth == 0) {
-                    m_mutex.lock();
-                    item = new QHelpContentItem(title, link,
-                        m_helpEngine->fileNameReaderMap.value(dbFileName), rootItem);
-                    rootItem->appendChild(item);
-                    m_mutex.unlock();
-                    stack.push(item);
-                    _depth = 1;
-                    _root = true;
-                } else {
-                    if (depth > _depth && _root) {
-                        _depth = depth;
-                        stack.push(item);
-                    }
-                    if (depth == _depth) {
-                        item = new QHelpContentItem(title, link,
-                            m_helpEngine->fileNameReaderMap.value(dbFileName), stack.top());
-                        stack.top()->appendChild(item);
-                    } else if (depth < _depth) {
-                        stack.pop();
-                        --_depth;
-                        goto CHECK_DEPTH;
-                    }
-                }
+    const bool wasRunning = bool(watcher);
+    watcher.reset(new QFutureWatcher<std::shared_ptr<QHelpContentItem>>);
+    QObject::connect(watcher.get(), &QFutureWatcherBase::finished, q, [this] {
+        if (!watcher->isCanceled()) {
+            const std::shared_ptr<QHelpContentItem> result = watcher->result();
+            if (result && result.get()) {
+                q->beginResetModel();
+                rootItem = result;
+                q->endResetModel();
             }
         }
+        watcher.release()->deleteLater();
+        emit q->contentsCreated();
+    });
+    watcher->setFuture(futureProvider());
+
+    if (wasRunning)
+        return;
+
+    if (rootItem) {
+        q->beginResetModel();
+        rootItem.reset();
+        q->endResetModel();
     }
-    m_mutex.lock();
-    m_rootItems.enqueue(rootItem);
-    m_abort = false;
-    m_mutex.unlock();
-    emit finishedSuccessFully();
+    emit q->contentsCreationStarted();
 }
-
-
+#endif
 
 /*!
     \class QHelpContentModel
@@ -347,73 +98,45 @@ CHECK_DEPTH:
     This signal is emitted when the contents have been created.
 */
 
-QHelpContentModel::QHelpContentModel(QHelpEnginePrivate *helpEngine)
+QHelpContentModel::QHelpContentModel(QHelpEngineCore *helpEngine)
     : QAbstractItemModel(helpEngine)
-{
-    d = new QHelpContentModelPrivate();
-    d->rootItem = 0;
-    d->qhelpContentProvider = new QHelpContentProvider(helpEngine);
-
-    connect(d->qhelpContentProvider, SIGNAL(finishedSuccessFully()),
-        this, SLOT(insertContents()), Qt::QueuedConnection);
-    connect(helpEngine->q, SIGNAL(readersAboutToBeInvalidated()), this, SLOT(invalidateContents()));
-}
+    , d(new QHelpContentModelPrivate{this, helpEngine})
+{}
 
 /*!
     Destroys the help content model.
 */
 QHelpContentModel::~QHelpContentModel()
 {
-    delete d->rootItem;
     delete d;
 }
 
-void QHelpContentModel::invalidateContents(bool onShutDown)
+/*!
+    \since 6.8
+
+    Creates new contents by querying the help system for contents specified for the current filter.
+*/
+void QHelpContentModel::createContentsForCurrentFilter()
 {
-    if (onShutDown) {
-        disconnect(this, SLOT(insertContents()));
-    } else {
-        beginResetModel();
-    }
-    d->qhelpContentProvider->stopCollecting();
-    if (d->rootItem) {
-        delete d->rootItem;
-        d->rootItem = 0;
-    }
-    if (!onShutDown)
-        endResetModel();
+#if QT_CONFIG(future)
+    d->createContents([this] { return d->helpEngine->requestContentForCurrentFilter(); });
+#endif
 }
 
 /*!
     Creates new contents by querying the help system
-    for contents specified for the \a customFilterName.
+    for contents specified for the custom \a filter name.
 */
-void QHelpContentModel::createContents(const QString &customFilterName)
+void QHelpContentModel::createContents(const QString &filter)
 {
-    d->qhelpContentProvider->collectContents(customFilterName);
-    emit contentsCreationStarted();
+#if QT_CONFIG(future)
+    d->createContents([this, filter] { return d->helpEngine->requestContent(filter); });
+#endif
 }
 
+// TODO: Remove me
 void QHelpContentModel::insertContents()
-{
-    QHelpContentItem * const newRootItem = d->qhelpContentProvider->rootItem();
-    if (!newRootItem)
-        return;
-    int count;
-    if (d->rootItem) {
-        count = d->rootItem->childCount() - 1;
-        beginRemoveRows(QModelIndex(), 0, count > 0 ? count : 0);
-        delete d->rootItem;
-        d->rootItem = 0;
-        endRemoveRows();
-    }
-
-    count = d->qhelpContentProvider->nextChildCount() - 1;
-    beginInsertRows(QModelIndex(), 0, count > 0 ? count : 0);
-    d->rootItem = newRootItem;
-    endInsertRows();
-    emit contentsCreated();
-}
+{}
 
 /*!
     Returns true if the contents are currently rebuilt, otherwise
@@ -421,7 +144,11 @@ void QHelpContentModel::insertContents()
 */
 bool QHelpContentModel::isCreatingContents() const
 {
-    return d->qhelpContentProvider->isRunning();
+#if QT_CONFIG(future)
+    return bool(d->watcher);
+#else
+    return false;
+#endif
 }
 
 /*!
@@ -430,10 +157,8 @@ bool QHelpContentModel::isCreatingContents() const
 */
 QHelpContentItem *QHelpContentModel::contentItemAt(const QModelIndex &index) const
 {
-    if (index.isValid())
-        return static_cast<QHelpContentItem*>(index.internalPointer());
-    else
-        return d->rootItem;
+    return index.isValid() ? static_cast<QHelpContentItem *>(index.internalPointer())
+                           : d->rootItem.get();
 }
 
 /*!
@@ -443,12 +168,12 @@ QHelpContentItem *QHelpContentModel::contentItemAt(const QModelIndex &index) con
 QModelIndex QHelpContentModel::index(int row, int column, const QModelIndex &parent) const
 {
     if (!d->rootItem)
-        return QModelIndex();
+        return {};
 
     QHelpContentItem *parentItem = contentItemAt(parent);
     QHelpContentItem *item = parentItem->child(row);
     if (!item)
-        return QModelIndex();
+        return {};
     return createIndex(row, column, item);
 }
 
@@ -460,17 +185,17 @@ QModelIndex QHelpContentModel::parent(const QModelIndex &index) const
 {
     QHelpContentItem *item = contentItemAt(index);
     if (!item)
-        return QModelIndex();
+        return {};
 
     QHelpContentItem *parentItem = static_cast<QHelpContentItem*>(item->parent());
     if (!parentItem)
-        return QModelIndex();
+        return {};
 
     QHelpContentItem *grandparentItem = static_cast<QHelpContentItem*>(parentItem->parent());
     if (!grandparentItem)
-        return QModelIndex();
+        return {};
 
-    int row = grandparentItem->childPosition(parentItem);
+    const int row = grandparentItem->childPosition(parentItem);
     return createIndex(row, index.column(), parentItem);
 }
 
@@ -480,9 +205,9 @@ QModelIndex QHelpContentModel::parent(const QModelIndex &index) const
 int QHelpContentModel::rowCount(const QModelIndex &parent) const
 {
     QHelpContentItem *parentItem = contentItemAt(parent);
-    if (!parentItem)
-        return 0;
-    return parentItem->childCount();
+    if (parentItem)
+        return parentItem->childCount();
+    return 0;
 }
 
 /*!
@@ -490,8 +215,7 @@ int QHelpContentModel::rowCount(const QModelIndex &parent) const
 */
 int QHelpContentModel::columnCount(const QModelIndex &parent) const
 {
-    Q_UNUSED(parent)
-
+    Q_UNUSED(parent);
     return 1;
 }
 
@@ -501,16 +225,13 @@ int QHelpContentModel::columnCount(const QModelIndex &parent) const
 */
 QVariant QHelpContentModel::data(const QModelIndex &index, int role) const
 {
-    if (role != Qt::DisplayRole)
-        return QVariant();
-
-    QHelpContentItem *item = contentItemAt(index);
-    if (!item)
-        return QVariant();
-    return item->title();
+    if (role == Qt::DisplayRole) {
+        QHelpContentItem *item = contentItemAt(index);
+        if (item)
+            return item->title();
+    }
+    return {};
 }
-
-
 
 /*!
     \class QHelpContentWidget
@@ -527,12 +248,10 @@ QVariant QHelpContentModel::data(const QModelIndex &index, int role) const
 */
 
 QHelpContentWidget::QHelpContentWidget()
-    : QTreeView(0)
 {
     header()->hide();
     setUniformRowHeights(true);
-    connect(this, SIGNAL(activated(QModelIndex)),
-        this, SLOT(showLink(QModelIndex)));
+    connect(this, &QAbstractItemView::activated, this, &QHelpContentWidget::showLink);
 }
 
 /*!
@@ -542,10 +261,10 @@ QHelpContentWidget::QHelpContentWidget()
 QModelIndex QHelpContentWidget::indexOf(const QUrl &link)
 {
     QHelpContentModel *contentModel = qobject_cast<QHelpContentModel*>(model());
-    if (!contentModel || link.scheme() != QLatin1String("qthelp"))
-        return QModelIndex();
+    if (!contentModel || link.scheme() != "qthelp"_L1)
+        return {};
 
-    m_syncIndex = QModelIndex();
+    m_syncIndex = {};
     for (int i = 0; i < contentModel->rowCount(); ++i) {
         QHelpContentItem *itm = contentModel->contentItemAt(contentModel->index(i, 0));
         if (itm && itm->url().host() == link.host()) {
@@ -553,11 +272,11 @@ QModelIndex QHelpContentWidget::indexOf(const QUrl &link)
                 return m_syncIndex;
         }
     }
-    return QModelIndex();
+    return {};
 }
 
 bool QHelpContentWidget::searchContentItem(QHelpContentModel *model, const QModelIndex &parent,
-    const QString &cleanPath)
+                                           const QString &cleanPath)
 {
     QHelpContentItem *parentItem = model->contentItemAt(parent);
     if (!parentItem)
@@ -568,7 +287,7 @@ bool QHelpContentWidget::searchContentItem(QHelpContentModel *model, const QMode
         return true;
     }
 
-    for (int i=0; i<parentItem->childCount(); ++i) {
+    for (int i = 0; i < parentItem->childCount(); ++i) {
         if (searchContentItem(model, model->index(i, 0, parent), cleanPath))
             return true;
     }
@@ -590,5 +309,3 @@ void QHelpContentWidget::showLink(const QModelIndex &index)
 }
 
 QT_END_NAMESPACE
-
-#include "qhelpcontentwidget.moc"

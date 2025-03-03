@@ -1,63 +1,28 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the examples of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:BSD$
-** You may use this file under the terms of the BSD license as follows:
-**
-** "Redistribution and use in source and binary forms, with or without
-** modification, are permitted provided that the following conditions are
-** met:
-**   * Redistributions of source code must retain the above copyright
-**     notice, this list of conditions and the following disclaimer.
-**   * Redistributions in binary form must reproduce the above copyright
-**     notice, this list of conditions and the following disclaimer in
-**     the documentation and/or other materials provided with the
-**     distribution.
-**   * Neither the name of The Qt Company Ltd nor the names of its
-**     contributors may be used to endorse or promote products derived
-**     from this software without specific prior written permission.
-**
-**
-** THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-** "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-** LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-** A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-** OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-** SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-** LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-** DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-** THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-** (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-** OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2017 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
 
-#include <QtCore/QLibraryInfo>
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QMenuBar>
-#include <QtWidgets/QMessageBox>
-
-#include "mainwindow.h"
-#include "findfiledialog.h"
 #include "assistant.h"
+#include "findfiledialog.h"
+#include "mainwindow.h"
 #include "textedit.h"
+
+#include <QAction>
+#include <QApplication>
+#include <QLibraryInfo>
+#include <QMenu>
+#include <QMenuBar>
+#include <QMessageBox>
+
+using namespace Qt::StringLiterals;
 
 // ![0]
 MainWindow::MainWindow()
+    : textViewer(new TextEdit)
+    , assistant(new Assistant)
 {
-    assistant = new Assistant;
 // ![0]
-    textViewer = new TextEdit;
-    textViewer->setContents(QLibraryInfo::location(QLibraryInfo::ExamplesPath)
-            + QLatin1String("/assistant/simpletextviewer/documentation/intro.html"));
+    textViewer->setContents(QLibraryInfo::path(QLibraryInfo::ExamplesPath)
+                            + "/assistant/simpletextviewer/documentation/intro.html"_L1);
     setCentralWidget(textViewer);
 
     createActions();
@@ -65,6 +30,8 @@ MainWindow::MainWindow()
 
     setWindowTitle(tr("Simple Text Viewer"));
     resize(750, 400);
+
+    connect(textViewer, &TextEdit::fileNameChanged, this, &MainWindow::updateWindowTitle);
 // ![1]
 }
 //! [1]
@@ -75,6 +42,11 @@ void MainWindow::closeEvent(QCloseEvent *)
     delete assistant;
 }
 //! [2]
+
+void MainWindow::updateWindowTitle(const QString &fileName)
+{
+    setWindowTitle(tr("Simple Text Viewer - %1").arg(fileName));
+}
 
 void MainWindow::about()
 {
@@ -102,26 +74,26 @@ void MainWindow::createActions()
 {
     assistantAct = new QAction(tr("Help Contents"), this);
     assistantAct->setShortcut(QKeySequence::HelpContents);
-    connect(assistantAct, SIGNAL(triggered()), this, SLOT(showDocumentation()));
+    connect(assistantAct, &QAction::triggered, this, &MainWindow::showDocumentation);
 //! [4]
 
     openAct = new QAction(tr("&Open..."), this);
     openAct->setShortcut(QKeySequence::Open);
-    connect(openAct, SIGNAL(triggered()), this, SLOT(open()));
+    connect(openAct, &QAction::triggered, this, &MainWindow::open);
 
     clearAct = new QAction(tr("&Clear"), this);
     clearAct->setShortcut(tr("Ctrl+C"));
-    connect(clearAct, SIGNAL(triggered()), textViewer, SLOT(clear()));
+    connect(clearAct, &QAction::triggered, textViewer, &QTextEdit::clear);
 
     exitAct = new QAction(tr("E&xit"), this);
     exitAct->setShortcuts(QKeySequence::Quit);
-    connect(exitAct, SIGNAL(triggered()), this, SLOT(close()));
+    connect(exitAct, &QAction::triggered, this, &QWidget::close);
 
     aboutAct = new QAction(tr("&About"), this);
-    connect(aboutAct, SIGNAL(triggered()), this, SLOT(about()));
+    connect(aboutAct, &QAction::triggered, this, &MainWindow::about);
 
     aboutQtAct = new QAction(tr("About &Qt"), this);
-    connect(aboutQtAct, SIGNAL(triggered()), qApp, SLOT(aboutQt()));
+    connect(aboutQtAct, &QAction::triggered, QApplication::aboutQt);
 //! [5]
 }
 //! [5]
@@ -139,7 +111,6 @@ void MainWindow::createMenus()
     helpMenu->addSeparator();
     helpMenu->addAction(aboutAct);
     helpMenu->addAction(aboutQtAct);
-
 
     menuBar()->addMenu(fileMenu);
     menuBar()->addMenu(helpMenu);

@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Assistant of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "helpbrowsersupport.h"
 #include "helpenginewrapper.h"
@@ -66,7 +36,7 @@ QString HelpBrowserSupport::msgError404()
 
 QString HelpBrowserSupport::msgPageNotFound()
 {
-    return QCoreApplication::translate("HelpViewer", "The page could not be found!");
+    return QCoreApplication::translate("HelpViewer", "The page could not be found");
 }
 
 QString HelpBrowserSupport::msgAllDocumentationSets()
@@ -98,13 +68,13 @@ public:
     HelpNetworkReply(const QNetworkRequest &request, const QByteArray &fileData,
         const QString &mimeType);
 
-    virtual void abort();
+    void abort() override;
 
-    virtual qint64 bytesAvailable() const
-        { return data.length() + QNetworkReply::bytesAvailable(); }
+    qint64 bytesAvailable() const override
+        { return data.size() + QNetworkReply::bytesAvailable(); }
 
 protected:
-    virtual qint64 readData(char *data, qint64 maxlen);
+    qint64 readData(char *data, qint64 maxlen) override;
 
 private:
     QByteArray data;
@@ -113,7 +83,7 @@ private:
 
 HelpNetworkReply::HelpNetworkReply(const QNetworkRequest &request,
         const QByteArray &fileData, const QString& mimeType)
-    : data(fileData), origLen(fileData.length())
+    : data(fileData), origLen(fileData.size())
 {
     TRACE_OBJ
     setRequest(request);
@@ -135,12 +105,12 @@ void HelpNetworkReply::abort()
 qint64 HelpNetworkReply::readData(char *buffer, qint64 maxlen)
 {
     TRACE_OBJ
-    qint64 len = qMin(qint64(data.length()), maxlen);
+    qint64 len = qMin(qint64(data.size()), maxlen);
     if (len) {
         memcpy(buffer, data.constData(), len);
         data.remove(0, len);
     }
-    if (!data.length())
+    if (!data.size())
         QTimer::singleShot(0, this, &QNetworkReply::finished);
     return len;
 }
@@ -160,8 +130,8 @@ public:
     }
 
 protected:
-    void abort() { TRACE_OBJ }
-    qint64 readData(char*, qint64) { TRACE_OBJ return qint64(-1); }
+    void abort() override { TRACE_OBJ }
+    qint64 readData(char*, qint64) override { TRACE_OBJ return qint64(-1); }
 };
 
 // -- HelpNetworkAccessManager
@@ -172,8 +142,8 @@ public:
     HelpNetworkAccessManager(QObject *parent);
 
 protected:
-    virtual QNetworkReply *createRequest(Operation op,
-        const QNetworkRequest &request, QIODevice *outgoingData = 0);
+    QNetworkReply *createRequest(Operation op,
+        const QNetworkRequest &request, QIODevice *outgoingData = nullptr) override;
 };
 
 HelpNetworkAccessManager::HelpNetworkAccessManager(QObject *parent)

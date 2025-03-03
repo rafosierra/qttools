@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 //
 //  W A R N I N G
@@ -47,13 +17,13 @@
 
 #include <layoutinfo_p.h>
 
-#include <QtGui/QStandardItemModel>
-#include <QtGui/QIcon>
-#include <QtCore/QModelIndex>
-#include <QtCore/QString>
-#include <QtCore/QList>
-#include <QtCore/QMultiMap>
-#include <QtCore/QPointer>
+#include <QtGui/qstandarditemmodel.h>
+#include <QtGui/qicon.h>
+#include <QtCore/qcompare.h>
+#include <QtCore/qstring.h>
+#include <QtCore/qlist.h>
+#include <QtCore/qmap.h>
+#include <QtCore/qpointer.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -81,7 +51,7 @@ namespace qdesigner_internal {
             ExtensionContainer   // QTabWidget and the like, container extension
         };
 
-        typedef QList<QStandardItem *> StandardItemList;
+        using StandardItemList = QList<QStandardItem *>;
 
         explicit ObjectData(QObject *parent, QObject *object, const ModelRecursionContext &ctx);
         ObjectData();
@@ -105,28 +75,31 @@ namespace qdesigner_internal {
         void setItemsDisplayData(const StandardItemList &row, const ObjectInspectorIcons &icons, unsigned mask) const;
 
     private:
+        friend bool comparesEqual(const ObjectData &lhs, const ObjectData &rhs) noexcept
+        {
+            return lhs.m_parent == rhs.m_parent && lhs.m_object == rhs.m_object;
+        }
+        Q_DECLARE_EQUALITY_COMPARABLE(ObjectData)
+
         void initObject(const ModelRecursionContext &ctx);
         void initWidget(QWidget *w, const ModelRecursionContext &ctx);
 
-        QObject *m_parent;
-        QObject *m_object;
-        Type m_type;
+        QObject *m_parent = nullptr;
+        QObject *m_object = nullptr;
+        Type m_type = Object;
         QString m_className;
         QString m_objectName;
         QIcon m_classIcon;
-        LayoutInfo::Type m_managedLayoutType;
+        LayoutInfo::Type m_managedLayoutType = LayoutInfo::NoLayout;
     };
 
-    inline bool operator==(const ObjectData &e1, const ObjectData &e2) { return e1.equals(e2); }
-    inline bool operator!=(const ObjectData &e1, const ObjectData &e2) { return !e1.equals(e2); }
-
-    typedef QList<ObjectData> ObjectModel;
+    using ObjectModel = QList<ObjectData>;
 
     // QStandardItemModel for ObjectInspector. Uses ObjectData/ObjectModel
     // internally for its updates.
     class ObjectInspectorModel : public QStandardItemModel {
     public:
-        typedef QList<QStandardItem *> StandardItemList;
+        using StandardItemList = QList<QStandardItem *>;
         enum { ObjectNameColumn, ClassNameColumn, NumColumns };
 
         explicit ObjectInspectorModel(QObject *parent);
@@ -137,24 +110,22 @@ namespace qdesigner_internal {
         const QModelIndexList indexesOf(QObject *o) const { return m_objectIndexMultiMap.values(o); }
         QObject *objectAt(const QModelIndex &index) const;
 
-        QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const Q_DECL_OVERRIDE;
-        bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) Q_DECL_OVERRIDE;
+        QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
+        bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override;
 
     private:
-        typedef QMultiMap<QObject *,QModelIndex> ObjectIndexMultiMap;
-
         void rebuild(const ObjectModel &newModel);
         void updateItemContents(ObjectModel &oldModel, const ObjectModel &newModel);
         void clearItems();
         StandardItemList rowAt(QModelIndex index) const;
 
         ObjectInspectorIcons m_icons;
-        ObjectIndexMultiMap m_objectIndexMultiMap;
+        QMultiMap<QObject *, QModelIndex> m_objectIndexMultiMap;
         ObjectModel m_model;
         QPointer<QDesignerFormWindowInterface> m_formWindow;
     };
 }  // namespace qdesigner_internal
 
-#endif // OBJECTINSPECTORMODEL_H
-
 QT_END_NAMESPACE
+
+#endif // OBJECTINSPECTORMODEL_H

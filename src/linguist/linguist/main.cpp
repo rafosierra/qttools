@@ -1,49 +1,15 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "mainwindow.h"
-#include "globals.h"
 
 #include <QtCore/QFile>
 #include <QtCore/QLibraryInfo>
 #include <QtCore/QLocale>
-#include <QtCore/QSettings>
 #include <QtCore/QTranslator>
 
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QDesktopWidget>
 #include <QtGui/QPixmap>
-#include <QtWidgets/QSplashScreen>
 
 #ifdef Q_OS_MAC
 #include <QtCore/QUrl>
@@ -51,6 +17,8 @@
 #endif // Q_OS_MAC
 
 QT_USE_NAMESPACE
+
+using namespace Qt::Literals::StringLiterals;
 
 #ifdef Q_OS_MAC
 class ApplicationEventFilter : public QObject
@@ -73,7 +41,7 @@ public:
     }
 
 protected:
-    bool eventFilter(QObject *object, QEvent *event)
+    bool eventFilter(QObject *object, QEvent *event) override
     {
         if (object == qApp && event->type() == QEvent::FileOpen) {
             QFileOpenEvent *e = static_cast<QFileOpenEvent*>(event);
@@ -95,8 +63,6 @@ private:
 
 int main(int argc, char **argv)
 {
-    Q_INIT_RESOURCE(linguist);
-
     QApplication app(argc, argv);
     QApplication::setOverrideCursor(Qt::WaitCursor);
 
@@ -106,13 +72,13 @@ int main(int argc, char **argv)
 #endif // Q_OS_MAC
 
     QStringList files;
-    QString resourceDir = QLibraryInfo::location(QLibraryInfo::TranslationsPath);
+    QString resourceDir = QLibraryInfo::path(QLibraryInfo::TranslationsPath);
     QStringList args = app.arguments();
 
-    for (int i = 1; i < args.count(); ++i) {
+    for (int i = 1; i < args.size(); ++i) {
         QString argument = args.at(i);
-        if (argument == QLatin1String("-resourcedir")) {
-            if (i + 1 < args.count()) {
+        if (argument == "-resourcedir"_L1) {
+            if (i + 1 < args.size()) {
                 resourceDir = QFile::decodeName(args.at(++i).toLocal8Bit());
             } else {
                 // issue a warning
@@ -124,40 +90,23 @@ int main(int argc, char **argv)
 
     QTranslator translator;
     QTranslator qtTranslator;
-    QString sysLocale = QLocale::system().name();
-    if (translator.load(QLatin1String("linguist_") + sysLocale, resourceDir)) {
+    if (translator.load(QLocale(), "linguist"_L1, "_"_L1, resourceDir)) {
         app.installTranslator(&translator);
-        if (qtTranslator.load(QLatin1String("qt_") + sysLocale, resourceDir))
+        if (qtTranslator.load(QLocale(), "qt"_L1, "_"_L1, resourceDir))
             app.installTranslator(&qtTranslator);
         else
             app.removeTranslator(&translator);
     }
 
-    app.setOrganizationName(QLatin1String("QtProject"));
-    app.setApplicationName(QLatin1String("Linguist"));
-
-    QSettings config;
-
-    QWidget tmp;
-    tmp.restoreGeometry(config.value(settingPath("Geometry/WindowGeometry")).toByteArray());
-
-    QSplashScreen *splash = 0;
-    int screenId = QApplication::desktop()->screenNumber(tmp.geometry().center());
-    splash = new QSplashScreen(QApplication::desktop()->screen(screenId),
-        QPixmap(QLatin1String(":/images/splash.png")));
-    if (QApplication::desktop()->isVirtualDesktop()) {
-        QRect srect(0, 0, splash->width(), splash->height());
-        splash->move(QApplication::desktop()->availableGeometry(screenId).center() - srect.center());
-    }
-    splash->setAttribute(Qt::WA_DeleteOnClose);
-    splash->show();
+    app.setOrganizationName("QtProject"_L1);
+    app.setApplicationName("Linguist"_L1);
 
     MainWindow mw;
 #ifdef Q_OS_MAC
     eventFilter.setMainWindow(&mw);
 #endif // Q_OS_MAC
+    app.installEventFilter(&mw);
     mw.show();
-    splash->finish(&mw);
     QApplication::restoreOverrideCursor();
 
     mw.openFiles(files, true);

@@ -1,55 +1,27 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 
 #include "qdesigner_formwindowcommand_p.h"
 #include "qdesigner_objectinspector_p.h"
 #include "layout_p.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerObjectInspectorInterface>
-#include <QtDesigner/QDesignerActionEditorInterface>
-#include <QtDesigner/QDesignerMetaDataBaseInterface>
-#include <QtDesigner/QDesignerPropertySheetExtension>
-#include <QtDesigner/QDesignerPropertyEditorInterface>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractobjectinspector.h>
+#include <QtDesigner/abstractactioneditor.h>
+#include <QtDesigner/abstractmetadatabase.h>
+#include <QtDesigner/propertysheet.h>
+#include <QtDesigner/abstractpropertyeditor.h>
+#include <QtDesigner/qextensionmanager.h>
 
-#include <QtCore/QVariant>
-#include <QtWidgets/QWidget>
-#include <QtWidgets/QLabel>
+#include <QtCore/qvariant.h>
+#include <QtWidgets/qwidget.h>
+#include <QtWidgets/qlabel.h>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 namespace qdesigner_internal {
 
@@ -72,7 +44,7 @@ QDesignerFormEditorInterface *QDesignerFormWindowCommand::core() const
     if (QDesignerFormWindowInterface *fw = formWindow())
         return fw->core();
 
-    return 0;
+    return nullptr;
 }
 
 void QDesignerFormWindowCommand::undo()
@@ -105,19 +77,17 @@ void QDesignerFormWindowCommand::updateBuddies(QDesignerFormWindowInterface *for
 {
     QExtensionManager* extensionManager = form->core()->extensionManager();
 
-    typedef QList<QLabel*> LabelList;
-
-    const LabelList label_list = form->findChildren<QLabel*>();
-    if (label_list.empty())
+    const auto label_list = form->findChildren<QLabel*>();
+    if (label_list.isEmpty())
         return;
 
-    const QString buddyProperty = QStringLiteral("buddy");
+    const QString buddyProperty = u"buddy"_s;
     const QByteArray oldNameU8 = old_name.toUtf8();
     const QByteArray newNameU8 = new_name.toUtf8();
 
-    const LabelList::const_iterator cend = label_list.constEnd();
-    for (LabelList::const_iterator it = label_list.constBegin(); it != cend; ++it ) {
-        if (QDesignerPropertySheetExtension* sheet = qt_extension<QDesignerPropertySheetExtension*>(extensionManager, *it)) {
+    for (QLabel *label : label_list) {
+        if (QDesignerPropertySheetExtension* sheet =
+                qt_extension<QDesignerPropertySheetExtension*>(extensionManager, label)) {
             const int idx = sheet->indexOf(buddyProperty);
             if (idx != -1) {
                 const QByteArray oldBuddy = sheet->property(idx).toByteArray();

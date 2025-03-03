@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Assistant of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "collectionconfiguration.h"
 
@@ -37,37 +7,39 @@
 
 QT_BEGIN_NAMESPACE
 
+using namespace Qt::StringLiterals;
+
 namespace {
-    const QString AboutIconKey(QLatin1String("AboutIcon"));
-    const QString AboutImagesKey(QLatin1String("AboutImages"));
-    const QString AboutMenuTextsKey(QLatin1String("AboutMenuTexts"));
-    const QString AboutTextsKey(QLatin1String("AboutTexts"));
-    const QString ApplicationIconKey(QLatin1String("ApplicationIcon"));
-    const QString CacheDirKey(QLatin1String("CacheDirectory"));
-    const QString CacheDirRelativeToCollectionKey(QLatin1String("CacheDirRelativeToCollection"));
-    const QString CreationTimeKey(QLatin1String("CreationTime"));
-    const QString DefaultHomePageKey(QLatin1String("defaultHomepage"));
-    const QString EnableAddressBarKey(QLatin1String("EnableAddressBar"));
-    const QString EnableDocManagerKey(QLatin1String("EnableDocumentationManager"));
-    const QString EnableFilterKey(QLatin1String("EnableFilterFunctionality"));
-    const QString HideAddressBarKey(QLatin1String("HideAddressBar"));
-    const QString FilterToolbarHiddenKey(QLatin1String("HideFilterFunctionality"));
-    const QString LastPageKey(QLatin1String("LastTabPage"));
-    const QString LastRegisterTime(QLatin1String("LastRegisterTime"));
-    const QString LastShownPagesKey(QLatin1String("LastShownPages"));
-    const QString LastZoomFactorsKey(QLatin1String(
+    const QString AboutIconKey("AboutIcon"_L1);
+    const QString AboutImagesKey("AboutImages"_L1);
+    const QString AboutMenuTextsKey("AboutMenuTexts"_L1);
+    const QString AboutTextsKey("AboutTexts"_L1);
+    const QString ApplicationIconKey("ApplicationIcon"_L1);
+    const QString CacheDirKey("CacheDirectory"_L1);
+    const QString CacheDirRelativeToCollectionKey("CacheDirRelativeToCollection"_L1);
+    const QString CreationTimeKey("CreationTime"_L1);
+    const QString DefaultHomePageKey("defaultHomepage"_L1);
+    const QString EnableAddressBarKey("EnableAddressBar"_L1);
+    const QString EnableDocManagerKey("EnableDocumentationManager"_L1);
+    const QString EnableFilterKey("EnableFilterFunctionality"_L1);
+    const QString HideAddressBarKey("HideAddressBar"_L1);
+    const QString FilterToolbarHiddenKey("HideFilterFunctionality"_L1);
+    const QString LastPageKey("LastTabPage"_L1);
+    const QString LastRegisterTime("LastRegisterTime"_L1);
+    const QString LastShownPagesKey("LastShownPages"_L1);
+    const QString LastZoomFactorsKey(
 #if defined(BROWSER_QTWEBKIT)
-            "LastPagesZoomWebView"
+            "LastPagesZoomWebView"_L1
 #else
-            "LastPagesZoomTextBrowser"
+            "LastPagesZoomTextBrowser"_L1
 #endif
-            ));
-    const QString WindowTitleKey(QLatin1String("WindowTitle"));
-    const QString FullTextSearchFallbackKey(QLatin1String("FullTextSearchFallback"));
+            );
+    const QString WindowTitleKey("WindowTitle"_L1);
+    const QString FullTextSearchFallbackKey("FullTextSearchFallback"_L1);
 } // anonymous namespace
 
-const QString CollectionConfiguration::DefaultZoomFactor(QLatin1String("0.0"));
-const QString CollectionConfiguration::ListSeparator(QLatin1String("|"));
+const QString CollectionConfiguration::DefaultZoomFactor("0.0"_L1);
+const QString CollectionConfiguration::ListSeparator("|"_L1);
 
 uint CollectionConfiguration::creationTime(const QHelpEngineCore &helpEngine)
 {
@@ -220,8 +192,7 @@ void CollectionConfiguration::setAboutImages(QHelpEngineCore &helpEngine,
 
 const QString CollectionConfiguration::defaultHomePage(const QHelpEngineCore &helpEngine)
 {
-    return helpEngine.customValue(DefaultHomePageKey, QLatin1String("help")).
-        toString();
+    return helpEngine.customValue(DefaultHomePageKey, "help"_L1).toString();
 }
 
 void CollectionConfiguration::setDefaultHomePage(QHelpEngineCore &helpEngine,
@@ -233,7 +204,7 @@ void CollectionConfiguration::setDefaultHomePage(QHelpEngineCore &helpEngine,
 const QStringList CollectionConfiguration::lastShownPages(const QHelpEngineCore &helpEngine)
 {
     return helpEngine.customValue(LastShownPagesKey).toString().
-        split(ListSeparator, QString::SkipEmptyParts);
+        split(ListSeparator, Qt::SkipEmptyParts);
 }
 
 void CollectionConfiguration::setLastShownPages(QHelpEngineCore &helpEngine,
@@ -246,7 +217,7 @@ void CollectionConfiguration::setLastShownPages(QHelpEngineCore &helpEngine,
 const QStringList CollectionConfiguration::lastZoomFactors(const QHelpEngineCore &helpEngine)
 {
     return helpEngine.customValue(LastZoomFactorsKey).toString().
-        split(ListSeparator, QString::SkipEmptyParts);
+        split(ListSeparator, Qt::SkipEmptyParts);
 }
 
 void CollectionConfiguration::setLastZoomFactors(QHelpEngineCore &helpEngine,
@@ -272,9 +243,14 @@ const QDateTime CollectionConfiguration::lastRegisterTime(const QHelpEngineCore 
     return helpEngine.customValue(LastRegisterTime, QDateTime()).toDateTime();
 }
 
+void CollectionConfiguration::updateLastRegisterTime(QHelpEngineCore &helpEngine, QDateTime dt)
+{
+    helpEngine.setCustomValue(LastRegisterTime, dt);
+}
+
 void CollectionConfiguration::updateLastRegisterTime(QHelpEngineCore &helpEngine)
 {
-    helpEngine.setCustomValue(LastRegisterTime, QDateTime::currentDateTime());
+    updateLastRegisterTime(helpEngine, QDateTime::currentDateTime());
 }
 
 bool CollectionConfiguration::isNewer(const QHelpEngineCore &newer,

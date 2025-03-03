@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qdesigner_taskmenu_p.h"
 #include "qdesigner_command_p.h"
@@ -39,6 +9,7 @@
 #include "stylesheeteditor_p.h"
 #include "qlayout_widget_p.h"
 #include "layout_p.h"
+#include "selectsignaldialog_p.h"
 #include "spacer_widget_p.h"
 #include "textpropertyeditor_p.h"
 #include "promotiontaskmenu_p.h"
@@ -50,60 +21,38 @@
 #include "qdesigner_objectinspector_p.h"
 #include "morphmenu_p.h"
 #include "formlayoutmenu_p.h"
-#include "ui_selectsignaldialog.h"
 #include "widgetfactory_p.h"
 #include "abstractintrospection_p.h"
 #include "widgetdatabase_p.h"
 
 #include <shared_enums_p.h>
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormWindowCursorInterface>
-#include <QtDesigner/QDesignerPropertySheetExtension>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerLanguageExtension>
-#include <QtDesigner/QDesignerIntegrationInterface>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformwindowcursor.h>
+#include <QtDesigner/propertysheet.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractlanguage.h>
+#include <QtDesigner/abstractintegration.h>
+#include <QtDesigner/qextensionmanager.h>
 
-#include <QtWidgets/QAction>
-#include <QtWidgets/QActionGroup>
-#include <QtWidgets/QWidget>
-#include <QtWidgets/QMenuBar>
-#include <QtWidgets/QMainWindow>
-#include <QtWidgets/QStatusBar>
-#include <QtWidgets/QDialogButtonBox>
-#include <QtWidgets/QVBoxLayout>
-#include <QtWidgets/QPushButton>
-#include <QtWidgets/QUndoStack>
-#include <QtCore/QDebug>
-#include <QtCore/QSignalMapper>
-#include <QtCore/QCoreApplication>
+#include <QtWidgets/qwidget.h>
+#include <QtWidgets/qmenubar.h>
+#include <QtWidgets/qmainwindow.h>
+#include <QtWidgets/qstatusbar.h>
+#include <QtWidgets/qdialogbuttonbox.h>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qpushbutton.h>
+
+#include <QtGui/qaction.h>
+#include <QtGui/qactiongroup.h>
+#include <QtGui/qundostack.h>
+
+#include <QtCore/qdebug.h>
+#include <QtCore/qcoreapplication.h>
 
 QT_BEGIN_NAMESPACE
 
-static QMenuBar *findMenuBar(const QWidget *widget)
-{
-    const QList<QObject*> children = widget->children();
-    foreach (QObject *obj, widget->children()) {
-        if (QMenuBar *mb = qobject_cast<QMenuBar*>(obj)) {
-            return mb;
-        }
-    }
-
-    return 0;
-}
-
-static QStatusBar *findStatusBar(const QWidget *widget)
-{
-    const QList<QObject*> children = widget->children();
-    foreach (QObject *obj, widget->children()) {
-        if (QStatusBar *sb = qobject_cast<QStatusBar*>(obj)) {
-            return sb;
-        }
-    }
-
-    return 0;
-}
+using namespace Qt::StringLiterals;
 
 static inline QAction *createSeparatorHelper(QObject *parent) {
     QAction *rc = new QAction(parent);
@@ -114,13 +63,13 @@ static inline QAction *createSeparatorHelper(QObject *parent) {
 static QString objName(const QDesignerFormEditorInterface *core, QObject *object) {
     QDesignerPropertySheetExtension *sheet
             = qt_extension<QDesignerPropertySheetExtension*>(core->extensionManager(), object);
-    Q_ASSERT(sheet != 0);
+    Q_ASSERT(sheet != nullptr);
 
-    const QString objectNameProperty = QStringLiteral("objectName");
-    const int index = sheet->indexOf(objectNameProperty);
-    const qdesigner_internal::PropertySheetStringValue objectNameValue
-            = qvariant_cast<qdesigner_internal::PropertySheetStringValue>(sheet->property(index));
-    return objectNameValue.value();
+    const int index = sheet->indexOf(u"objectName"_s);
+    const QVariant v = sheet->property(index);
+    if (v.canConvert<qdesigner_internal::PropertySheetStringValue>())
+        return v.value<qdesigner_internal::PropertySheetStringValue>().value();
+    return v.toString();
 }
 
 enum { ApplyMinimumWidth = 0x1, ApplyMinimumHeight = 0x2, ApplyMaximumWidth = 0x4, ApplyMaximumHeight = 0x8 };
@@ -143,7 +92,6 @@ ObjectNameDialog::ObjectNameDialog(QWidget *parent, const QString &oldName)
                                                            qdesigner_internal::ValidationObjectName))
 {
     setWindowTitle(QCoreApplication::translate("ObjectNameDialog", "Change Object Name"));
-    setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
     QVBoxLayout *vboxLayout = new QVBoxLayout(this);
     vboxLayout->addWidget(new QLabel(QCoreApplication::translate("ObjectNameDialog", "Object Name")));
@@ -159,8 +107,8 @@ ObjectNameDialog::ObjectNameDialog(QWidget *parent, const QString &oldName)
     okButton->setDefault(true);
     vboxLayout->addWidget(buttonBox);
 
-    connect(buttonBox, SIGNAL(accepted()), this, SLOT(accept()));
-    connect(buttonBox, SIGNAL(rejected()), this, SLOT(reject()));
+    connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
+    connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
 }
 
 QString ObjectNameDialog::newObjectName() const
@@ -173,19 +121,21 @@ namespace qdesigner_internal {
 
 // Sub menu displaying the alignment options of a widget in a managed
 // grid/box layout cell.
-class LayoutAlignmentMenu {
+class LayoutAlignmentMenu : public QObject {
+    Q_OBJECT
 public:
     explicit LayoutAlignmentMenu(QObject *parent);
 
     QAction *subMenuAction() const { return m_subMenuAction; }
-
-    void connect(QObject *receiver, const char *aSlot);
 
     // Set up enabled state and checked actions according to widget (managed box/grid)
     bool setAlignment(const QDesignerFormEditorInterface *core, QWidget *w);
 
     // Return the currently checked alignment
     Qt::Alignment alignment() const;
+
+signals:
+    void changed();
 
 private:
     enum Actions { HorizNone, Left, HorizCenter, Right, VerticalNone, Top, VerticalCenter, Bottom };
@@ -199,7 +149,7 @@ private:
 
 QAction *LayoutAlignmentMenu::createAction(const QString &text, int data, QMenu *menu, QActionGroup *ag)
 {
-    QAction * a = new QAction(text, 0);
+    QAction * a = new QAction(text, nullptr);
     a->setCheckable(true);
     a->setData(QVariant(data));
     menu->addAction(a);
@@ -207,13 +157,15 @@ QAction *LayoutAlignmentMenu::createAction(const QString &text, int data, QMenu 
     return a;
 }
 
-LayoutAlignmentMenu::LayoutAlignmentMenu(QObject *parent) :
+LayoutAlignmentMenu::LayoutAlignmentMenu(QObject *parent) : QObject(parent),
     m_subMenuAction(new QAction(QDesignerTaskMenu::tr("Layout Alignment"), parent)),
     m_horizGroup(new QActionGroup(parent)),
     m_verticalGroup(new QActionGroup(parent))
 {
     m_horizGroup->setExclusive(true);
     m_verticalGroup->setExclusive(true);
+    connect(m_horizGroup, &QActionGroup::triggered, this, &LayoutAlignmentMenu::changed);
+    connect(m_verticalGroup, &QActionGroup::triggered, this, &LayoutAlignmentMenu::changed);
 
     QMenu *menu = new QMenu;
     m_subMenuAction->setMenu(menu);
@@ -229,18 +181,12 @@ LayoutAlignmentMenu::LayoutAlignmentMenu(QObject *parent) :
     m_actions[Bottom] = createAction(QDesignerTaskMenu::tr("Bottom"), Qt::AlignBottom, menu, m_verticalGroup);
 }
 
-void LayoutAlignmentMenu::connect(QObject *receiver, const char *aSlot)
-{
-    QObject::connect(m_horizGroup, SIGNAL(triggered(QAction*)), receiver, aSlot);
-    QObject::connect(m_verticalGroup, SIGNAL(triggered(QAction*)), receiver, aSlot);
-}
-
 bool LayoutAlignmentMenu::setAlignment(const QDesignerFormEditorInterface *core, QWidget *w)
 {
     bool enabled;
     const Qt::Alignment alignment = LayoutAlignmentCommand::alignmentOf(core, w, &enabled);
+    m_subMenuAction->setEnabled(enabled);
     if (!enabled) {
-        m_subMenuAction->setEnabled(false);
         m_actions[HorizNone]->setChecked(true);
         m_actions[VerticalNone]->setChecked(true);
         return false;
@@ -279,7 +225,7 @@ bool LayoutAlignmentMenu::setAlignment(const QDesignerFormEditorInterface *core,
 
 Qt::Alignment LayoutAlignmentMenu::alignment() const
 {
-    Qt::Alignment alignment = 0;
+    Qt::Alignment alignment;
     if (const QAction *horizAction = m_horizGroup->checkedAction())
         if (const int horizAlign = horizAction->data().toInt())
             alignment |= static_cast<Qt::Alignment>(horizAlign);
@@ -312,6 +258,7 @@ public:
 
     QAction *m_addMenuBar;
     QAction *m_addToolBar;
+    QAction *m_addAreaSubMenu;
     QAction *m_addStatusBar;
     QAction *m_removeStatusBar;
     QAction *m_containerFakeMethods;
@@ -323,7 +270,7 @@ public:
 };
 
 QDesignerTaskMenuPrivate::QDesignerTaskMenuPrivate(QWidget *widget, QObject *parent) :
-    m_q(0),
+    m_q(nullptr),
     m_widget(widget),
     m_separator(createSeparatorHelper(parent)),
     m_separator2(createSeparatorHelper(parent)),
@@ -340,6 +287,7 @@ QDesignerTaskMenuPrivate::QDesignerTaskMenuPrivate(QWidget *widget, QObject *par
     m_formLayoutMenu(new FormLayoutMenu(parent)),
     m_addMenuBar(new QAction(QDesignerTaskMenu::tr("Create Menu Bar"), parent)),
     m_addToolBar(new QAction(QDesignerTaskMenu::tr("Add Tool Bar"), parent)),
+    m_addAreaSubMenu(new QAction(QDesignerTaskMenu::tr("Add Tool Bar to Other Area"), parent)),
     m_addStatusBar(new QAction(QDesignerTaskMenu::tr("Create Status Bar"), parent)),
     m_removeStatusBar(new QAction(QDesignerTaskMenu::tr("Remove Status Bar"), parent)),
     m_containerFakeMethods(new QAction(QDesignerTaskMenu::tr("Change signals/slots..."), parent)),
@@ -386,18 +334,28 @@ QDesignerTaskMenu::QDesignerTaskMenu(QWidget *widget, QObject *parent) :
     d->m_q = this;
     Q_ASSERT(qobject_cast<QDesignerFormWindowInterface*>(widget) == 0);
 
-    connect(d->m_changeObjectNameAction, SIGNAL(triggered()), this, SLOT(changeObjectName()));
-    connect(d->m_changeToolTip, SIGNAL(triggered()), this, SLOT(changeToolTip()));
-    connect(d->m_changeWhatsThis, SIGNAL(triggered()), this, SLOT(changeWhatsThis()));
-    connect(d->m_changeStyleSheet, SIGNAL(triggered()), this,  SLOT(changeStyleSheet()));
-    connect(d->m_addMenuBar, SIGNAL(triggered()), this, SLOT(createMenuBar()));
-    connect(d->m_addToolBar, SIGNAL(triggered()), this, SLOT(addToolBar()));
-    connect(d->m_addStatusBar, SIGNAL(triggered()), this, SLOT(createStatusBar()));
-    connect(d->m_removeStatusBar, SIGNAL(triggered()), this, SLOT(removeStatusBar()));
-    connect(d->m_containerFakeMethods, SIGNAL(triggered()), this, SLOT(containerFakeMethods()));
-    connect(d->m_navigateToSlot, SIGNAL(triggered()), this, SLOT(slotNavigateToSlot()));
-    connect(d->m_sizeActionGroup, SIGNAL(triggered(QAction*)), this,  SLOT(applySize(QAction*)));
-    d->m_layoutAlignmentMenu.connect(this, SLOT(slotLayoutAlignment()));
+    connect(d->m_changeObjectNameAction, &QAction::triggered, this, &QDesignerTaskMenu::changeObjectName);
+    connect(d->m_changeToolTip, &QAction::triggered, this, &QDesignerTaskMenu::changeToolTip);
+    connect(d->m_changeWhatsThis, &QAction::triggered, this, &QDesignerTaskMenu::changeWhatsThis);
+    connect(d->m_changeStyleSheet, &QAction::triggered, this, &QDesignerTaskMenu::changeStyleSheet);
+    connect(d->m_addMenuBar, &QAction::triggered, this, &QDesignerTaskMenu::createMenuBar);
+    connect(d->m_addToolBar, &QAction::triggered, this,
+            [this] () { this->addToolBar(Qt::TopToolBarArea); });
+    auto areaMenu = new QMenu;
+    d->m_addAreaSubMenu->setMenu(areaMenu);
+    areaMenu->addAction(QDesignerTaskMenu::tr("Left"), this,
+                        [this] () { this->addToolBar(Qt::LeftToolBarArea); });
+    areaMenu->addAction(QDesignerTaskMenu::tr("Right"), this,
+                        [this] () { this->addToolBar(Qt::RightToolBarArea); });
+    areaMenu->addAction(QDesignerTaskMenu::tr("Bottom"), this,
+                        [this] () { this->addToolBar(Qt::BottomToolBarArea); });
+    connect(d->m_addStatusBar, &QAction::triggered, this, &QDesignerTaskMenu::createStatusBar);
+    connect(d->m_removeStatusBar, &QAction::triggered, this, &QDesignerTaskMenu::removeStatusBar);
+    connect(d->m_containerFakeMethods, &QAction::triggered, this, &QDesignerTaskMenu::containerFakeMethods);
+    connect(d->m_navigateToSlot, &QAction::triggered, this, &QDesignerTaskMenu::slotNavigateToSlot);
+    connect(d->m_sizeActionGroup, &QActionGroup::triggered, this, &QDesignerTaskMenu::applySize);
+    connect(&d->m_layoutAlignmentMenu, &LayoutAlignmentMenu::changed,
+            this, &QDesignerTaskMenu::slotLayoutAlignment);
 }
 
 QDesignerTaskMenu::~QDesignerTaskMenu()
@@ -418,7 +376,7 @@ QWidget *QDesignerTaskMenu::widget() const
 QDesignerFormWindowInterface *QDesignerTaskMenu::formWindow() const
 {
     QDesignerFormWindowInterface *result = QDesignerFormWindowInterface::findFormWindow(widget());
-    Q_ASSERT(result != 0);
+    Q_ASSERT(result != nullptr);
     return result;
 }
 
@@ -437,7 +395,7 @@ void QDesignerTaskMenu::createMenuBar()
     }
 }
 
-void QDesignerTaskMenu::addToolBar()
+void QDesignerTaskMenu::addToolBar(Qt::ToolBarArea area)
 {
     if (QDesignerFormWindowInterface *fw = formWindow()) {
         QMainWindow *mw = qobject_cast<QMainWindow*>(fw->mainContainer());
@@ -447,7 +405,7 @@ void QDesignerTaskMenu::addToolBar()
         }
 
         AddToolBarCommand *cmd = new AddToolBarCommand(fw);
-        cmd->init(mw);
+        cmd->init(mw, area);
         fw->commandHistory()->push(cmd);
     }
 }
@@ -477,7 +435,7 @@ void QDesignerTaskMenu::removeStatusBar()
         }
 
         DeleteStatusBarCommand *cmd = new DeleteStatusBarCommand(fw);
-        cmd->init(findStatusBar(mw));
+        cmd->init(mw->findChild<QStatusBar *>(QString(), Qt::FindDirectChildrenOnly));
         fw->commandHistory()->push(cmd);
     }
 }
@@ -493,16 +451,17 @@ QList<QAction*> QDesignerTaskMenu::taskActions() const
 
     if (const QMainWindow *mw = qobject_cast<const QMainWindow*>(formWindow->mainContainer()))  {
         if (isMainContainer || mw->centralWidget() == widget()) {
-            if (!findMenuBar(mw)) {
+            if (mw->findChild<QMenuBar *>(QString(), Qt::FindDirectChildrenOnly) == nullptr)
                 actions.append(d->m_addMenuBar);
-            }
 
             actions.append(d->m_addToolBar);
+            actions.append(d->m_addAreaSubMenu);
             // ### create the status bar
-            if (!findStatusBar(mw))
-                actions.append(d->m_addStatusBar);
-            else
+            if (mw->findChild<QStatusBar *>(QString(), Qt::FindDirectChildrenOnly))
                 actions.append(d->m_removeStatusBar);
+            else
+                actions.append(d->m_addStatusBar);
+
             actions.append(d->m_separator);
         }
     }
@@ -538,7 +497,7 @@ QList<QAction*> QDesignerTaskMenu::taskActions() const
 void QDesignerTaskMenu::changeObjectName()
 {
     QDesignerFormWindowInterface *fw = formWindow();
-    Q_ASSERT(fw != 0);
+    Q_ASSERT(fw != nullptr);
 
     const QString oldObjectName = objName(fw->core(), widget());
 
@@ -546,10 +505,10 @@ void QDesignerTaskMenu::changeObjectName()
     if (dialog.exec() == QDialog::Accepted) {
         const QString newObjectName = dialog.newObjectName();
         if (!newObjectName.isEmpty() && newObjectName  != oldObjectName ) {
-            const QString objectNameProperty = QStringLiteral("objectName");
             PropertySheetStringValue objectNameValue;
             objectNameValue.setValue(newObjectName);
-            setProperty(fw, CurrentWidgetMode, objectNameProperty, QVariant::fromValue(objectNameValue));
+            setProperty(fw, CurrentWidgetMode, u"objectName"_s,
+                        QVariant::fromValue(objectNameValue));
         }
     }
 }
@@ -559,7 +518,7 @@ void QDesignerTaskMenu::changeTextProperty(const QString &propertyName, const QS
     QDesignerFormWindowInterface *fw = formWindow();
     if (!fw)
         return;
-    Q_ASSERT(d->m_widget->parentWidget() != 0);
+    Q_ASSERT(d->m_widget->parentWidget() != nullptr);
 
     const QDesignerPropertySheetExtension *sheet = qt_extension<QDesignerPropertySheetExtension*>(fw->core()->extensionManager(), d->m_widget);
     const int index = sheet->indexOf(propertyName);
@@ -605,12 +564,12 @@ void QDesignerTaskMenu::changeTextProperty(const QString &propertyName, const QS
 
 void QDesignerTaskMenu::changeToolTip()
 {
-    changeTextProperty(QStringLiteral("toolTip"), tr("Edit ToolTip"), MultiSelectionMode, Qt::AutoText);
+    changeTextProperty(u"toolTip"_s, tr("Edit ToolTip"), MultiSelectionMode, Qt::AutoText);
 }
 
 void QDesignerTaskMenu::changeWhatsThis()
 {
-    changeTextProperty(QStringLiteral("whatsThis"), tr("Edit WhatsThis"), MultiSelectionMode, Qt::AutoText);
+    changeTextProperty(u"whatsThis"_s, tr("Edit WhatsThis"), MultiSelectionMode, Qt::AutoText);
 }
 
 void QDesignerTaskMenu::changeStyleSheet()
@@ -629,22 +588,6 @@ void QDesignerTaskMenu::containerFakeMethods()
     SignalSlotDialog::editMetaDataBase(fw, d->m_widget, fw);
 }
 
-static QString declaredInClass(const QDesignerMetaObjectInterface *metaObject, const QString &member)
-{
-    // Find class whose superclass does not contain the method.
-    const QDesignerMetaObjectInterface *meta = metaObject;
-
-    for (;;) {
-        const QDesignerMetaObjectInterface *tmpMeta = meta->superClass();
-        if (tmpMeta == 0)
-            break;
-        if (tmpMeta->indexOfMethod(member) == -1)
-            break;
-        meta = tmpMeta;
-    }
-    return meta->className();
-}
-
 bool QDesignerTaskMenu::isSlotNavigationEnabled(const QDesignerFormEditorInterface *core)
 {
     return core->integration()->hasFeature(QDesignerIntegration::SlotNavigationFeature);
@@ -661,89 +604,16 @@ void QDesignerTaskMenu::navigateToSlot(QDesignerFormEditorInterface *core,
                                        QObject *object,
                                        const QString &defaultSignal)
 {
-    const QString objectName = objName(core, object);
-    QMap<QString, QMap<QString, QStringList> > classToSignalList;
-
-    // "real" signals
-    if (const QDesignerMetaObjectInterface *metaObject = core->introspection()->metaObject(object)) {
-        const int methodCount = metaObject->methodCount();
-        for (int i = 0; i < methodCount; ++i) {
-            const QDesignerMetaMethodInterface *metaMethod = metaObject->method(i);
-            if (metaMethod->methodType() == QDesignerMetaMethodInterface::Signal) {
-                const QString signature = metaMethod->signature();
-                const QStringList parameterNames = metaMethod->parameterNames();
-                classToSignalList[declaredInClass(metaObject, signature)][signature] = parameterNames;
-            }
-        }
-    }
-
-    // fake signals
-    if (qdesigner_internal::MetaDataBase *metaDataBase
-        = qobject_cast<qdesigner_internal::MetaDataBase *>(core->metaDataBase())) {
-        qdesigner_internal::MetaDataBaseItem *item = metaDataBase->metaDataBaseItem(object);
-        Q_ASSERT(item);
-        const QStringList fakeSignals = item->fakeSignals();
-        foreach (const QString &fakeSignal, fakeSignals)
-            classToSignalList[item->customClassName()][fakeSignal] = QStringList();
-    }
-
-    if (object->isWidgetType()) {
-        QWidget *widget = static_cast<QWidget *>(object);
-        if (WidgetDataBase *db = qobject_cast<WidgetDataBase *>(core->widgetDataBase())) {
-            const QString promotedClassName = promotedCustomClassName(core, widget);
-            const int index = core->widgetDataBase()->indexOfClassName(promotedClassName);
-            if (index >= 0) {
-                WidgetDataBaseItem* item = static_cast<WidgetDataBaseItem*>(db->item(index));
-                const QStringList fakeSignals = item->fakeSignals();
-                foreach (const QString &fakeSignal, fakeSignals)
-                    classToSignalList[promotedClassName][fakeSignal] = QStringList();
-            }
-        }
-    }
-
-    Ui::SelectSignalDialog dialogUi;
-    QDialog selectSignalDialog(0, Qt::WindowTitleHint | Qt::WindowSystemMenuHint);
-    dialogUi.setupUi(&selectSignalDialog);
-
-    QMap<QString, QMap<QString, QStringList> >::const_iterator iter(classToSignalList.constBegin());
-    for (; iter != classToSignalList.constEnd(); ++iter) {
-        const QString className = iter.key();
-        QMap<QString, QStringList> signalNames = iter.value();
-
-        QMap<QString, QStringList>::const_iterator itSignal(signalNames.constBegin());
-        for (; itSignal != signalNames.constEnd(); ++itSignal) {
-            const QString signalName = itSignal.key();
-            QTreeWidgetItem *row = new QTreeWidgetItem(QStringList() << signalName << className);
-            row->setData(0, Qt::UserRole, itSignal.value());
-            dialogUi.signalList->addTopLevelItem(row);
-        }
-    }
-    if (dialogUi.signalList->topLevelItemCount() == 0) {
-        QTreeWidgetItem *row = new QTreeWidgetItem(QStringList() << tr("no signals available"));
-        dialogUi.signalList->addTopLevelItem(row);
-        dialogUi.buttonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
-    } else {
-        connect(dialogUi.signalList, SIGNAL(itemDoubleClicked(QTreeWidgetItem*,int)),
-                &selectSignalDialog, SLOT(accept()));
-    }
-
-    if (defaultSignal.isEmpty()) {
-        dialogUi.signalList->setCurrentItem(dialogUi.signalList->topLevelItem(0));
-    } else {
-        const QList<QTreeWidgetItem *> items = dialogUi.signalList->findItems (defaultSignal, Qt::MatchExactly, 0);
-        if (!items.empty())
-            dialogUi.signalList->setCurrentItem(items.front());
-    }
-
-    dialogUi.signalList->resizeColumnToContents(0);
-
-    if (selectSignalDialog.exec() == QDialog::Accepted) {
-        QTreeWidgetItem *selectedItem = dialogUi.signalList->selectedItems().first();
-        const QString signalSignature = selectedItem->text(0);
-        const QStringList parameterNames = qvariant_cast<QStringList>(selectedItem->data(0, Qt::UserRole));
-
-        // TODO: Check whether signal is connected to slot
-        core->integration()->emitNavigateToSlot(objectName, signalSignature, parameterNames);
+    SelectSignalDialog dialog;
+    dialog.populate(core, object, defaultSignal);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+    // TODO: Check whether signal is connected to slot
+    const SelectSignalDialog::Method method = dialog.selectedMethod();
+    if (method.isValid()) {
+        core->integration()->emitNavigateToSlot(objName(core, object),
+                                                method.signature,
+                                                method.parameterNames);
     }
 }
 
@@ -759,7 +629,7 @@ static void createSizeCommand(QDesignerFormWindowInterface *fw, QWidget *w, int 
         if (flags & ApplyMinimumHeight)
              minimumSize.setHeight(size.height());
         SetPropertyCommand* cmd = new SetPropertyCommand(fw);
-        cmd->init(w, QStringLiteral("minimumSize"), minimumSize);
+        cmd->init(w, u"minimumSize"_s, minimumSize);
         fw->commandHistory()->push(cmd);
     }
     if (flags & (ApplyMaximumWidth|ApplyMaximumHeight)) {
@@ -769,7 +639,7 @@ static void createSizeCommand(QDesignerFormWindowInterface *fw, QWidget *w, int 
         if (flags & ApplyMaximumHeight)
              maximumSize.setHeight(size.height());
         SetPropertyCommand* cmd = new SetPropertyCommand(fw);
-        cmd->init(w, QStringLiteral("maximumSize"), maximumSize);
+        cmd->init(w, u"maximumSize"_s, maximumSize);
         fw->commandHistory()->push(cmd);
     }
 }
@@ -785,10 +655,10 @@ void QDesignerTaskMenu::applySize(QAction *a)
         return;
 
     const int mask = a->data().toInt();
-    const int size = selection.size();
-    fw->commandHistory()->beginMacro(tr("Set size constraint on %n widget(s)", 0, size));
-    for (int i = 0; i < size; i++)
-        createSizeCommand(fw, selection.at(i), mask);
+    fw->commandHistory()->beginMacro(tr("Set size constraint on %n widget(s)", nullptr,
+                                        int(selection.size())));
+    for (auto *w : selection)
+        createSizeCommand(fw, w, mask);
     fw->commandHistory()->endMacro();
 }
 
@@ -807,10 +677,10 @@ template <class Container>
     Selection s;
     designerObjectInspector->getSelection(s);
     const QWidgetList &source = fw->isManaged(current) ? s.managed : s.unmanaged;
-    const QWidgetList::const_iterator cend = source.constEnd();
-    for ( QWidgetList::const_iterator it = source.constBegin(); it != cend; ++it)
-        if (*it != current) // was first
-            c->push_back(*it);
+    for (auto *w : source) {
+        if (w != current) // was first
+            c->append(w);
+    }
 }
 
 QObjectList QDesignerTaskMenu::applicableObjects(const QDesignerFormWindowInterface *fw, PropertyMode pm) const
@@ -852,3 +722,5 @@ void QDesignerTaskMenu::slotLayoutAlignment()
 } // namespace qdesigner_internal
 
 QT_END_NAMESPACE
+
+#include "qdesigner_taskmenu.moc"

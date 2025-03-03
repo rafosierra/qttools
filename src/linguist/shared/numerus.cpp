@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "translator.h"
 
@@ -43,6 +13,8 @@
 #include <private/qtranslator_p.h>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::Literals::StringLiterals;
 
 static const uchar englishStyleRules[] =
     { Q_EQ, 1 };
@@ -129,7 +101,6 @@ static const char * const tagalogForms[] =
 #define EOL QLocale::C
 
 static const QLocale::Language japaneseStyleLanguages[] = {
-    QLocale::Armenian,
     QLocale::Bislama,
     QLocale::Burmese,
     QLocale::Chinese,
@@ -146,6 +117,7 @@ static const QLocale::Language japaneseStyleLanguages[] = {
     QLocale::Oromo,
     QLocale::Persian,
     QLocale::Sundanese,
+    QLocale::Tatar,
     QLocale::Thai,
     QLocale::Tibetan,
     QLocale::Turkish,
@@ -167,7 +139,6 @@ static const QLocale::Language englishStyleLanguages[] = {
     QLocale::Bashkir,
     QLocale::Basque,
     QLocale::Bengali,
-    QLocale::Bihari,
     QLocale::Bulgarian,
     QLocale::Catalan,
     QLocale::Cornish,
@@ -182,6 +153,7 @@ static const QLocale::Language englishStyleLanguages[] = {
     QLocale::Friulian,
     QLocale::WesternFrisian,
     QLocale::Galician,
+    QLocale::Ganda,
     QLocale::Georgian,
     QLocale::German,
     QLocale::Greek,
@@ -211,7 +183,7 @@ static const QLocale::Language englishStyleLanguages[] = {
     // Missing: Nahuatl,
     QLocale::Nepali,
     QLocale::NorthernSotho,
-    QLocale::NorwegianBokmal, // same as Norwegian
+    QLocale::NorwegianBokmal,
     QLocale::NorwegianNynorsk,
     QLocale::Occitan,
     QLocale::Oriya,
@@ -232,13 +204,11 @@ static const QLocale::Language englishStyleLanguages[] = {
     QLocale::Swedish,
     QLocale::Tajik,
     QLocale::Tamil,
-    QLocale::Tatar,
     QLocale::Telugu,
     QLocale::Tongan,
     QLocale::Tsonga,
     QLocale::Tswana,
     QLocale::Turkmen,
-    // QLocale::Twi, // mapped to Akan
     QLocale::Uigur,
     QLocale::Urdu,
     QLocale::Uzbek,
@@ -251,6 +221,7 @@ static const QLocale::Language englishStyleLanguages[] = {
 };
 static const QLocale::Language frenchStyleLanguages[] = {
     // keep synchronized with frenchStyleCountries
+    QLocale::Armenian,
     QLocale::Breton,
     QLocale::French,
     QLocale::Portuguese,
@@ -283,13 +254,11 @@ static const QLocale::Language russianStyleLanguages[] = {
     QLocale::Croatian,
     QLocale::Russian,
     QLocale::Serbian,
-    // QLocale::SerboCroatian, // deprecated, mapped to Serbian
     QLocale::Ukrainian,
     EOL
 };
 static const QLocale::Language polishLanguage[] = { QLocale::Polish, EOL };
 static const QLocale::Language romanianLanguages[] = {
-    // QLocale::Moldavian, // deprecated, mapped to Romanian
     QLocale::Romanian,
     EOL
 };
@@ -297,23 +266,24 @@ static const QLocale::Language slovenianLanguage[] = { QLocale::Slovenian, EOL }
 static const QLocale::Language malteseLanguage[] = { QLocale::Maltese, EOL };
 static const QLocale::Language welshLanguage[] = { QLocale::Welsh, EOL };
 static const QLocale::Language arabicLanguage[] = { QLocale::Arabic, EOL };
-static const QLocale::Language tagalogLanguage[] = { QLocale::Tagalog, EOL };
+static const QLocale::Language tagalogLanguage[] = { QLocale::Filipino, EOL };
 
-static const QLocale::Country frenchStyleCountries[] = {
+static const QLocale::Territory frenchStyleCountries[] = {
     // keep synchronized with frenchStyleLanguages
-    QLocale::AnyCountry,
-    QLocale::AnyCountry,
+    QLocale::AnyTerritory,
+    QLocale::AnyTerritory,
+    QLocale::AnyTerritory,
     QLocale::Brazil,
-    QLocale::AnyCountry,
-    QLocale::AnyCountry,
-    QLocale::AnyCountry
+    QLocale::AnyTerritory,
+    QLocale::AnyTerritory,
+    QLocale::AnyTerritory
 };
 struct NumerusTableEntry {
     const uchar *rules;
     int rulesSize;
     const char * const *forms;
     const QLocale::Language *languages;
-    const QLocale::Country *countries;
+    const QLocale::Territory *countries;
     const char * const gettextRules;
 };
 
@@ -357,7 +327,7 @@ static const NumerusTableEntry numerusTable[] = {
 
 static const int NumerusTableSize = sizeof(numerusTable) / sizeof(numerusTable[0]);
 
-bool getNumerusInfo(QLocale::Language language, QLocale::Country country,
+bool getNumerusInfo(QLocale::Language language, QLocale::Territory country,
                     QByteArray *rules, QStringList *forms, const char **gettextRules)
 {
     while (true) {
@@ -365,7 +335,7 @@ bool getNumerusInfo(QLocale::Language language, QLocale::Country country,
             const NumerusTableEntry &entry = numerusTable[i];
             for (int j = 0; entry.languages[j] != EOL; ++j) {
                 if (entry.languages[j] == language
-                        && ((!entry.countries && country == QLocale::AnyCountry)
+                        && ((!entry.countries && country == QLocale::AnyTerritory)
                             || (entry.countries && entry.countries[j] == country))) {
                     if (rules) {
                         *rules = QByteArray::fromRawData(reinterpret_cast<const char *>(entry.rules),
@@ -383,9 +353,9 @@ bool getNumerusInfo(QLocale::Language language, QLocale::Country country,
             }
         }
 
-        if (country == QLocale::AnyCountry)
+        if (country == QLocale::AnyTerritory)
             break;
-        country = QLocale::AnyCountry;
+        country = QLocale::AnyTerritory;
     }
     return false;
 }
@@ -397,14 +367,15 @@ QString getNumerusInfoString()
     for (int i = 0; i < NumerusTableSize; ++i) {
         const NumerusTableEntry &entry = numerusTable[i];
         for (int j = 0; entry.languages[j] != EOL; ++j) {
-            QLocale loc(entry.languages[j], entry.countries ? entry.countries[j] : QLocale::AnyCountry);
+            QLocale loc(entry.languages[j], entry.countries ? entry.countries[j]
+                                                            : QLocale::AnyTerritory);
             QString lang = QLocale::languageToString(entry.languages[j]);
             if (loc.language() == QLocale::C)
-                lang += QLatin1String(" (!!!)");
-            else if (entry.countries && entry.countries[j] != QLocale::AnyCountry)
-                lang += QLatin1String(" (") + QLocale::countryToString(loc.country()) + QLatin1Char(')');
+                lang += " (!!!)"_L1;
+            else if (entry.countries && entry.countries[j] != QLocale::AnyTerritory)
+                lang += " (%1)"_L1.arg(QLocale::territoryToString(loc.territory()));
             else
-                lang += QLatin1String(" [") + QLocale::countryToString(loc.country()) + QLatin1Char(']');
+                lang += " [%1]"_L1.arg(QLocale::territoryToString(loc.territory()));
             langs << QString::fromLatin1("%1 %2 %3\n").arg(lang, -40).arg(loc.name(), -8)
                                 .arg(QString::fromLatin1(entry.gettextRules));
         }

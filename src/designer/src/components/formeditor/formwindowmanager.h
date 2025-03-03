@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #ifndef FORMWINDOWMANAGER_H
 #define FORMWINDOWMANAGER_H
@@ -38,10 +8,11 @@
 
 #include <QtDesigner/private/qdesigner_formwindowmanager_p.h>
 
-#include <QtCore/QObject>
-#include <QtCore/QList>
-#include <QtCore/QPointer>
-#include <QtCore/QMap>
+#include <QtCore/qobject.h>
+#include <QtCore/qlist.h>
+#include <QtCore/qpointer.h>
+#include <QtCore/qmap.h>
+#include <QtCore/qset.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -62,40 +33,40 @@ class QT_FORMEDITOR_EXPORT FormWindowManager
 {
     Q_OBJECT
 public:
-    explicit FormWindowManager(QDesignerFormEditorInterface *core, QObject *parent = 0);
-    virtual ~FormWindowManager();
+    explicit FormWindowManager(QDesignerFormEditorInterface *core, QObject *parent = nullptr);
+    ~FormWindowManager() override;
 
-    QDesignerFormEditorInterface *core() const Q_DECL_OVERRIDE;
+    QDesignerFormEditorInterface *core() const override;
 
-    QAction *action(Action action) const Q_DECL_OVERRIDE;
-    QActionGroup *actionGroup(ActionGroup actionGroup) const Q_DECL_OVERRIDE;
+    QAction *action(Action action) const override;
+    QActionGroup *actionGroup(ActionGroup actionGroup) const override;
 
-    QDesignerFormWindowInterface *activeFormWindow() const;
+    QDesignerFormWindowInterface *activeFormWindow() const override;
 
-    int formWindowCount() const;
-    QDesignerFormWindowInterface *formWindow(int index) const;
+    int formWindowCount() const override;
+    QDesignerFormWindowInterface *formWindow(int index) const override;
 
-    QDesignerFormWindowInterface *createFormWindow(QWidget *parentWidget = 0, Qt::WindowFlags flags = 0);
+    QDesignerFormWindowInterface *createFormWindow(QWidget *parentWidget = nullptr, Qt::WindowFlags flags = {}) override;
 
-    QPixmap createPreviewPixmap() const;
+    QPixmap createPreviewPixmap() const override;
 
-    bool eventFilter(QObject *o, QEvent *e);
+    bool eventFilter(QObject *o, QEvent *e) override;
 
-    void dragItems(const QList<QDesignerDnDItemInterface*> &item_list);
+    void dragItems(const QList<QDesignerDnDItemInterface*> &item_list) override;
 
     QUndoGroup *undoGroup() const;
 
-    virtual PreviewManager *previewManager() const { return m_previewManager; }
+    PreviewManager *previewManager() const override { return m_previewManager; }
 
 public slots:
-    void addFormWindow(QDesignerFormWindowInterface *formWindow);
-    void removeFormWindow(QDesignerFormWindowInterface *formWindow);
-    void setActiveFormWindow(QDesignerFormWindowInterface *formWindow);
-    void closeAllPreviews();
+    void addFormWindow(QDesignerFormWindowInterface *formWindow) override;
+    void removeFormWindow(QDesignerFormWindowInterface *formWindow) override;
+    void setActiveFormWindow(QDesignerFormWindowInterface *formWindow) override;
+    void closeAllPreviews() override;
     void deviceProfilesChanged();
 
 private slots:
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     void slotActionCutActivated();
     void slotActionCopyActivated();
     void slotActionPasteActivated();
@@ -108,7 +79,7 @@ private slots:
     void slotActionBreakLayoutActivated();
     void slotActionAdjustSizeActivated();
     void slotActionSimplifyLayoutActivated();
-    void showPreview();
+    void showPreview() override;
     void slotActionGroupPreviewInStyle(const QString &style, int deviceProfileIndex);
     void slotActionShowFormWindowSettingsDialog();
 
@@ -136,39 +107,39 @@ private:
     QWidget *m_morphLayoutContainer;
 
     // edit actions
-#ifndef QT_NO_CLIPBOARD
-    QAction *m_actionCut;
-    QAction *m_actionCopy;
-    QAction *m_actionPaste;
+#if QT_CONFIG(clipboard)
+    QAction *m_actionCut = nullptr;
+    QAction *m_actionCopy = nullptr;
+    QAction *m_actionPaste = nullptr;
 #endif
-    QAction *m_actionSelectAll;
-    QAction *m_actionDelete;
-    QAction *m_actionLower;
-    QAction *m_actionRaise;
+    QAction *m_actionSelectAll = nullptr;
+    QAction *m_actionDelete = nullptr;
+    QAction *m_actionLower = nullptr;
+    QAction *m_actionRaise = nullptr;
     // layout actions
-    QAction *m_actionHorizontalLayout;
-    QAction *m_actionVerticalLayout;
-    QAction *m_actionFormLayout;
-    QAction *m_actionSplitHorizontal;
-    QAction *m_actionSplitVertical;
-    QAction *m_actionGridLayout;
-    QAction *m_actionBreakLayout;
-    QAction *m_actionSimplifyLayout;
-    QAction *m_actionAdjustSize;
+    QAction *m_actionHorizontalLayout = nullptr;
+    QAction *m_actionVerticalLayout = nullptr;
+    QAction *m_actionFormLayout = nullptr;
+    QAction *m_actionSplitHorizontal = nullptr;
+    QAction *m_actionSplitVertical = nullptr;
+    QAction *m_actionGridLayout = nullptr;
+    QAction *m_actionBreakLayout = nullptr;
+    QAction *m_actionSimplifyLayout = nullptr;
+    QAction *m_actionAdjustSize = nullptr;
     // preview actions
-    QAction *m_actionDefaultPreview;
-    mutable PreviewActionGroup *m_actionGroupPreviewInStyle;
-    QAction *m_actionShowFormWindowSettingsDialog;
+    QAction *m_actionDefaultPreview = nullptr;
+    mutable PreviewActionGroup *m_actionGroupPreviewInStyle = nullptr;
+    QAction *m_actionShowFormWindowSettingsDialog = nullptr;
 
-    QAction *m_actionUndo;
-    QAction *m_actionRedo;
+    QAction *m_actionUndo = nullptr;
+    QAction *m_actionRedo = nullptr;
 
-    QMap<QWidget *,bool> getUnsortedLayoutsToBeBroken(bool firstOnly) const;
+    QSet<QWidget *> getUnsortedLayoutsToBeBroken(bool firstOnly) const;
     bool hasLayoutsToBeBroken() const;
     QWidgetList layoutsToBeBroken(QWidget *w) const;
     QWidgetList layoutsToBeBroken() const;
 
-    QUndoGroup *m_undoGroup;
+    QUndoGroup *m_undoGroup = nullptr;
 
 };
 

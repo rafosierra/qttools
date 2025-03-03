@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "morphmenu_p.h"
 #include "formwindowbase_p.h"
@@ -39,48 +9,50 @@
 #include "layoutinfo_p.h"
 #include "qdesigner_propertycommand_p.h"
 
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerContainerExtension>
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerLanguageExtension>
-#include <QtDesigner/QDesignerWidgetDataBaseInterface>
-#include <QtDesigner/QDesignerMetaDataBaseInterface>
-#include <QtDesigner/QDesignerPropertySheetExtension>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/container.h>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractlanguage.h>
+#include <QtDesigner/abstractwidgetdatabase.h>
+#include <QtDesigner/abstractmetadatabase.h>
+#include <QtDesigner/propertysheet.h>
 
-#include <QtWidgets/QWidget>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QLayout>
-#include <QtWidgets/QUndoStack>
-#include <QtWidgets/QSplitter>
+#include <QtWidgets/qwidget.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qlayout.h>
+#include <QtGui/qundostack.h>
+#include <QtWidgets/qsplitter.h>
 
-#include <QtWidgets/QFrame>
-#include <QtWidgets/QGroupBox>
-#include <QtWidgets/QTabWidget>
-#include <QtWidgets/QStackedWidget>
-#include <QtWidgets/QToolBox>
-#include <QtWidgets/QAbstractItemView>
-#include <QtWidgets/QAbstractButton>
-#include <QtWidgets/QAbstractSpinBox>
-#include <QtWidgets/QTextEdit>
-#include <QtWidgets/QPlainTextEdit>
-#include <QtWidgets/QLabel>
+#include <QtWidgets/qframe.h>
+#include <QtWidgets/qgroupbox.h>
+#include <QtWidgets/qtabwidget.h>
+#include <QtWidgets/qstackedwidget.h>
+#include <QtWidgets/qtoolbox.h>
+#include <QtWidgets/qabstractitemview.h>
+#include <QtWidgets/qabstractbutton.h>
+#include <QtWidgets/qabstractspinbox.h>
+#include <QtWidgets/qtextedit.h>
+#include <QtWidgets/qplaintextedit.h>
+#include <QtWidgets/qlabel.h>
 
-#include <QtCore/QStringList>
-#include <QtCore/QMap>
-#include <QtCore/QVariant>
-#include <QtCore/QSignalMapper>
-#include <QtCore/QDebug>
+#include <QtGui/qaction.h>
+
+#include <QtCore/qstringlist.h>
+#include <QtCore/qmap.h>
+#include <QtCore/qvariant.h>
+#include <QtCore/qdebug.h>
 
 Q_DECLARE_METATYPE(QWidgetList)
 
 QT_BEGIN_NAMESPACE
 
+using namespace Qt::StringLiterals;
+
 // Helpers for the dynamic properties that store Z/Widget order
-static const char *widgetOrderPropertyC = "_q_widgetOrder";
-static const char *zOrderPropertyC = "_q_zOrder";
+static const char widgetOrderPropertyC[] = "_q_widgetOrder";
+static const char zOrderPropertyC[] = "_q_zOrder";
 
 /* Morphing in Designer:
  * It is possible to morph:
@@ -152,9 +124,8 @@ static MorphCategory category(const QWidget *w)
 
 static QStringList classesOfCategory(MorphCategory cat)
 {
-    typedef QMap<MorphCategory, QStringList> CandidateCache;
-    static CandidateCache candidateCache;
-    CandidateCache::iterator it = candidateCache.find(cat);
+    static QMap<MorphCategory, QStringList> candidateCache;
+    auto it = candidateCache.find(cat);
     if (it == candidateCache.end()) {
         it = candidateCache.insert(cat, QStringList());
         QStringList &l = it.value();
@@ -164,29 +135,29 @@ static QStringList classesOfCategory(MorphCategory cat)
         case MorphSimpleContainer:
             // Do not  generally allow to morph into a layout.
             // This can be risky in case of container pages,etc.
-            l << QStringLiteral("QWidget") << QStringLiteral("QFrame") <<  QStringLiteral("QGroupBox");
+            l << u"QWidget"_s << u"QFrame"_s <<  u"QGroupBox"_s;
             break;
         case MorphPageContainer:
-            l << QStringLiteral("QTabWidget") <<  QStringLiteral("QStackedWidget") << QStringLiteral("QToolBox");
+            l << u"QTabWidget"_s <<  u"QStackedWidget"_s << u"QToolBox"_s;
             break;
         case MorphItemView:
-            l << QStringLiteral("QListView") << QStringLiteral("QListWidget")
-              << QStringLiteral("QTreeView") << QStringLiteral("QTreeWidget")
-              << QStringLiteral("QTableView") << QStringLiteral("QTableWidget")
-              << QStringLiteral("QColumnView");
+            l << u"QListView"_s << u"QListWidget"_s
+              << u"QTreeView"_s << u"QTreeWidget"_s
+              << u"QTableView"_s << u"QTableWidget"_s
+              << u"QColumnView"_s;
             break;
         case MorphButton:
-            l << QStringLiteral("QCheckBox") << QStringLiteral("QRadioButton")
-              << QStringLiteral("QPushButton") << QStringLiteral("QToolButton")
-              << QStringLiteral("QCommandLinkButton");
+            l << u"QCheckBox"_s << u"QRadioButton"_s
+              << u"QPushButton"_s << u"QToolButton"_s
+              << u"QCommandLinkButton"_s;
             break;
         case MorphSpinBox:
-              l << QStringLiteral("QDateTimeEdit") << QStringLiteral("QDateEdit")
-                << QStringLiteral("QTimeEdit")
-                << QStringLiteral("QSpinBox") << QStringLiteral("QDoubleSpinBox");
+              l << u"QDateTimeEdit"_s << u"QDateEdit"_s
+                << u"QTimeEdit"_s
+                << u"QSpinBox"_s << u"QDoubleSpinBox"_s;
             break;
         case MorphTextEdit:
-             l << QStringLiteral("QTextEdit") << QStringLiteral("QPlainTextEdit") << QStringLiteral("QTextBrowser");
+             l << u"QTextEdit"_s << u"QPlainTextEdit"_s << u"QTextBrowser"_s;
             break;
         }
     }
@@ -216,9 +187,9 @@ static QString suggestObjectName(const QString &oldClassName, const QString &new
 {
     QString oldClassPart = oldClassName;
     QString newClassPart = newClassName;
-    if (oldClassPart.startsWith(QLatin1Char('Q')))
+    if (oldClassPart.startsWith(u'Q'))
         oldClassPart.remove(0, 1);
-    if (newClassPart.startsWith(QLatin1Char('Q')))
+    if (newClassPart.startsWith(u'Q'))
         newClassPart.remove(0, 1);
 
     QString newName = oldName;
@@ -232,15 +203,11 @@ static QString suggestObjectName(const QString &oldClassName, const QString &new
 // Find the label whose buddy the widget is.
 QLabel *buddyLabelOf(QDesignerFormWindowInterface *fw, QWidget *w)
 {
-    typedef QList<QLabel*> LabelList;
-    const LabelList labelList = fw->findChildren<QLabel*>();
-    if (labelList.empty())
-        return 0;
-    const LabelList::const_iterator cend = labelList.constEnd();
-    for (LabelList::const_iterator it = labelList.constBegin(); it != cend; ++it )
-        if ( (*it)->buddy() == w)
-            return *it;
-    return 0;
+    const auto labelList = fw->findChildren<QLabel*>();
+    for (QLabel *label : labelList)
+        if (label->buddy() == w)
+            return label;
+    return nullptr;
 }
 
 // Replace widgets in a widget-list type dynamic property of the parent
@@ -262,26 +229,26 @@ static void replaceWidgetListDynamicProperty(QWidget *parentWidget,
  * which cause other commands to be added. */
 class MorphWidgetCommand : public QDesignerFormWindowCommand
 {
-    Q_DISABLE_COPY(MorphWidgetCommand)
+    Q_DISABLE_COPY_MOVE(MorphWidgetCommand)
 public:
 
     explicit MorphWidgetCommand(QDesignerFormWindowInterface *formWindow);
-    ~MorphWidgetCommand();
+    ~MorphWidgetCommand() override;
 
     // Convenience to add a morph command sequence macro
     static bool addMorphMacro(QDesignerFormWindowInterface *formWindow, QWidget *w, const QString &newClass);
 
-    bool init(QWidget *widget, const QString &newClass);
+    bool init(QWidget *widget, const QString &newClassName);
 
     QString newWidgetName() const { return m_afterWidget->objectName(); }
 
-    virtual void redo();
-    virtual void undo();
+    void redo() override;
+    void undo() override;
 
     static QStringList candidateClasses(QDesignerFormWindowInterface *fw, QWidget *w);
 
 private:
-    static bool canMorph(QDesignerFormWindowInterface *fw, QWidget *w, int *childContainerCount = 0, MorphCategory *cat = 0);
+    static bool canMorph(QDesignerFormWindowInterface *fw, QWidget *w, int *childContainerCount = nullptr, MorphCategory *cat = nullptr);
     void morph(QWidget *before, QWidget *after);
 
     QWidget *m_beforeWidget;
@@ -310,7 +277,7 @@ bool MorphWidgetCommand::addMorphMacro(QDesignerFormWindowInterface *fw, QWidget
     // restore buddy using the QByteArray name.
     if (buddyLabel) {
         SetPropertyCommand *buddyCmd = new SetPropertyCommand(fw);
-        buddyCmd->init(buddyLabel, QStringLiteral("buddy"), QVariant(newWidgetName.toUtf8()));
+        buddyCmd->init(buddyLabel, u"buddy"_s, QVariant(newWidgetName.toUtf8()));
         us->push(buddyCmd);
     }
     us->endMacro();
@@ -319,14 +286,12 @@ bool MorphWidgetCommand::addMorphMacro(QDesignerFormWindowInterface *fw, QWidget
 
 MorphWidgetCommand::MorphWidgetCommand(QDesignerFormWindowInterface *formWindow)  :
     QDesignerFormWindowCommand(QString(), formWindow),
-    m_beforeWidget(0),
-    m_afterWidget(0)
+    m_beforeWidget(nullptr),
+    m_afterWidget(nullptr)
 {
 }
 
-MorphWidgetCommand::~MorphWidgetCommand()
-{
-}
+MorphWidgetCommand::~MorphWidgetCommand() = default;
 
 bool MorphWidgetCommand::init(QWidget *widget, const QString &newClassName)
 {
@@ -352,14 +317,13 @@ bool MorphWidgetCommand::init(QWidget *widget, const QString &newClassName)
     // If the target has a container extension, we add enough new pages to take
     // up the children of the before widget
     if (QDesignerContainerExtension* c = qt_extension<QDesignerContainerExtension*>(core->extensionManager(), m_afterWidget)) {
-        if (const int pageCount = childContainers(core, m_beforeWidget).size()) {
-            const QString qWidget = QStringLiteral("QWidget");
+        if (const auto pageCount = childContainers(core, m_beforeWidget).size()) {
             const QString containerName = m_afterWidget->objectName();
-            for (int i = 0; i < pageCount; i++) {
+            for (qsizetype i = 0; i < pageCount; ++i) {
                 QString name = containerName;
-                name += QStringLiteral("Page");
+                name += "Page"_L1;
                 name += QString::number(i + 1);
-                QWidget *page = core->widgetFactory()->createWidget(qWidget);
+                QWidget *page = core->widgetFactory()->createWidget(u"QWidget"_s);
                 page->setObjectName(name);
                 fw->ensureUniqueObjectName(page);
                 c->addWidget(page);
@@ -371,12 +335,11 @@ bool MorphWidgetCommand::init(QWidget *widget, const QString &newClassName)
     // Copy over applicable properties
     const QDesignerPropertySheetExtension *beforeSheet = qt_extension<QDesignerPropertySheetExtension*>(core->extensionManager(), widget);
     QDesignerPropertySheetExtension *afterSheet = qt_extension<QDesignerPropertySheetExtension*>(core->extensionManager(), m_afterWidget);
-    const QString objectNameProperty = QStringLiteral("objectName");
     const int count = beforeSheet->count();
     for (int i = 0; i < count; i++)
         if (beforeSheet->isVisible(i) && beforeSheet->isChanged(i)) {
             const QString name = beforeSheet->propertyName(i);
-            if (name != objectNameProperty) {
+            if (name != "objectName"_L1) {
                 const int afterIndex = afterSheet->indexOf(name);
                 if (afterIndex != -1 && afterSheet->isVisible(afterIndex) && afterSheet->propertyGroup(afterIndex) == beforeSheet->propertyGroup(i)) {
                     afterSheet->setProperty(i, beforeSheet->property(i));
@@ -417,8 +380,8 @@ void MorphWidgetCommand::morph(QWidget *before, QWidget *after)
     QWidgetList beforeChildContainers = childContainers(fw->core(), before);
     QWidgetList afterChildContainers = childContainers(fw->core(), after);
     Q_ASSERT(beforeChildContainers.size() == afterChildContainers.size());
-    const int childContainerCount = beforeChildContainers.size();
-    for (int i = 0; i < childContainerCount; i++) {
+    const auto childContainerCount = beforeChildContainers.size();
+    for (qsizetype i = 0; i < childContainerCount; ++i) {
         QWidget *beforeChildContainer = beforeChildContainers.at(i);
         QWidget *afterChildContainer = afterChildContainers.at(i);
         if (QLayout *childLayout = beforeChildContainer->layout()) {
@@ -426,11 +389,9 @@ void MorphWidgetCommand::morph(QWidget *before, QWidget *after)
             afterChildContainer->setLayout(childLayout);
         } else {
             // Non-Laid-out: Reparent, move over
-            const QObjectList c = beforeChildContainer->children();
-            const QObjectList::const_iterator cend = c.constEnd();
-            for (QObjectList::const_iterator it =  c.constBegin(); it != cend; ++it) {
-                if ( (*it)->isWidgetType()) {
-                    QWidget *w = static_cast<QWidget*>(*it);
+            for (QObject *o : beforeChildContainer->children()) {
+                if (o->isWidgetType()) {
+                    QWidget *w = static_cast<QWidget*>(o);
                     if (fw->isManaged(w)) {
                         const QRect geom = w->geometry();
                         w->setParent(afterChildContainer);
@@ -453,13 +414,13 @@ void MorphWidgetCommand::morph(QWidget *before, QWidget *after)
     } else if (QSplitter *splitter = qobject_cast<QSplitter *>(parent)) {
         const int index = splitter->indexOf(before);
         before->hide();
-        before->setParent(0);
+        before->setParent(nullptr);
         splitter->insertWidget(index, after);
         after->setParent(parent);
         after->setGeometry(oldGeom);
     } else {
         before->hide();
-        before->setParent(0);
+        before->setParent(nullptr);
         after->setParent(parent);
         after->setGeometry(oldGeom);
     }
@@ -505,7 +466,7 @@ bool MorphWidgetCommand::canMorph(QDesignerFormWindowInterface *fw, QWidget *w, 
     // Check the parent relationship. We accept only managed parent widgets
     // with a single, managed layout in which widget is a member.
     QWidget *parent = w->parentWidget();
-    if (parent == 0)
+    if (parent == nullptr)
         return false;
     if (QLayout *pl = LayoutInfo::managedLayout(core, parent))
         if (pl->indexOf(w) < 0 || !core->metaDataBase()->item(pl))
@@ -520,11 +481,11 @@ bool MorphWidgetCommand::canMorph(QDesignerFormWindowInterface *fw, QWidget *w, 
         return true;
     // Check children. All child containers must be non-laid-out or have managed layouts
     const QWidgetList pages = childContainers(core, w);
-    const int pageCount = pages.size();
+    const auto pageCount = pages.size();
     if (ptrToChildContainerCount)
         *ptrToChildContainerCount = pageCount;
     if (pageCount) {
-        for (int i = 0; i < pageCount; i++)
+        for (qsizetype i = 0; i < pageCount; ++i)
             if (QLayout *cl = pages.at(i)->layout())
                 if (!core->metaDataBase()->item(cl))
                     return false;
@@ -559,12 +520,7 @@ QStringList MorphWidgetCommand::candidateClasses(QDesignerFormWindowInterface *f
 
 // MorphMenu
 MorphMenu::MorphMenu(QObject *parent) :
-    QObject(parent),
-    m_subMenuAction(0),
-    m_menu(0),
-    m_mapper(0),
-    m_widget(0),
-    m_formWindow(0)
+    QObject(parent)
 {
 }
 
@@ -587,8 +543,8 @@ void MorphMenu::slotMorph(const QString &newClassName)
 
 bool MorphMenu::populateMenu(QWidget *w, QDesignerFormWindowInterface *fw)
 {
-    m_widget = 0;
-    m_formWindow = 0;
+    m_widget = nullptr;
+    m_formWindow = nullptr;
 
     // Clear menu
     if (m_subMenuAction) {
@@ -601,7 +557,7 @@ bool MorphMenu::populateMenu(QWidget *w, QDesignerFormWindowInterface *fw)
         return false;
 
     const QStringList c = MorphWidgetCommand::candidateClasses(fw, w);
-    if (c.empty())
+    if (c.isEmpty())
         return false;
 
     // Pull up
@@ -613,17 +569,13 @@ bool MorphMenu::populateMenu(QWidget *w, QDesignerFormWindowInterface *fw)
         m_subMenuAction = new QAction(tr("Morph into"), this);
         m_menu = new QMenu;
         m_subMenuAction->setMenu(m_menu);
-        m_mapper = new QSignalMapper(this);
-        connect(m_mapper , SIGNAL(mapped(QString)), this, SLOT(slotMorph(QString)));
     }
 
     // Add actions
-    const QStringList::const_iterator cend = c.constEnd();
-    for (QStringList::const_iterator it = c.constBegin(); it != cend; ++it) {
-        if (*it != oldClassName) {
-            QAction *a = m_menu->addAction(*it);
-            m_mapper->setMapping (a, *it);
-            connect(a, SIGNAL(triggered()), m_mapper, SLOT(map()));
+    for (const auto &className : c) {
+        if (className != oldClassName) {
+            m_menu->addAction(className,
+                              this, [this, className] { this->slotMorph(className); });
         }
     }
     m_subMenuAction->setVisible(true);

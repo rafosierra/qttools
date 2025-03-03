@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "objectinspectormodel_p.h"
 
@@ -39,24 +9,28 @@
 #include <qdesigner_utils_p.h>
 #include <iconloader_p.h>
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerWidgetDataBaseInterface>
-#include <QtDesigner/QDesignerContainerExtension>
-#include <QtDesigner/QDesignerMetaDataBaseInterface>
-#include <QtDesigner/QExtensionManager>
-#include <QtWidgets/QLayout>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QLayoutItem>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QButtonGroup>
-#include <QtCore/QSet>
-#include <QtCore/QDebug>
-#include <QtCore/QCoreApplication>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractwidgetdatabase.h>
+#include <QtDesigner/container.h>
+#include <QtDesigner/abstractmetadatabase.h>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtWidgets/qlayout.h>
+#include <QtWidgets/qlayoutitem.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qbuttongroup.h>
+
+#include <QtGui/qaction.h>
+
+#include <QtCore/qset.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qcoreapplication.h>
 
 #include <algorithm>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 namespace {
     enum { DataRole = 1000 };
@@ -64,11 +38,6 @@ namespace {
 
 static inline QObject *objectOfItem(const QStandardItem *item) {
     return qvariant_cast<QObject *>(item->data(DataRole));
-}
-
-static bool sortEntry(const QObject *a, const QObject *b)
-{
-    return a->objectName() < b->objectName();
 }
 
 static bool sameIcon(const QIcon &i1, const QIcon &i2)
@@ -80,8 +49,10 @@ static bool sameIcon(const QIcon &i1, const QIcon &i2)
     return i1.cacheKey() == i2.cacheKey();
 }
 
-static inline bool isNameColumnEditable(const QObject *)
+static inline bool isNameColumnEditable(const QObject *o)
 {
+    if (auto *action = qobject_cast<const QAction *>(o))
+        return !action->isSeparator();
     return true;
 }
 
@@ -120,7 +91,7 @@ namespace qdesigner_internal {
     };
 
     ModelRecursionContext::ModelRecursionContext(QDesignerFormEditorInterface *c, const QString &sepName) :
-        designerPrefix(QStringLiteral("QDesigner")),
+        designerPrefix(u"QDesigner"_s),
         separator(sepName),
         core(c),
         db(c->widgetDataBase()),
@@ -139,21 +110,13 @@ namespace qdesigner_internal {
     // comparing the lists of ObjectData. If it is the same, only the item data (class name [changed by promotion],
     // object name and icon) are checked and the existing items are updated.
 
-    ObjectData::ObjectData() :
-        m_parent(0),
-        m_object(0),
-        m_type(Object),
-        m_managedLayoutType(LayoutInfo::NoLayout)
-    {
-    }
+    ObjectData::ObjectData() = default;
 
     ObjectData::ObjectData(QObject *parent, QObject *object, const ModelRecursionContext &ctx) :
        m_parent(parent),
        m_object(object),
-       m_type(Object),
-       m_className(QLatin1String(object->metaObject()->className())),
-       m_objectName(object->objectName()),
-       m_managedLayoutType(LayoutInfo::NoLayout)
+       m_className(QLatin1StringView(object->metaObject()->className())),
+       m_objectName(object->objectName())
     {
 
         // 1) set entry
@@ -198,7 +161,7 @@ namespace qdesigner_internal {
             if (const QLayout *layout = w->layout()) {
                 m_type = LayoutWidget;
                 m_managedLayoutType = LayoutInfo::layoutType(ctx.core, layout);
-                m_className = QLatin1String(layout->metaObject()->className());
+                m_className = QLatin1StringView(layout->metaObject()->className());
                 m_objectName = layout->objectName();
             }
             return;
@@ -273,8 +236,6 @@ namespace qdesigner_internal {
         setItemsDisplayData(row, icons, ClassNameChanged|ObjectNameChanged|ClassIconChanged|TypeChanged|LayoutTypeChanged);
     }
 
-    typedef QList<ObjectData> ObjectModel;
-
     // Recursive routine that creates the model by traversing the form window object tree.
     void createModelRecursion(const QDesignerFormWindowInterface *fwi,
                               QObject *parent,
@@ -282,66 +243,57 @@ namespace qdesigner_internal {
                               ObjectModel &model,
                               const ModelRecursionContext &ctx)
     {
-        typedef QList<QButtonGroup *> ButtonGroupList;
-        typedef QList<QAction *> ActionList;
-
+        using ButtonGroupList = QList<QButtonGroup *>;
         // 1) Create entry
         const ObjectData entry(parent, object, ctx);
         model.push_back(entry);
 
         // 2) recurse over widget children via container extension or children list
-        const QDesignerContainerExtension *containerExtension = 0;
+        const QDesignerContainerExtension *containerExtension = nullptr;
         if (entry.type() == ObjectData::ExtensionContainer) {
             containerExtension = qt_extension<QDesignerContainerExtension*>(fwi->core()->extensionManager(), object);
             Q_ASSERT(containerExtension);
             const int count = containerExtension->count();
             for (int i=0; i < count; ++i) {
                 QObject *page = containerExtension->widget(i);
-                Q_ASSERT(page != 0);
+                Q_ASSERT(page != nullptr);
                 createModelRecursion(fwi, object, page, model, ctx);
             }
         }
 
-        QObjectList children = object->children();
-        if (!children.empty()) {
+        if (!object->children().isEmpty()) {
             ButtonGroupList buttonGroups;
-            std::sort(children.begin(), children.end(), sortEntry);
-            const QObjectList::const_iterator cend = children.constEnd();
-            for (QObjectList::const_iterator it = children.constBegin(); it != cend; ++it) {
+            for (QObject *childObject : object->children()) {
                 // Managed child widgets unless we had a container extension
-                if ((*it)->isWidgetType()) {
+                if (childObject->isWidgetType()) {
                     if (!containerExtension) {
-                        QWidget *widget = qobject_cast<QWidget*>(*it);
+                        QWidget *widget = qobject_cast<QWidget*>(childObject);
                         if (fwi->isManaged(widget))
                             createModelRecursion(fwi, object, widget, model, ctx);
                     }
                 } else {
-                    if (ctx.mdb->item(*it)) {
-                        if (QButtonGroup *bg = qobject_cast<QButtonGroup*>(*it))
+                    if (ctx.mdb->item(childObject)) {
+                        if (auto bg = qobject_cast<QButtonGroup*>(childObject))
                             buttonGroups.push_back(bg);
                     } // Has MetaDataBase entry
                 }
             }
             // Add button groups
-            if (!buttonGroups.empty()) {
-                const ButtonGroupList::const_iterator bgcend = buttonGroups.constEnd();
-                for (ButtonGroupList::const_iterator bgit = buttonGroups.constBegin(); bgit != bgcend; ++bgit)
-                    createModelRecursion(fwi, object, *bgit, model, ctx);
+            if (!buttonGroups.isEmpty()) {
+                for (QButtonGroup *group : std::as_const(buttonGroups))
+                    createModelRecursion(fwi, object, group, model, ctx);
             }
         } // has children
         if (object->isWidgetType()) {
             // Add actions
-            const ActionList actions = static_cast<QWidget*>(object)->actions();
-            if (!actions.empty()) {
-                const ActionList::const_iterator cend = actions.constEnd();
-                    for (ActionList::const_iterator it = actions.constBegin(); it != cend; ++it)
-                    if (ctx.mdb->item(*it)) {
-                        QAction *action = *it;
-                        QObject *obj = action;
-                            if (action->menu())
-                            obj = action->menu();
-                        createModelRecursion(fwi, object, obj, model, ctx);
-                    }
+            const auto actions = static_cast<QWidget*>(object)->actions();
+            for (QAction *action : actions) {
+                if (ctx.mdb->item(action)) {
+                    QObject *childObject = action;
+                    if (auto menu = action->menu())
+                        childObject = menu;
+                    createModelRecursion(fwi, object, childObject, model, ctx);
+                }
             }
         }
     }
@@ -357,13 +309,13 @@ namespace qdesigner_internal {
         setColumnCount(NumColumns);
         setHorizontalHeaderLabels(headers);
         // Icons
-        m_icons.layoutIcons[LayoutInfo::NoLayout] = createIconSet(QStringLiteral("editbreaklayout.png"));
-        m_icons.layoutIcons[LayoutInfo::HSplitter] = createIconSet(QStringLiteral("edithlayoutsplit.png"));
-        m_icons.layoutIcons[LayoutInfo::VSplitter] = createIconSet(QStringLiteral("editvlayoutsplit.png"));
-        m_icons.layoutIcons[LayoutInfo::HBox] = createIconSet(QStringLiteral("edithlayout.png"));
-        m_icons.layoutIcons[LayoutInfo::VBox] = createIconSet(QStringLiteral("editvlayout.png"));
-        m_icons.layoutIcons[LayoutInfo::Grid] = createIconSet(QStringLiteral("editgrid.png"));
-        m_icons.layoutIcons[LayoutInfo::Form] = createIconSet(QStringLiteral("editform.png"));
+        m_icons.layoutIcons[LayoutInfo::NoLayout] = createIconSet("editbreaklayout.png"_L1);
+        m_icons.layoutIcons[LayoutInfo::HSplitter] = createIconSet("edithlayoutsplit.png"_L1);
+        m_icons.layoutIcons[LayoutInfo::VSplitter] = createIconSet("editvlayoutsplit.png"_L1);
+        m_icons.layoutIcons[LayoutInfo::HBox] = createIconSet("edithlayout.png"_L1);
+        m_icons.layoutIcons[LayoutInfo::VBox] = createIconSet("editvlayout.png"_L1);
+        m_icons.layoutIcons[LayoutInfo::Grid] = createIconSet("editgrid.png"_L1);
+        m_icons.layoutIcons[LayoutInfo::Form] = createIconSet("editform.png"_L1);
     }
 
     void ObjectInspectorModel::clearItems()
@@ -377,10 +329,10 @@ namespace qdesigner_internal {
 
     ObjectInspectorModel::UpdateResult ObjectInspectorModel::update(QDesignerFormWindowInterface *fw)
     {
-        QWidget *mainContainer = fw ? fw->mainContainer() : static_cast<QWidget*>(0);
+        QWidget *mainContainer = fw ? fw->mainContainer() : nullptr;
         if (!mainContainer) {
             clearItems();
-            m_formWindow = 0;
+            m_formWindow = nullptr;
             return NoForm;
         }
         m_formWindow = fw;
@@ -390,7 +342,7 @@ namespace qdesigner_internal {
 
         static const QString separator = QCoreApplication::translate("ObjectInspectorModel", "separator");
         const ModelRecursionContext ctx(fw->core(),  separator);
-        createModelRecursion(fw, 0, mainContainer, newModel, ctx);
+        createModelRecursion(fw, nullptr, mainContainer, newModel, ctx);
 
         if (newModel == m_model) {
             updateItemContents(m_model, newModel);
@@ -407,7 +359,7 @@ namespace qdesigner_internal {
         if (index.isValid())
             if (const QStandardItem *item = itemFromIndex(index))
                 return objectOfItem(item);
-        return 0;
+        return nullptr;
     }
 
     // Missing Qt API: get a row
@@ -428,16 +380,16 @@ namespace qdesigner_internal {
     void ObjectInspectorModel::rebuild(const ObjectModel &newModel)
     {
         clearItems();
-        if (newModel.empty())
+        if (newModel.isEmpty())
             return;
 
-        const ObjectModel::const_iterator mcend = newModel.constEnd();
-        ObjectModel::const_iterator it = newModel.constBegin();
+        const auto mcend = newModel.cend();
+        auto it = newModel.cbegin();
         // Set up root element
         StandardItemList rootRow = createModelRow(it->object());
         it->setItems(rootRow, m_icons);
         appendRow(rootRow);
-        m_objectIndexMultiMap.insert(it->object(), indexFromItem(rootRow.front()));
+        m_objectIndexMultiMap.insert(it->object(), indexFromItem(rootRow.constFirst()));
         for (++it; it != mcend; ++it) {
             // Add to parent item, found via map
             const QModelIndex parentIndex = m_objectIndexMultiMap.value(it->parent(), QModelIndex());
@@ -446,7 +398,7 @@ namespace qdesigner_internal {
             StandardItemList row = createModelRow(it->object());
             it->setItems(row, m_icons);
             parentItem->appendRow(row);
-            m_objectIndexMultiMap.insert(it->object(), indexFromItem(row.front()));
+            m_objectIndexMultiMap.insert(it->object(), indexFromItem(row.constFirst()));
         }
     }
 
@@ -455,14 +407,14 @@ namespace qdesigner_internal {
     {
         // Change text and icon. Keep a set of changed object
         // as for example actions might occur several times in the tree.
-        typedef QSet<QObject *> QObjectSet;
+        using QObjectSet = QSet<QObject *>;
 
         QObjectSet changedObjects;
 
-        const int size = newModel.size();
+        const auto size = newModel.size();
         Q_ASSERT(oldModel.size() ==  size);
-        for (int i = 0; i < size; i++) {
-            const ObjectData &newEntry = newModel[i];
+        for (qsizetype i = 0; i < size; ++i) {
+            const ObjectData &newEntry = newModel.at(i);
             ObjectData &entry =  oldModel[i];
             // Has some data changed?
             if (const unsigned changedMask = entry.compare(newEntry)) {
@@ -471,7 +423,7 @@ namespace qdesigner_internal {
                 if (!changedObjects.contains(o)) {
                     changedObjects.insert(o);
                     const QModelIndexList indexes =  m_objectIndexMultiMap.values(o);
-                    foreach (const QModelIndex &index, indexes)
+                    for (const QModelIndex &index : indexes)
                         entry.setItemsDisplayData(rowAt(index), m_icons, changedMask);
                 }
             }
@@ -483,7 +435,7 @@ namespace qdesigner_internal {
         const QVariant rc = QStandardItemModel::data(index, role);
         // Return <noname> if the string is empty for the display role
         // only (else, editing starts with <noname>).
-        if (role == Qt::DisplayRole && rc.type() == QVariant::String) {
+        if (role == Qt::DisplayRole && rc.metaType().id() == QMetaType::QString) {
             const QString s = rc.toString();
             if (s.isEmpty()) {
                 static const QString noName = QCoreApplication::translate("ObjectInspectorModel", "<noname>");
@@ -502,7 +454,7 @@ namespace qdesigner_internal {
         if (!object)
             return false;
         // Is this a layout widget?
-        const QString nameProperty = isQLayoutWidget(object) ? QStringLiteral("layoutName") : QStringLiteral("objectName");
+        const QString nameProperty = isQLayoutWidget(object) ? u"layoutName"_s : u"objectName"_s;
         m_formWindow->commandHistory()->push(createTextPropertyCommand(nameProperty, value.toString(), object, m_formWindow));
         return true;
     }

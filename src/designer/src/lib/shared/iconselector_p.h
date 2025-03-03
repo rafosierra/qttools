@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 //
 //  W A R N I N G
@@ -48,12 +18,14 @@
 
 #include "shared_global_p.h"
 
-#include <QtWidgets/QWidget>
-#include <QtWidgets/QDialog>
+#include <QtWidgets/qwidget.h>
+#include <QtWidgets/qdialog.h>
 
-#include <QtCore/QScopedPointer>
+#include <QtCore/qscopedpointer.h>
 
 QT_BEGIN_NAMESPACE
+
+class QComboBox;
 
 class QtResourceModel;
 class QDesignerFormEditorInterface;
@@ -72,10 +44,10 @@ class QDESIGNER_SHARED_EXPORT LanguageResourceDialog : public QDialog
 {
     Q_OBJECT
 
-    explicit LanguageResourceDialog(QDesignerResourceBrowserInterface *rb, QWidget *parent = 0);
+    explicit LanguageResourceDialog(QDesignerResourceBrowserInterface *rb, QWidget *parent = nullptr);
 
 public:
-    virtual ~LanguageResourceDialog();
+    ~LanguageResourceDialog() override;
     // Factory: Returns 0 if the language extension does not provide a resource browser.
     static LanguageResourceDialog* create(QDesignerFormEditorInterface *core, QWidget *parent);
 
@@ -85,9 +57,7 @@ public:
 private:
     QScopedPointer<class LanguageResourceDialogPrivate> d_ptr;
     Q_DECLARE_PRIVATE(LanguageResourceDialog)
-    Q_DISABLE_COPY(LanguageResourceDialog)
-    Q_PRIVATE_SLOT(d_func(), void slotAccepted())
-    Q_PRIVATE_SLOT(d_func(), void slotPathChanged(QString))
+    Q_DISABLE_COPY_MOVE(LanguageResourceDialog)
 
 };
 
@@ -95,8 +65,8 @@ class QDESIGNER_SHARED_EXPORT IconSelector: public QWidget
 {
     Q_OBJECT
 public:
-    IconSelector(QWidget *parent = 0);
-    virtual ~IconSelector();
+    IconSelector(QWidget *parent = nullptr);
+    ~IconSelector() override;
 
     void setFormEditor(QDesignerFormEditorInterface *core); // required for dialog gui.
     void setIconCache(DesignerIconCache *iconCache);
@@ -107,7 +77,7 @@ public:
 
     // Check whether a pixmap may be read
     enum CheckMode { CheckFast, CheckFully };
-    static bool checkPixmap(const QString &fileName, CheckMode cm = CheckFully, QString *errorMessage = 0);
+    static bool checkPixmap(const QString &fileName, CheckMode cm = CheckFully, QString *errorMessage = nullptr);
     // Choose a pixmap from file
     static QString choosePixmapFile(const QString &directory, QDesignerDialogGuiInterface *dlgGui, QWidget *parent);
     // Choose a pixmap from resource; use language-dependent resource browser if present
@@ -118,15 +88,7 @@ signals:
 private:
     QScopedPointer<class IconSelectorPrivate> d_ptr;
     Q_DECLARE_PRIVATE(IconSelector)
-    Q_DISABLE_COPY(IconSelector)
-
-    Q_PRIVATE_SLOT(d_func(), void slotStateActivated())
-    Q_PRIVATE_SLOT(d_func(), void slotSetActivated())
-    Q_PRIVATE_SLOT(d_func(), void slotSetResourceActivated())
-    Q_PRIVATE_SLOT(d_func(), void slotSetFileActivated())
-    Q_PRIVATE_SLOT(d_func(), void slotResetActivated())
-    Q_PRIVATE_SLOT(d_func(), void slotResetAllActivated())
-    Q_PRIVATE_SLOT(d_func(), void slotUpdate())
+    Q_DISABLE_COPY_MOVE(IconSelector)
 };
 
 // IconThemeEditor: Let's the user input theme icon names and shows a preview label.
@@ -135,8 +97,8 @@ class QDESIGNER_SHARED_EXPORT IconThemeEditor : public QWidget
     Q_OBJECT
     Q_PROPERTY(QString theme READ theme WRITE setTheme DESIGNABLE true)
 public:
-    explicit IconThemeEditor(QWidget *parent = 0, bool wantResetButton = true);
-    virtual ~IconThemeEditor();
+    explicit IconThemeEditor(QWidget *parent = nullptr, bool wantResetButton = true);
+    ~IconThemeEditor() override;
 
     QString theme() const;
     void setTheme(const QString &theme);
@@ -147,12 +109,32 @@ signals:
 public slots:
     void reset();
 
-private slots:
-    void slotChanged(const QString &);
+private:
+    QScopedPointer<IconThemeEditorPrivate> d;
+};
+
+// IconThemeEnumEditor: Let's the user input theme icon enum values
+// (QIcon::ThemeIcon) and shows a preview label. -1 means nothing selected.
+class QDESIGNER_SHARED_EXPORT IconThemeEnumEditor : public QWidget
+{
+    Q_OBJECT
+public:
+    explicit IconThemeEnumEditor(QWidget *parent = nullptr, bool wantResetButton = true);
+    ~IconThemeEnumEditor() override;
+
+    int themeEnum() const;
+    void setThemeEnum(int);
+
+    static QString iconName(int e);
+    static QComboBox *createComboBox(QWidget *parent = nullptr);
+
+signals:
+    void edited(int);
+
+public slots:
+    void reset();
 
 private:
-    void updatePreview(const QString &);
-
     QScopedPointer<IconThemeEditorPrivate> d;
 };
 

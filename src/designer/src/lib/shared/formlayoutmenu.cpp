@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "formlayoutmenu_p.h"
 #include "layoutinfo_p.h"
@@ -38,48 +8,49 @@
 #include "qdesigner_propertycommand_p.h"
 #include "ui_formlayoutrowdialog.h"
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerWidgetFactoryInterface>
-#include <QtDesigner/QDesignerPropertySheetExtension>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerWidgetDataBaseInterface>
-#include <QtDesigner/QDesignerLanguageExtension>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractwidgetfactory.h>
+#include <QtDesigner/propertysheet.h>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractwidgetdatabase.h>
+#include <QtDesigner/abstractlanguage.h>
 
-#include <QtWidgets/QAction>
-#include <QtWidgets/QWidget>
-#include <QtWidgets/QFormLayout>
-#include <QtWidgets/QUndoStack>
-#include <QtWidgets/QDialog>
-#include <QtWidgets/QPushButton>
-#include <QtGui/QRegExpValidator>
+#include <QtWidgets/qwidget.h>
+#include <QtWidgets/qformlayout.h>
+#include <QtWidgets/qdialog.h>
+#include <QtWidgets/qpushbutton.h>
 
-#include <QtCore/QPair>
-#include <QtCore/QCoreApplication>
-#include <QtCore/QRegExp>
-#include <QtCore/QMultiHash>
-#include <QtCore/QDebug>
+#include <QtGui/qaction.h>
+#include <QtGui/qvalidator.h>
+#include <QtGui/qundostack.h>
 
-static const char *buddyPropertyC = "buddy";
+#include <QtCore/qpair.h>
+#include <QtCore/qcoreapplication.h>
+#include <QtCore/qregularexpression.h>
+#include <QtCore/qhash.h>
+#include <QtCore/qdebug.h>
+
+QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
+
+static constexpr auto buddyPropertyC = "buddy"_L1;
 static const char *fieldWidgetBaseClasses[] = {
     "QLineEdit", "QComboBox", "QSpinBox", "QDoubleSpinBox", "QCheckBox",
     "QDateEdit", "QTimeEdit", "QDateTimeEdit", "QDial", "QWidget"
 };
-
-QT_BEGIN_NAMESPACE
 
 namespace qdesigner_internal {
 
 // Struct that describes a row of controls (descriptive label and control) to
 // be added to a form layout.
 struct FormLayoutRow {
-    FormLayoutRow() : buddy(false) {}
-
     QString labelName;
     QString labelText;
     QString fieldClassName;
     QString fieldName;
-    bool buddy;
+    bool buddy{false};
 };
 
 // A Dialog to edit a FormLayoutRow. Lets the user input a label text, label
@@ -88,7 +59,7 @@ struct FormLayoutRow {
 // are updated. It also checks the buddy setting depending on whether  the
 // label text contains a buddy marker.
 class FormLayoutRowDialog : public QDialog {
-    Q_DISABLE_COPY(FormLayoutRowDialog)
+    Q_DISABLE_COPY_MOVE(FormLayoutRowDialog)
     Q_OBJECT
 public:
     explicit FormLayoutRowDialog(QDesignerFormEditorInterface *core,
@@ -122,9 +93,9 @@ private:
     void updateOkButton();
 
     // Check for buddy marker in string
-    QRegExp m_buddyMarkerRegexp;
+    const QRegularExpression m_buddyMarkerRegexp;
 
-    Ui::FormLayoutRowDialog m_ui;
+    QT_PREPEND_NAMESPACE(Ui)::FormLayoutRowDialog m_ui;
     bool m_labelNameEdited;
     bool m_fieldNameEdited;
     bool m_buddyClicked;
@@ -133,35 +104,35 @@ private:
 FormLayoutRowDialog::FormLayoutRowDialog(QDesignerFormEditorInterface *core,
                                          QWidget *parent) :
     QDialog(parent),
-    m_buddyMarkerRegexp(QStringLiteral("\\&[^&]")),
+    m_buddyMarkerRegexp(u"\\&[^&]"_s),
     m_labelNameEdited(false),
     m_fieldNameEdited(false),
     m_buddyClicked(false)
 {
     Q_ASSERT(m_buddyMarkerRegexp.isValid());
 
-    setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
     setModal(true);
     m_ui.setupUi(this);
-    connect(m_ui.labelTextLineEdit, SIGNAL(textEdited(QString)), this, SLOT(labelTextEdited(QString)));
+    connect(m_ui.labelTextLineEdit, &QLineEdit::textEdited, this, &FormLayoutRowDialog::labelTextEdited);
 
-    QRegExpValidator *nameValidator = new QRegExpValidator(QRegExp(QStringLiteral("^[a-zA-Z0-9_]+$")), this);
-    Q_ASSERT(nameValidator->regExp().isValid());
+    auto *nameValidator = new QRegularExpressionValidator(QRegularExpression(u"^[a-zA-Z0-9_]+$"_s), this);
+    Q_ASSERT(nameValidator->regularExpression().isValid());
 
     m_ui.labelNameLineEdit->setValidator(nameValidator);
-    connect(m_ui.labelNameLineEdit, SIGNAL(textEdited(QString)),
-            this, SLOT(labelNameEdited(QString)));
+    connect(m_ui.labelNameLineEdit, &QLineEdit::textEdited,
+            this, &FormLayoutRowDialog::labelNameEdited);
 
     m_ui.fieldNameLineEdit->setValidator(nameValidator);
-    connect(m_ui.fieldNameLineEdit, SIGNAL(textEdited(QString)),
-            this, SLOT(fieldNameEdited(QString)));
+    connect(m_ui.fieldNameLineEdit, &QLineEdit::textEdited,
+            this, &FormLayoutRowDialog::fieldNameEdited);
 
-    connect(m_ui.buddyCheckBox, SIGNAL(clicked()), this, SLOT(buddyClicked()));
+    connect(m_ui.buddyCheckBox, &QAbstractButton::clicked, this, &FormLayoutRowDialog::buddyClicked);
 
     m_ui.fieldClassComboBox->addItems(fieldWidgetClasses(core));
     m_ui.fieldClassComboBox->setCurrentIndex(0);
-    connect(m_ui.fieldClassComboBox, SIGNAL(currentIndexChanged(int)),
-            this, SLOT(fieldClassChanged(int)));
+    connect(m_ui.fieldClassComboBox,
+            &QComboBox::currentIndexChanged,
+            this, &FormLayoutRowDialog::fieldClassChanged);
 
     updateOkButton();
 }
@@ -245,11 +216,11 @@ void FormLayoutRowDialog::labelTextEdited(const QString &text)
 // "namespace::QLineEdit"->"LineEdit"
 static inline QString postFixFromClassName(QString className)
 {
-    const int index = className.lastIndexOf(QStringLiteral("::"));
+    const int index = className.lastIndexOf("::"_L1);
     if (index != -1)
         className.remove(0, index + 2);
     if (className.size() > 2)
-        if (className.at(0) == QLatin1Char('Q') || className.at(0) == QLatin1Char('K'))
+        if (className.at(0) == u'Q' || className.at(0) == u'K')
             if (className.at(1).isUpper())
                 className.remove(0, 1);
     return className;
@@ -295,10 +266,8 @@ static inline PrefixCharacterKind prefixCharacterKind(const QChar &c)
 static QString prefixFromLabel(const QString &prefix)
 {
     QString rc;
-    const int length = prefix.size();
     bool lastWasAcceptable = false;
-    for (int i = 0 ; i < length; i++) {
-        const QChar c = prefix.at(i);
+    for (const QChar &c : prefix) {
         const PrefixCharacterKind kind = prefixCharacterKind(c);
         const bool acceptable = kind != PC_Invalid;
         if (acceptable) {
@@ -328,7 +297,7 @@ void FormLayoutRowDialog::updateObjectNames(bool updateLabel, bool updateField)
     const QString prefix = prefixFromLabel(labelText());
     // Set names
     if (doUpdateLabel)
-        m_ui.labelNameLineEdit->setText(prefix + QStringLiteral("Label"));
+        m_ui.labelNameLineEdit->setText(prefix + "Label"_L1);
     if (doUpdateField)
         m_ui.fieldNameLineEdit->setText(prefix + postFixFromClassName(fieldClass()));
 }
@@ -361,21 +330,17 @@ void FormLayoutRowDialog::buddyClicked()
  * from them ("QLineEdit", "CustomLineEdit", "QComboBox"...). */
 QStringList FormLayoutRowDialog::fieldWidgetClasses(QDesignerFormEditorInterface *core)
 {
-    // Base class -> custom widgets map
-    typedef QMultiHash<QString, QString> ClassMap;
-
     static QStringList rc;
-    if (rc.empty()) {
-        const int fwCount = sizeof(fieldWidgetBaseClasses)/sizeof(const char*);
+    if (rc.isEmpty()) {
         // Turn known base classes into list
         QStringList baseClasses;
-        for (int i = 0; i < fwCount; i++)
-            baseClasses.push_back(QLatin1String(fieldWidgetBaseClasses[i]));
+        for (auto fw : fieldWidgetBaseClasses)
+            baseClasses.append(QLatin1StringView(fw));
         // Scan for custom widgets that inherit them and store them in a
         // multimap of base class->custom widgets unless we have a language
         // extension installed which might do funny things with custom widgets.
-        ClassMap customClassMap;
-        if (qt_extension<QDesignerLanguageExtension *>(core->extensionManager(), core) == 0) {
+        QMultiHash<QString, QString> customClassMap; // Base class -> custom widgets map
+        if (qt_extension<QDesignerLanguageExtension *>(core->extensionManager(), core) == nullptr) {
             const QDesignerWidgetDataBaseInterface *wdb = core->widgetDataBase();
             const int wdbCount = wdb->count();
             for (int w = 0; w < wdbCount; ++w) {
@@ -391,9 +356,9 @@ QStringList FormLayoutRowDialog::fieldWidgetClasses(QDesignerFormEditorInterface
         }
         // Compile final list, taking each base class and append custom widgets
         // based on it.
-        for (int i = 0; i < fwCount; i++) {
-            rc.push_back(baseClasses.at(i));
-            rc += customClassMap.values(baseClasses.at(i));
+        for (const auto &baseClass : baseClasses) {
+            rc.append(baseClass);
+            rc += customClassMap.values(baseClass);
         }
     }
     return rc;
@@ -403,31 +368,31 @@ QStringList FormLayoutRowDialog::fieldWidgetClasses(QDesignerFormEditorInterface
 
 static QFormLayout *managedFormLayout(const QDesignerFormEditorInterface *core, const QWidget *w)
 {
-    QLayout *l = 0;
+    QLayout *l = nullptr;
     if (LayoutInfo::managedLayoutType(core, w, &l) == LayoutInfo::Form)
         return qobject_cast<QFormLayout *>(l);
-    return 0;
+    return nullptr;
 }
 
 // Create the widgets of a control row and apply text properties contained
 // in the struct, called by addFormLayoutRow()
-static QPair<QWidget *,QWidget *>
+static std::pair<QWidget *,QWidget *>
         createWidgets(const FormLayoutRow &row, QWidget *parent,
                       QDesignerFormWindowInterface *formWindow)
 {
     QDesignerFormEditorInterface *core = formWindow->core();
     QDesignerWidgetFactoryInterface *wf = core->widgetFactory();
 
-    QPair<QWidget *,QWidget *> rc = QPair<QWidget *,QWidget *>(wf->createWidget(QStringLiteral("QLabel"), parent),
-                                                               wf->createWidget(row.fieldClassName, parent));
+    std::pair<QWidget *,QWidget *> rc{wf->createWidget(u"QLabel"_s, parent),
+                                      wf->createWidget(row.fieldClassName, parent)};
     // Set up properties of the label
-    const QString objectNameProperty = QStringLiteral("objectName");
+    const QString objectNameProperty = u"objectName"_s;
     QDesignerPropertySheetExtension *labelSheet = qt_extension<QDesignerPropertySheetExtension*>(core->extensionManager(), rc.first);
     int nameIndex = labelSheet->indexOf(objectNameProperty);
     labelSheet->setProperty(nameIndex, QVariant::fromValue(PropertySheetStringValue(row.labelName)));
     labelSheet->setChanged(nameIndex, true);
     formWindow->ensureUniqueObjectName(rc.first);
-    const int textIndex = labelSheet->indexOf(QStringLiteral("text"));
+    const int textIndex = labelSheet->indexOf(u"text"_s);
     labelSheet->setProperty(textIndex, QVariant::fromValue(PropertySheetStringValue(row.labelText)));
     labelSheet->setChanged(textIndex, true);
     // Set up properties of the control
@@ -451,7 +416,7 @@ static void addFormLayoutRow(const FormLayoutRow &formLayoutRow, int row, QWidge
     undoStack->beginMacro(macroName);
 
     // Create a list of widget insertion commands and pass them a cell position
-    const QPair<QWidget *,QWidget *> widgetPair = createWidgets(formLayoutRow, w, formWindow);
+    const auto widgetPair = createWidgets(formLayoutRow, w, formWindow);
 
     InsertWidgetCommand *labelCmd = new InsertWidgetCommand(formWindow);
     labelCmd->init(widgetPair.first, false, row, 0);
@@ -461,7 +426,7 @@ static void addFormLayoutRow(const FormLayoutRow &formLayoutRow, int row, QWidge
     undoStack->push(controlCmd);
     if (formLayoutRow.buddy) {
         SetPropertyCommand *buddyCommand = new SetPropertyCommand(formWindow);
-        buddyCommand->init(widgetPair.first, QLatin1String(buddyPropertyC), widgetPair.second->objectName());
+        buddyCommand->init(widgetPair.first, buddyPropertyC, widgetPair.second->objectName());
         undoStack->push(buddyCommand);
     }
     undoStack->endMacro();
@@ -475,7 +440,7 @@ FormLayoutMenu::FormLayoutMenu(QObject *parent) :
     m_separator2(new QAction(this))
 {
     m_separator1->setSeparator(true);
-    connect(m_populateFormAction, SIGNAL(triggered()), this, SLOT(slotAddRow()));
+    connect(m_populateFormAction, &QAction::triggered, this, &FormLayoutMenu::slotAddRow);
     m_separator2->setSeparator(true);
 }
 
@@ -483,14 +448,14 @@ void FormLayoutMenu::populate(QWidget *w, QDesignerFormWindowInterface *fw, Acti
 {
     switch (LayoutInfo::managedLayoutType(fw->core(), w)) {
     case LayoutInfo::Form:
-        if (!actions.empty() && !actions.back()->isSeparator())
+        if (!actions.isEmpty() && !actions.constLast()->isSeparator())
             actions.push_back(m_separator1);
         actions.push_back(m_populateFormAction);
         actions.push_back(m_separator2);
         m_widget = w;
         break;
     default:
-        m_widget = 0;
+        m_widget = nullptr;
         break;
     }
 }
@@ -516,7 +481,7 @@ QAction *FormLayoutMenu::preferredEditAction(QWidget *w, QDesignerFormWindowInte
         m_widget = w;
         return m_populateFormAction;
     }
-    return 0;
+    return nullptr;
 }
 }
 

@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #ifndef SIGNALSLOTEDITOR_P_H
 #define SIGNALSLOTEDITOR_P_H
@@ -45,11 +15,11 @@
 // We mean it.
 //
 
-#include <QtCore/QString>
-#include <QtCore/QStringList>
-#include <QtCore/QList>
-#include <QtCore/QPointer>
-#include <QtCore/QAbstractItemModel>
+#include <QtCore/qstring.h>
+#include <QtCore/qstringlist.h>
+#include <QtCore/qlist.h>
+#include <QtCore/qpointer.h>
+#include <QtCore/qabstractitemmodel.h>
 
 #include <connectionedit_p.h>
 
@@ -66,7 +36,7 @@ class SignalSlotEditor;
 class SignalSlotConnection : public Connection
 {
 public:
-    explicit SignalSlotConnection(ConnectionEdit *edit, QWidget *source = 0, QWidget *target = 0);
+    explicit SignalSlotConnection(ConnectionEdit *edit, QWidget *source = nullptr, QWidget *target = nullptr);
 
     void setSignal(const QString &signal);
     void setSlot(const QString &slot);
@@ -78,7 +48,7 @@ public:
 
     DomConnection *toUi() const;
 
-    virtual void updateVisibility();
+    void updateVisibility() override;
 
     enum State { Valid, ObjectDeleted, InvalidMethod, NotAncestor };
     State isValid(const QWidget *background) const;
@@ -94,30 +64,31 @@ class ConnectionModel : public QAbstractItemModel
 {
     Q_OBJECT
 public:
-    explicit ConnectionModel(QObject *parent = 0);
-    void setEditor(SignalSlotEditor *editor = 0);
+    explicit ConnectionModel(QObject *parent = nullptr);
+    void setEditor(SignalSlotEditor *editor = nullptr);
 
-    virtual QModelIndex index(int row, int column,
-                              const QModelIndex &parent = QModelIndex()) const;
-    QModelIndex parent(const QModelIndex &child) const Q_DECL_OVERRIDE;
-    int rowCount(const QModelIndex &parent = QModelIndex()) const Q_DECL_OVERRIDE;
-    int columnCount(const QModelIndex &parent = QModelIndex()) const Q_DECL_OVERRIDE;
-    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const Q_DECL_OVERRIDE;
-    bool setData(const QModelIndex &index, const QVariant &data, int role = Qt::DisplayRole) Q_DECL_OVERRIDE;
-    Qt::ItemFlags flags(const QModelIndex &index) const Q_DECL_OVERRIDE;
-    virtual QVariant headerData(int section, Qt::Orientation orientation,
-                                int role = Qt::DisplayRole) const;
+    QModelIndex index(int row, int column, const QModelIndex &parent = QModelIndex()) const override;
+    QModelIndex parent(const QModelIndex &child) const override;
+    int rowCount(const QModelIndex &parent = QModelIndex()) const override;
+    int columnCount(const QModelIndex &parent = QModelIndex()) const override;
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
+    bool setData(const QModelIndex &index, const QVariant &data, int role = Qt::DisplayRole) override;
+    Qt::ItemFlags flags(const QModelIndex &index) const override;
+    QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;
 
     QModelIndex connectionToIndex(Connection *con) const;
     Connection *indexToConnection(const QModelIndex &index) const;
     void updateAll();
 
+    const SignalSlotConnection *connectionAt(const QModelIndex &index) const;
+    static QString columnText(const SignalSlotConnection *con, int column);
+
 private slots:
-    void connectionAdded(Connection *con);
+    void connectionAdded(qdesigner_internal::Connection *con);
     void connectionRemoved(int idx);
-    void aboutToRemoveConnection(Connection *con);
+    void aboutToRemoveConnection(qdesigner_internal::Connection *con);
     void aboutToAddConnection(int idx);
-    void connectionChanged(Connection *con);
+    void connectionChanged(qdesigner_internal::Connection *con);
 
 private:
     QPointer<SignalSlotEditor> m_editor;

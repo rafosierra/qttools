@@ -1,50 +1,23 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "formwindow_widgetstack.h"
-#include <QtDesigner/QDesignerFormWindowToolInterface>
+#include <QtDesigner/abstractformwindowtool.h>
 
-#include <QtWidgets/QWidget>
+#include <QtWidgets/qstackedlayout.h>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qwidget.h>
+
 #include <QtGui/qevent.h>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QStackedLayout>
-#include <QtWidgets/QVBoxLayout>
+#include <QtGui/qaction.h>
 
 #include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
 
-using namespace qdesigner_internal;
+using namespace Qt::StringLiterals;
+
+namespace qdesigner_internal {
 
 FormWindowWidgetStack::FormWindowWidgetStack(QObject *parent) :
     QObject(parent),
@@ -52,15 +25,15 @@ FormWindowWidgetStack::FormWindowWidgetStack(QObject *parent) :
     m_formContainerLayout(new QStackedLayout),
     m_layout(new QStackedLayout)
 {
-    m_layout->setMargin(0);
+    m_layout->setContentsMargins(QMargins());
     m_layout->setSpacing(0);
     m_layout->setStackingMode(QStackedLayout::StackAll);
 
     // We choose a QStackedLayout as immediate layout for
     // the form windows as it ignores the sizePolicy of
     // its child (for example, Fixed would cause undesired side effects).
-    m_formContainerLayout->setMargin(0);
-    m_formContainer->setObjectName(QStringLiteral("formContainer"));
+    m_formContainerLayout->setContentsMargins(QMargins());
+    m_formContainer->setObjectName(u"formContainer"_s);
     m_formContainer->setLayout(m_formContainerLayout);
     m_formContainerLayout->setStackingMode(QStackedLayout::StackAll);
     // System settings might have different background colors, autofill them
@@ -68,13 +41,11 @@ FormWindowWidgetStack::FormWindowWidgetStack(QObject *parent) :
     m_formContainer->setAutoFillBackground(true);
 }
 
-FormWindowWidgetStack::~FormWindowWidgetStack()
-{
-}
+FormWindowWidgetStack::~FormWindowWidgetStack() = default;
 
 int FormWindowWidgetStack::count() const
 {
-    return m_tools.count();
+    return m_tools.size();
 }
 
 QDesignerFormWindowToolInterface *FormWindowWidgetStack::currentTool() const
@@ -111,21 +82,21 @@ void FormWindowWidgetStack::setCurrentTool(int index)
 
 void FormWindowWidgetStack::setSenderAsCurrentTool()
 {
-    QDesignerFormWindowToolInterface *tool = 0;
+    QDesignerFormWindowToolInterface *tool = nullptr;
     QAction *action = qobject_cast<QAction*>(sender());
-    if (action == 0) {
+    if (action == nullptr) {
         qDebug("FormWindowWidgetStack::setSenderAsCurrentTool(): sender is not a QAction");
         return;
     }
 
-    foreach (QDesignerFormWindowToolInterface *t, m_tools) {
+    for (QDesignerFormWindowToolInterface *t : std::as_const(m_tools)) {
         if (action == t->action()) {
             tool = t;
             break;
         }
     }
 
-    if (tool == 0) {
+    if (tool == nullptr) {
         qDebug("FormWindowWidgetStack::setSenderAsCurrentTool(): unknown tool");
         return;
     }
@@ -154,7 +125,8 @@ void FormWindowWidgetStack::setMainContainer(QWidget *w)
     // This code is triggered once by the formwindow and
     // by integrations doing "revert to saved". Anything changing?
     const int previousCount = m_formContainerLayout->count();
-    QWidget *previousMainContainer = previousCount ? m_formContainerLayout->itemAt(0)->widget() : static_cast<QWidget*>(0);
+    QWidget *previousMainContainer = previousCount
+        ? m_formContainerLayout->itemAt(0)->widget() : nullptr;
     if (previousMainContainer == w)
         return;
     // Swap
@@ -171,19 +143,20 @@ void FormWindowWidgetStack::addTool(QDesignerFormWindowToolInterface *tool)
         m_layout->addWidget(w);
     } else {
         // The form editor might not have a tool initially, use dummy. Assert on anything else
-        Q_ASSERT(m_tools.empty());
+        Q_ASSERT(m_tools.isEmpty());
         m_layout->addWidget(m_formContainer);
     }
 
     m_tools.append(tool);
 
-    connect(tool->action(), SIGNAL(triggered()), this, SLOT(setSenderAsCurrentTool()));
+    connect(tool->action(), &QAction::triggered,
+            this, &FormWindowWidgetStack::setSenderAsCurrentTool);
 }
 
 QDesignerFormWindowToolInterface *FormWindowWidgetStack::tool(int index) const
 {
     if (index < 0 || index >= count())
-        return 0;
+        return nullptr;
 
     return m_tools.at(index);
 }
@@ -196,7 +169,7 @@ int FormWindowWidgetStack::currentIndex() const
 QWidget *FormWindowWidgetStack::defaultEditor() const
 {
     if (m_tools.isEmpty())
-        return 0;
+        return nullptr;
 
     return m_tools.at(0)->editor();
 }
@@ -205,5 +178,7 @@ QLayout *FormWindowWidgetStack::layout() const
 {
     return m_layout;
 }
+
+} // namespace qdesigner_internal
 
 QT_END_NAMESPACE

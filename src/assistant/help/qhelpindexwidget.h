@@ -1,62 +1,34 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Assistant of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #ifndef QHELPINDEXWIDGET_H
 #define QHELPINDEXWIDGET_H
 
 #include <QtHelp/qhelp_global.h>
 
-#include <QtCore/QUrl>
-#include <QtCore/QStringListModel>
-#include <QtWidgets/QListView>
+#include <QtCore/qstringlistmodel.h>
+#include <QtCore/qurl.h>
+
+#include <QtWidgets/qlistview.h>
 
 QT_BEGIN_NAMESPACE
 
-
+class QHelpEngineCore;
 class QHelpEnginePrivate;
 class QHelpIndexModelPrivate;
+struct QHelpLink;
 
 class QHELP_EXPORT QHelpIndexModel : public QStringListModel
 {
     Q_OBJECT
 
 public:
+    void createIndexForCurrentFilter();
     void createIndex(const QString &customFilterName);
-    QModelIndex filter(const QString &filter,
-        const QString &wildcard = QString());
+    QModelIndex filter(const QString &filter, const QString &wildcard = {});
 
-    QMap<QString, QUrl> linksForKeyword(const QString &keyword) const;
     bool isCreatingIndex() const;
+    QHelpEngineCore *helpEngine() const;
 
 Q_SIGNALS:
     void indexCreationStarted();
@@ -64,10 +36,9 @@ Q_SIGNALS:
 
 private Q_SLOTS:
     void insertIndices();
-    void invalidateIndex(bool onShutDown = false);
 
 private:
-    QHelpIndexModel(QHelpEnginePrivate *helpEngine);
+    QHelpIndexModel(QHelpEngineCore *helpEngine);
     ~QHelpIndexModel();
 
     QHelpIndexModelPrivate *d;
@@ -77,15 +48,20 @@ private:
 class QHELP_EXPORT QHelpIndexWidget : public QListView
 {
     Q_OBJECT
+    Q_MOC_INCLUDE(<QtHelp/qhelplink.h>)
 
 Q_SIGNALS:
+#if QT_DEPRECATED_SINCE(5, 15)
+    QT_DEPRECATED_X("Use documentActivated() instead")
     void linkActivated(const QUrl &link, const QString &keyword);
-    void linksActivated(const QMap<QString, QUrl> &links,
-        const QString &keyword);
+    QT_DEPRECATED_X("Use documentsActivated() instead")
+    void linksActivated(const QMultiMap<QString, QUrl> &links, const QString &keyword);
+#endif
+    void documentActivated(const QHelpLink &document, const QString &keyword);
+    void documentsActivated(const QList<QHelpLink> &documents, const QString &keyword);
 
 public Q_SLOTS:
-    void filterIndices(const QString &filter,
-        const QString &wildcard = QString());
+    void filterIndices(const QString &filter, const QString &wildcard = {});
     void activateCurrentItem();
 
 private Q_SLOTS:
@@ -98,4 +74,4 @@ private:
 
 QT_END_NAMESPACE
 
-#endif
+#endif // QHELPINDEXWIDGET_H

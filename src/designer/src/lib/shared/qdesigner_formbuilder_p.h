@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 //
 //  W A R N I N G
@@ -50,8 +20,8 @@
 
 #include <QtDesigner/formbuilder.h>
 
-#include <QtCore/QMap>
-#include <QtCore/QSet>
+#include <QtCore/qmap.h>
+#include <QtCore/qset.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -75,7 +45,7 @@ public:
     QDesignerFormBuilder(QDesignerFormEditorInterface *core,
                          const DeviceProfile &deviceProfile = DeviceProfile());
 
-    virtual QWidget *createWidget(DomWidget *ui_widget, QWidget *parentWidget = 0)
+    virtual QWidget *createWidget(DomWidget *ui_widget, QWidget *parentWidget = nullptr)
     { return QFormBuilder::create(ui_widget, parentWidget); }
 
     inline QDesignerFormEditorInterface *core() const
@@ -103,22 +73,22 @@ protected:
     using QFormBuilder::createDom;
     using QFormBuilder::create;
 
-    QWidget *create(DomUI *ui, QWidget *parentWidget) Q_DECL_OVERRIDE;
-    DomWidget *createDom(QWidget *widget, DomWidget *ui_parentWidget, bool recursive = true) Q_DECL_OVERRIDE;
-    QWidget *create(DomWidget *ui_widget, QWidget *parentWidget) Q_DECL_OVERRIDE;
-    QLayout *create(DomLayout *ui_layout, QLayout *layout, QWidget *parentWidget) Q_DECL_OVERRIDE;
-    void createResources(DomResources *resources) Q_DECL_OVERRIDE;
+    QWidget *create(DomUI *ui, QWidget *parentWidget) override;
+    DomWidget *createDom(QWidget *widget, DomWidget *ui_parentWidget, bool recursive = true) override;
+    QWidget *create(DomWidget *ui_widget, QWidget *parentWidget) override;
+    QLayout *create(DomLayout *ui_layout, QLayout *layout, QWidget *parentWidget) override;
+    void createResources(DomResources *resources) override;
 
-    QWidget *createWidget(const QString &widgetName, QWidget *parentWidget, const QString &name) Q_DECL_OVERRIDE;
-    bool addItem(DomWidget *ui_widget, QWidget *widget, QWidget *parentWidget) Q_DECL_OVERRIDE;
-    bool addItem(DomLayoutItem *ui_item, QLayoutItem *item, QLayout *layout) Q_DECL_OVERRIDE;
+    QWidget *createWidget(const QString &widgetName, QWidget *parentWidget, const QString &name) override;
+    bool addItem(DomWidget *ui_widget, QWidget *widget, QWidget *parentWidget) override;
+    bool addItem(DomLayoutItem *ui_item, QLayoutItem *item, QLayout *layout) override;
 
     virtual QIcon nameToIcon(const QString &filePath, const QString &qrcPath);
     virtual QPixmap nameToPixmap(const QString &filePath, const QString &qrcPath);
 
-    void applyProperties(QObject *o, const QList<DomProperty*> &properties) Q_DECL_OVERRIDE;
+    void applyProperties(QObject *o, const QList<DomProperty*> &properties) override;
 
-    void loadExtraInfo(DomWidget *ui_widget, QWidget *widget, QWidget *parentWidget) Q_DECL_OVERRIDE;
+    void loadExtraInfo(DomWidget *ui_widget, QWidget *widget, QWidget *parentWidget) override;
 
     QtResourceSet *internalResourceSet() const { return m_tempResourceSet; }
 
@@ -127,7 +97,7 @@ protected:
 private:
     QDesignerFormEditorInterface *m_core;
 
-    typedef QSet<QWidget *> WidgetSet;
+    using WidgetSet = QSet<QWidget *>;
     WidgetSet m_customWidgetsWithScript;
 
     const DeviceProfile m_deviceProfile;
@@ -149,7 +119,7 @@ public:
                              const DeviceProfile &deviceProfile = DeviceProfile());
 
 protected:
-    void createCustomWidgets(DomCustomWidgets *) Q_DECL_OVERRIDE;
+    void createCustomWidgets(DomCustomWidgets *) override;
 };
 
 

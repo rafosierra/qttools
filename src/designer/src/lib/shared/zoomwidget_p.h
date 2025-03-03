@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 //
 //  W A R N I N G
@@ -47,9 +17,10 @@
 
 #include "shared_global_p.h"
 
-#include <QtWidgets/QGraphicsView>
-#include <QtWidgets/QGraphicsProxyWidget>
-#include <QtCore/QList>
+#include <QtWidgets/qgraphicsview.h>
+#include <QtWidgets/qgraphicsproxywidget.h>
+
+#include <QtCore/qlist.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -64,10 +35,10 @@ namespace qdesigner_internal {
 
 class QDESIGNER_SHARED_EXPORT ZoomMenu : public QObject {
     Q_OBJECT
-    Q_DISABLE_COPY(ZoomMenu)
+    Q_DISABLE_COPY_MOVE(ZoomMenu)
 
 public:
-    ZoomMenu(QObject *parent = 0);
+    ZoomMenu(QObject *parent = nullptr);
     void addActions(QMenu *m);
 
     int zoom() const;
@@ -97,9 +68,9 @@ class QDESIGNER_SHARED_EXPORT ZoomView : public QGraphicsView
     Q_PROPERTY(int zoom READ zoom WRITE setZoom DESIGNABLE true SCRIPTABLE true)
     Q_PROPERTY(bool zoomContextMenuEnabled READ isZoomContextMenuEnabled WRITE setZoomContextMenuEnabled DESIGNABLE true SCRIPTABLE true)
     Q_OBJECT
-    Q_DISABLE_COPY(ZoomView)
+    Q_DISABLE_COPY_MOVE(ZoomView)
 public:
-    ZoomView(QWidget *parent = 0);
+    ZoomView(QWidget *parent = nullptr);
 
     /*  Zoom in percent (for easily implementing menus) and qreal zoomFactor
      * in sync */
@@ -125,31 +96,30 @@ public slots:
     void showContextMenu(const QPoint &globalPos);
 
 protected:
-    void contextMenuEvent(QContextMenuEvent *event);
+    void contextMenuEvent(QContextMenuEvent *event) override;
 
     // Overwrite for implementing additional behaviour when doing setZoom();
     virtual void applyZoom();
 
 private:
     QGraphicsScene *m_scene;
-    int m_zoom;
-    qreal m_zoomFactor;
+    int m_zoom = 100;
+    qreal m_zoomFactor = 1;
 
-    bool m_zoomContextMenuEnabled;
-    bool m_resizeBlocked;
-    ZoomMenu *m_zoomMenu;
+    bool m_zoomContextMenuEnabled = false;
+    ZoomMenu *m_zoomMenu = nullptr;
 };
 
 /* The proxy widget used in  ZoomWidget. It  refuses to move away from 0,0,
  * This behaviour is required for Windows only. */
 
 class  QDESIGNER_SHARED_EXPORT ZoomProxyWidget : public QGraphicsProxyWidget {
-    Q_DISABLE_COPY(ZoomProxyWidget)
+    Q_DISABLE_COPY_MOVE(ZoomProxyWidget)
 public:
-    explicit ZoomProxyWidget(QGraphicsItem *parent = 0, Qt::WindowFlags wFlags = 0);
+    explicit ZoomProxyWidget(QGraphicsItem *parent = nullptr, Qt::WindowFlags wFlags = {});
 
 protected:
-    QVariant itemChange(GraphicsItemChange change, const QVariant &value) Q_DECL_OVERRIDE;
+    QVariant itemChange(GraphicsItemChange change, const QVariant &value) override;
 };
 
 /* Zoom widget: A QGraphicsView-based container for a widget that allows for
@@ -166,11 +136,11 @@ class QDESIGNER_SHARED_EXPORT ZoomWidget : public ZoomView
     Q_PROPERTY(bool widgetZoomContextMenuEnabled READ isWidgetZoomContextMenuEnabled WRITE setWidgetZoomContextMenuEnabled DESIGNABLE true SCRIPTABLE true)
     Q_PROPERTY(bool itemAcceptDrops READ itemAcceptDrops WRITE setItemAcceptDrops DESIGNABLE true SCRIPTABLE true)
     Q_OBJECT
-    Q_DISABLE_COPY(ZoomWidget)
+    Q_DISABLE_COPY_MOVE(ZoomWidget)
 
 public:
-    ZoomWidget(QWidget *parent = 0);
-    void setWidget(QWidget *w, Qt::WindowFlags wFlags = 0);
+    ZoomWidget(QWidget *parent = nullptr);
+    void setWidget(QWidget *w, Qt::WindowFlags wFlags = {});
 
     const QGraphicsProxyWidget *proxy() const { return m_proxy; }
     QGraphicsProxyWidget *proxy() { return m_proxy; }
@@ -183,8 +153,8 @@ public:
     void setItemAcceptDrops(bool);
     bool itemAcceptDrops() const;
 
-    QSize minimumSizeHint() const Q_DECL_OVERRIDE;
-    QSize sizeHint() const Q_DECL_OVERRIDE;
+    QSize minimumSizeHint() const override;
+    QSize sizeHint() const override;
 
     bool zoomedEventFilter(QObject *watched, QEvent *event);
 
@@ -193,27 +163,28 @@ public slots:
     void dump() const;
 
 protected:
-    void resizeEvent(QResizeEvent * event);
+    void resizeEvent(QResizeEvent * event) override;
 
     // Overwritten from ZoomView
-    virtual void applyZoom();
+    void applyZoom() override;
     // Overwrite to actually perform a resize. This is required if we are in a layout. Default does resize().
     virtual void doResize(const QSize &s);
 
 private:
     // Factory function for QGraphicsProxyWidgets which can be overwritten. Default creates a ZoomProxyWidget
-    virtual QGraphicsProxyWidget *createProxyWidget(QGraphicsItem *parent = 0, Qt::WindowFlags wFlags = 0) const;
-    QSize widgetSizeToViewSize(const QSize &s, bool *ptrToValid = 0) const;
+    virtual QGraphicsProxyWidget *createProxyWidget(QGraphicsItem *parent = nullptr,
+                                                    Qt::WindowFlags wFlags = {}) const;
+    QSize widgetSizeToViewSize(const QSize &s, bool *ptrToValid = nullptr) const;
 
     void resizeToWidgetSize();
     QSize viewPortMargin() const;
     QSize widgetSize() const;
     QSizeF widgetDecorationSizeF() const;
 
-    QGraphicsProxyWidget *m_proxy;
-    bool m_viewResizeBlocked;
-    bool m_widgetResizeBlocked;
-    bool m_widgetZoomContextMenuEnabled;
+    QGraphicsProxyWidget *m_proxy = nullptr;
+    bool m_viewResizeBlocked = false;
+    bool m_widgetResizeBlocked = false;
+    bool m_widgetZoomContextMenuEnabled = false;
 };
 
 } // namespace qdesigner_internal

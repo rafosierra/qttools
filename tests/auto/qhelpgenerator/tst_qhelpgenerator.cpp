@@ -1,43 +1,13 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the test suite of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 #include <QtTest/QtTest>
 
 #include <QtCore/QFileInfo>
 #include <QtSql/QSqlDatabase>
 #include <QtSql/QSqlQuery>
 
-#include <QtHelp/private/qhelpgenerator_p.h>
-#include <QtHelp/private/qhelpprojectdata_p.h>
+#include "../../../src/assistant/qhelpgenerator/qhelpprojectdata_p.h"
+#include "../../../src/assistant/qhelpgenerator/helpgenerator.h"
 
 class tst_QHelpGenerator : public QObject
 {
@@ -46,6 +16,8 @@ class tst_QHelpGenerator : public QObject
 private slots:
     void initTestCase();
     void generateHelp();
+    // Check that two runs of the generator creates the same file twice
+    void generateTwice();
 
 private:
     void checkNamespace();
@@ -79,7 +51,7 @@ void tst_QHelpGenerator::generateHelp()
     if (!data.readData(inputFile))
         QFAIL("Cannot read qthp file!");
 
-    QHelpGenerator generator;
+    HelpGenerator generator;
     QCOMPARE(generator.generate(&data, m_outputFile), true);
 
     {
@@ -140,12 +112,6 @@ void tst_QHelpGenerator::checkIndices()
         || m_query->value(1).toString() != QLatin1String("foo"))
         QFAIL("Index Error!");
 
-    /*
-    m_query->exec("SELECT COUNT(DISTINCT Id) FROM IndexItemTable");
-    if (!m_query->next() || m_query->value(0).toInt() != 7)
-        QFAIL("Index Error!");
-    */
-
     m_query->exec("SELECT COUNT(a.Id) FROM IndexTable a, "
         "IndexFilterTable b, FilterAttributeTable c WHERE a.Id=b.IndexId "
         "AND b.FilterAttributeId=c.Id AND c.Name=\'filter2\'");
@@ -167,7 +133,7 @@ void tst_QHelpGenerator::checkFiles()
         "AND b.FileId=a.FileID AND c.Name=\'filter1\'");
     while (m_query->next())
         lst.removeAll(m_query->value(0).toString());
-    QCOMPARE(lst.count(), 0);
+    QCOMPARE(lst.size(), 0);
 
     QMap<int, QStringList> fileAtts;
     m_query->exec("SELECT a.Id, b.Name FROM FileAttributeSetTable a, "
@@ -178,12 +144,12 @@ void tst_QHelpGenerator::checkFiles()
             fileAtts.insert(id, QStringList());
         fileAtts[id].append(m_query->value(1).toString());
     }
-    QCOMPARE(fileAtts.count(), 2);
-    QCOMPARE((bool)fileAtts.value(1).contains("test"), true);
-    QCOMPARE((bool)fileAtts.value(1).contains("filter1"), true);
-    QCOMPARE((bool)fileAtts.value(1).contains("filter2"), false);
-    QCOMPARE((bool)fileAtts.value(2).contains("test"), true);
-    QCOMPARE((bool)fileAtts.value(2).contains("filter2"), true);
+    QCOMPARE(fileAtts.size(), 2);
+    QVERIFY(fileAtts.value(1).contains("test"));
+    QVERIFY(fileAtts.value(1).contains("filter1"));
+    QVERIFY(!fileAtts.value(1).contains("filter2"));
+    QVERIFY(fileAtts.value(2).contains("test"));
+    QVERIFY(fileAtts.value(2).contains("filter2"));
 }
 
 void tst_QHelpGenerator::checkMetaData()
@@ -191,12 +157,43 @@ void tst_QHelpGenerator::checkMetaData()
     m_query->exec("SELECT COUNT(Value) FROM MetaDataTable");
     if (!m_query->next())
         QFAIL("Meta Data Error");
-    QCOMPARE(m_query->value(0).toInt(), 4);
+    QCOMPARE(m_query->value(0).toInt(), 3);
 
     m_query->exec("SELECT Value FROM MetaDataTable WHERE Name=\'author\'");
     if (!m_query->next())
         QFAIL("Meta Data Error");
     QCOMPARE(m_query->value(0).toString(), QString("Digia Plc and/or its subsidiary(-ies)"));
+
+}
+
+void tst_QHelpGenerator::generateTwice()
+{
+    // defined in profile
+    QString path = QLatin1String(SRCDIR);
+
+    QString inputFile(path + "/data/test.qhp");
+    QHelpProjectData data;
+    if (!data.readData(inputFile))
+        QFAIL("Cannot read qhp file!");
+
+    HelpGenerator generator1;
+    HelpGenerator generator2;
+    QString outputFile1 = path + QLatin1String("/data/test1.qch");
+    QString outputFile2 = path + QLatin1String("/data/test2.qch");
+    QCOMPARE(generator1.generate(&data, outputFile1), true);
+    QCOMPARE(generator2.generate(&data, outputFile2), true);
+
+    QFile f1(outputFile1);
+    QFile f2(outputFile2);
+    QVERIFY(f1.open(QIODevice::ReadOnly));
+    QVERIFY(f2.open(QIODevice::ReadOnly));
+
+    QByteArray arr1 = f1.readAll();
+    QByteArray arr2 = f2.readAll();
+
+    QFile::remove(outputFile1);
+    QFile::remove(outputFile2);
+    QCOMPARE(arr1, arr2);
 }
 
 QTEST_MAIN(tst_QHelpGenerator)

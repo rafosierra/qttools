@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 //
 //  W A R N I N G
@@ -48,8 +18,8 @@
 
 #include "shared_global_p.h"
 
-#include <QtWidgets/QWidget>
-#include <QtWidgets/QSizePolicy>
+#include <QtWidgets/qwidget.h>
+#include <QtWidgets/qsizepolicy.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -59,7 +29,6 @@ class QDESIGNER_SHARED_EXPORT Spacer: public QWidget
 {
     Q_OBJECT
 
-    Q_ENUMS(SizeType)
     // Special hack: Make name appear as "spacer name"
     Q_PROPERTY(QString spacerName  READ objectName WRITE setObjectName)
     Q_PROPERTY(Qt::Orientation orientation READ orientation WRITE setOrientation)
@@ -67,9 +36,9 @@ class QDESIGNER_SHARED_EXPORT Spacer: public QWidget
     Q_PROPERTY(QSize sizeHint READ sizeHintProperty WRITE setSizeHintProperty DESIGNABLE true STORED true)
 
 public:
-    Spacer(QWidget *parent = 0);
+    Spacer(QWidget *parent = nullptr);
 
-    QSize sizeHint() const;
+    QSize sizeHint() const override;
 
     QSize sizeHintProperty() const;
     void setSizeHintProperty(const QSize &s);
@@ -83,25 +52,25 @@ public:
     void setOrientation(Qt::Orientation o);
     void setInteractiveMode(bool b) { m_interactive = b; };
 
-    bool event(QEvent *e) Q_DECL_OVERRIDE;
+    bool event(QEvent *e) override;
 
 protected:
-    void paintEvent(QPaintEvent *e);
-    void resizeEvent(QResizeEvent* e);
+    void paintEvent(QPaintEvent *e) override;
+    void resizeEvent(QResizeEvent* e) override;
     void updateMask();
 
 private:
     bool isInLayout() const;
     void updateToolTip();
 
-    const QSize m_SizeOffset;
+    const QSize m_SizeOffset = QSize(3, 3); // A small offset to ensure the spacer is still visible when reset to size 0,0
     QDesignerFormWindowInterface *m_formWindow;
-    Qt::Orientation m_orientation;
-    bool m_interactive;
+    Qt::Orientation m_orientation = Qt::Vertical;
+    bool m_interactive = true;
     // Cache information about 'being in layout' which is expensive to calculate.
     enum LayoutState { InLayout, OutsideLayout, UnknownLayoutState };
-    mutable LayoutState m_layoutState;
-    QSize m_sizeHint;
+    mutable LayoutState m_layoutState = UnknownLayoutState;
+    QSize m_sizeHint = QSize(0, 0);
 };
 
 QT_END_NAMESPACE

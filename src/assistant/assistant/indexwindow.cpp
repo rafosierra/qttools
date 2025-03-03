@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Assistant of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "indexwindow.h"
 
@@ -49,8 +19,12 @@
 #include <QtWidgets/QListWidgetItem>
 
 #include <QtHelp/QHelpIndexWidget>
+#include <QtHelp/QHelpEngineCore>
+#include <QtHelp/QHelpLink>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 IndexWindow::IndexWindow(QWidget *parent)
     : QWidget(parent)
@@ -63,24 +37,27 @@ IndexWindow::IndexWindow(QWidget *parent)
     layout->addWidget(l);
 
     l->setBuddy(m_searchLineEdit);
-    connect(m_searchLineEdit, SIGNAL(textChanged(QString)), this,
-        SLOT(filterIndices(QString)));
+    m_searchLineEdit->setClearButtonEnabled(true);
+    connect(m_searchLineEdit, &QLineEdit::textChanged,
+            this, &IndexWindow::filterIndices);
     m_searchLineEdit->installEventFilter(this);
-    layout->setMargin(4);
+    layout->setContentsMargins(4, 4, 4, 4);
     layout->addWidget(m_searchLineEdit);
 
     HelpEngineWrapper &helpEngine = HelpEngineWrapper::instance();
     m_indexWidget->installEventFilter(this);
-    connect(helpEngine.indexModel(), SIGNAL(indexCreationStarted()), this,
-        SLOT(disableSearchLineEdit()));
-    connect(helpEngine.indexModel(), SIGNAL(indexCreated()), this,
-        SLOT(enableSearchLineEdit()));
-    connect(m_indexWidget, SIGNAL(linkActivated(QUrl,QString)), this,
-        SIGNAL(linkActivated(QUrl)));
-    connect(m_indexWidget, SIGNAL(linksActivated(QMap<QString,QUrl>,QString)),
-        this, SIGNAL(linksActivated(QMap<QString,QUrl>,QString)));
-    connect(m_searchLineEdit, SIGNAL(returnPressed()), m_indexWidget,
-        SLOT(activateCurrentItem()));
+    connect(helpEngine.indexModel(), &QHelpIndexModel::indexCreationStarted,
+            this, &IndexWindow::disableSearchLineEdit);
+    connect(helpEngine.indexModel(), &QHelpIndexModel::indexCreated,
+            this, &IndexWindow::enableSearchLineEdit);
+    connect(m_indexWidget, &QHelpIndexWidget::documentActivated,
+            this, [this](const QHelpLink &link) {
+        emit linkActivated(link.url);
+    });
+    connect(m_indexWidget, &QHelpIndexWidget::documentsActivated,
+            this, &IndexWindow::documentsActivated);
+    connect(m_searchLineEdit, &QLineEdit::returnPressed,
+            m_indexWidget, &QHelpIndexWidget::activateCurrentItem);
     layout->addWidget(m_indexWidget);
 
     m_indexWidget->viewport()->installEventFilter(this);
@@ -94,7 +71,7 @@ IndexWindow::~IndexWindow()
 void IndexWindow::filterIndices(const QString &filter)
 {
     TRACE_OBJ
-    if (filter.contains(QLatin1Char('*')))
+    if (filter.contains(u'*'))
         m_indexWidget->filterIndices(filter, filter);
     else
         m_indexWidget->filterIndices(filter, QString());
@@ -116,7 +93,7 @@ bool IndexWindow::eventFilter(QObject *obj, QEvent *e)
             }
             break;
         case Qt::Key_Down:
-            idx = m_indexWidget->model()->index(idx.row()+1,
+            idx = m_indexWidget->model()->index(idx.row() + 1,
                 idx.column(), idx.parent());
             if (idx.isValid()) {
                 m_indexWidget->setCurrentIndex(idx);
@@ -151,7 +128,7 @@ bool IndexWindow::eventFilter(QObject *obj, QEvent *e)
         if (idx.isValid()) {
             Qt::MouseButtons button = mouseEvent->button();
             if (((button == Qt::LeftButton) && (mouseEvent->modifiers() & Qt::ControlModifier))
-                || (button == Qt::MidButton)) {
+                || (button == Qt::MiddleButton)) {
                 open(m_indexWidget, idx);
             }
         }
@@ -199,16 +176,16 @@ void IndexWindow::open(QHelpIndexWidget* indexWidget, const QModelIndex &index)
     TRACE_OBJ
     QHelpIndexModel *model = qobject_cast<QHelpIndexModel*>(indexWidget->model());
     if (model) {
-        QString keyword = model->data(index, Qt::DisplayRole).toString();
-        QMap<QString, QUrl> links = model->linksForKeyword(keyword);
+        const QString keyword = model->data(index, Qt::DisplayRole).toString();
+        const QList<QHelpLink> docs = model->helpEngine()->documentsForKeyword(keyword);
 
         QUrl url;
-        if (links.count() > 1) {
-            TopicChooser tc(this, keyword, links);
+        if (docs.size() > 1) {
+            TopicChooser tc(this, keyword, docs);
             if (tc.exec() == QDialog::Accepted)
                 url = tc.link();
-        } else if (links.count() == 1) {
-            url = links.constBegin().value();
+        } else if (!docs.isEmpty()) {
+            url = docs.first().url;
         } else {
             return;
         }

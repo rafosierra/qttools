@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "signalslot_utils_p.h"
 
@@ -37,17 +7,17 @@
 #include <widgetdatabase_p.h>
 #include <metadatabase_p.h>
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerMetaDataBaseInterface>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerLanguageExtension>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractmetadatabase.h>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractlanguage.h>
 
-#include <QtCore/QPair>
+#include <QtCore/qpair.h>
 
 QT_BEGIN_NAMESPACE
 
-typedef QPair<QString, QString> ClassNameSignaturePair;
+using ClassNameSignaturePair = std::pair<QString, QString>;
 
 // Find all member functions that match a predicate on the signature string
 // using the member sheet and the fake methods stored in the widget
@@ -66,7 +36,7 @@ static void memberList(QDesignerFormEditorInterface *core,
         return;
     // 1) member sheet
     const QDesignerMemberSheetExtension *members = qt_extension<QDesignerMemberSheetExtension*>(core->extensionManager(), object);
-    Q_ASSERT(members != 0);
+    Q_ASSERT(members != nullptr);
     const int count = members->count();
     for (int i = 0; i < count; ++i) {
         if (!members->isVisible(i))
@@ -98,8 +68,8 @@ static void memberList(QDesignerFormEditorInterface *core,
     const QString className = wdbItem->name();
 
     const QStringList wdbFakeMethods = member_type == qdesigner_internal::SlotMember ? wdbItem->fakeSlots() : wdbItem->fakeSignals();
-    if (!wdbFakeMethods.empty())
-        foreach (const QString &fakeMethod, wdbFakeMethods)
+    if (!wdbFakeMethods.isEmpty())
+        for (const QString &fakeMethod : wdbFakeMethods)
             if (predicate(fakeMethod)) {
                 *it = ClassNameSignaturePair(className, fakeMethod);
                 ++it;
@@ -111,8 +81,8 @@ static void memberList(QDesignerFormEditorInterface *core,
 
     if (const qdesigner_internal::MetaDataBaseItem *mdbItem = metaDataBase->metaDataBaseItem(object)) {
         const QStringList mdbFakeMethods =  member_type == qdesigner_internal::SlotMember ? mdbItem->fakeSlots() : mdbItem->fakeSignals();
-        if (!mdbFakeMethods.empty())
-            foreach (const QString &fakeMethod, mdbFakeMethods)
+        if (!mdbFakeMethods.isEmpty())
+            for (const QString &fakeMethod : mdbFakeMethods)
                 if (predicate(fakeMethod)) {
                     *it = ClassNameSignaturePair(className, fakeMethod);
                     ++it;
@@ -171,9 +141,8 @@ namespace {
         ReverseClassesMemberIterator(qdesigner_internal::ClassesMemberFunctions *result);
 
         ReverseClassesMemberIterator &operator*()     { return *this; }
-        ReverseClassesMemberIterator &operator++(int) { return *this; }
         ReverseClassesMemberIterator &operator++()    { return *this; }
-        void operator=(const ClassNameSignaturePair &classNameSignature);
+        ReverseClassesMemberIterator &operator=(const ClassNameSignaturePair &classNameSignature);
 
     private:
         qdesigner_internal::ClassesMemberFunctions *m_result;
@@ -183,11 +152,11 @@ namespace {
 
     ReverseClassesMemberIterator::ReverseClassesMemberIterator(qdesigner_internal::ClassesMemberFunctions *result) :
        m_result(result),
-       m_memberList(0)
+       m_memberList(nullptr)
     {
     }
 
-    void ReverseClassesMemberIterator::operator=(const ClassNameSignaturePair &classNameSignature)
+    ReverseClassesMemberIterator &ReverseClassesMemberIterator::operator=(const ClassNameSignaturePair &classNameSignature)
     {
         // prepend a new entry if class changes
         if (!m_memberList || classNameSignature.first != m_lastClassName) {
@@ -196,6 +165,7 @@ namespace {
             m_memberList = &(m_result->front().m_memberList);
         }
         m_memberList->push_back(classNameSignature.second);
+        return *this;
     }
 
     // Output iterator for a pair of pair of <classname,  signature>
@@ -205,10 +175,11 @@ namespace {
         SignatureIterator(QMap<QString, QString> *result) : m_result(result) {}
 
         SignatureIterator &operator*()     { return *this; }
-        SignatureIterator &operator++(int) { return *this; }
         SignatureIterator &operator++()    { return *this; }
-        void operator=(const ClassNameSignaturePair &classNameSignature) {
+        SignatureIterator &operator=(const ClassNameSignaturePair &classNameSignature)
+        {
             m_result->insert(classNameSignature.second, classNameSignature.first);
+            return *this;
         }
 
     private:
@@ -236,7 +207,7 @@ namespace qdesigner_internal {
     ClassesMemberFunctions reverseClassesMemberFunctions(const QString &obj_name, MemberType member_type,
                                                          const QString &peer, QDesignerFormWindowInterface *form)
     {
-        QObject *object = 0;
+        QObject *object = nullptr;
         if (obj_name == form->mainContainer()->objectName()) {
             object = form->mainContainer();
         } else {
@@ -270,14 +241,14 @@ namespace qdesigner_internal {
     {
         QMap<QString, QString> rc;
         memberList(core, object, type, true, EqualsPredicate(signature), SignatureIterator(&rc));
-        return !rc.empty();
+        return !rc.isEmpty();
     }
 
     // ### deprecated
     QString realObjectName(QDesignerFormEditorInterface *core, QObject *object)
     {
         if (!object)
-        return QString();
+            return QString();
 
         const QDesignerMetaDataBaseInterface *mdb = core->metaDataBase();
         if (const QDesignerMetaDataBaseItemInterface *item = mdb->item(object))

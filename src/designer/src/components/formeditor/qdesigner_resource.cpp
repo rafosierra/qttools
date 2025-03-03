@@ -1,40 +1,11 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qdesigner_resource.h"
 #include "formwindow.h"
 #include "dynamicpropertysheet.h"
 #include "qdesigner_tabwidget_p.h"
+#include "iconloader_p.h"
 #include "qdesigner_toolbox_p.h"
 #include "qdesigner_stackedbox_p.h"
 #include "qdesigner_toolbar_p.h"
@@ -47,6 +18,8 @@
 #include "qwizard_container.h"
 #include "layout_propertysheet.h"
 
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractintegration.h>
 #include <QtDesigner/private/ui4_p.h>
 #include <QtDesigner/private/formbuilderextra_p.h>
 #include <QtDesigner/private/resourcebuilder_p.h>
@@ -69,56 +42,92 @@
 #include <QtDesigner/private/ui4_p.h>
 
 // sdk
-#include <QtDesigner/QDesignerPropertySheetExtension>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerExtraInfoExtension>
-#include <QtDesigner/QDesignerFormWindowToolInterface>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerContainerExtension>
+#include <QtDesigner/propertysheet.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/extrainfo.h>
+#include <QtDesigner/abstractformwindowtool.h>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/container.h>
 #include <abstractdialoggui_p.h>
 
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QMessageBox>
-#include <QtWidgets/QLayout>
-#include <QtWidgets/QFormLayout>
-#include <QtWidgets/QTabWidget>
-#include <QtWidgets/QToolBox>
-#include <QtWidgets/QStackedWidget>
-#include <QtWidgets/QToolBar>
-#include <QtWidgets/QTabBar>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QActionGroup>
-#include <QtWidgets/QButtonGroup>
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QMainWindow>
-#include <QtWidgets/QSplitter>
-#include <QtWidgets/QMdiArea>
-#include <QtWidgets/QMenuBar>
-#include <QtWidgets/QFileDialog>
-#include <QtWidgets/QHeaderView>
-#include <QtWidgets/QWizardPage>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qmessagebox.h>
+#include <QtWidgets/qlayout.h>
+#include <QtWidgets/qformlayout.h>
+#include <QtWidgets/qtabwidget.h>
+#include <QtWidgets/qtoolbox.h>
+#include <QtWidgets/qstackedwidget.h>
+#include <QtWidgets/qtoolbar.h>
+#include <QtWidgets/qtabbar.h>
+#include <QtWidgets/qbuttongroup.h>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qmainwindow.h>
+#include <QtWidgets/qsplitter.h>
+#include <QtWidgets/qmdiarea.h>
+#include <QtWidgets/qmenubar.h>
+#include <QtWidgets/qfiledialog.h>
+#include <QtWidgets/qheaderview.h>
+#include <QtWidgets/qwizard.h>
 #include <private/qlayoutengine_p.h>
 
-#include <QtCore/QBuffer>
-#include <QtCore/QDir>
-#include <QtCore/QMetaProperty>
+#include <QtGui/qaction.h>
+#include <QtGui/qactiongroup.h>
+
+#include <QtCore/qbuffer.h>
+#include <QtCore/qdir.h>
+#include <QtCore/qmetaobject.h>
 #include <QtCore/qdebug.h>
-#include <QtCore/QXmlStreamWriter>
+#include <QtCore/qversionnumber.h>
+#include <QtCore/qxmlstream.h>
+
+#include <algorithm>
+#include <iterator>
 
 Q_DECLARE_METATYPE(QWidgetList)
 
 QT_BEGIN_NAMESPACE
 
+using namespace Qt::StringLiterals;
+
+using QFBE = QFormBuilderExtra;
+
 namespace {
-    typedef QList<DomProperty*> DomPropertyList;
+    using DomPropertyList = QList<DomProperty *>;
 }
 
-static const char *currentUiVersion = "4.0";
-static const char *clipboardObjectName = "__qt_fake_top_level";
+static constexpr auto currentUiVersion = "4.0"_L1;
+static constexpr auto clipboardObjectName = "__qt_fake_top_level"_L1;
 
 #define OLD_RESOURCE_FORMAT // Support pre 4.4 format.
 
 namespace qdesigner_internal {
+
+static bool supportsQualifiedEnums(const QVersionNumber &qtVersion)
+{
+    if (qtVersion >= QVersionNumber{6, 6, 2})
+        return true;
+
+    switch (qtVersion.majorVersion()) {
+    case 6: // Qt 6
+        switch (qtVersion.minorVersion()) {
+        case 5: // 6.5 LTS
+            if (qtVersion.microVersion() >= 4)
+                return true;
+            break;
+        case 2: // 6.2 LTS
+            if (qtVersion.microVersion() >= 13)
+                return true;
+            break;
+        }
+        break;
+
+    case 5: // Qt 5 LTS
+        if (qtVersion >= QVersionNumber{5, 15, 18})
+            return true;
+        break;
+    }
+    return false;
+}
 
 // -------------------- QDesignerResourceBuilder: A resource builder that works on the property sheet icon types.
 class QDesignerResourceBuilder : public QResourceBuilder
@@ -135,13 +144,13 @@ public:
     QStringList loadedQrcFiles() const                    { return m_loadedQrcFiles.keys(); } // needed only for loading old resource attribute of <iconset> tag.
 #endif
 
-    QVariant loadResource(const QDir &workingDirectory, const DomProperty *icon) const Q_DECL_OVERRIDE;
+    QVariant loadResource(const QDir &workingDirectory, const DomProperty *icon) const override;
 
-    QVariant toNativeValue(const QVariant &value) const Q_DECL_OVERRIDE;
+    QVariant toNativeValue(const QVariant &value) const override;
 
-    DomProperty *saveResource(const QDir &workingDirectory, const QVariant &value) const Q_DECL_OVERRIDE;
+    DomProperty *saveResource(const QDir &workingDirectory, const QVariant &value) const override;
 
-    bool isResourceType(const QVariant &value) const Q_DECL_OVERRIDE;
+    bool isResourceType(const QVariant &value) const override;
 private:
 
     QDesignerFormEditorInterface *m_core;
@@ -164,9 +173,9 @@ QDesignerResourceBuilder::QDesignerResourceBuilder(QDesignerFormEditorInterface 
 
 static inline void setIconPixmap(QIcon::Mode m, QIcon::State s, const QDir &workingDirectory,
                                  QString path, PropertySheetIconValue &icon,
-                                 const QDesignerLanguageExtension *lang = 0)
+                                 const QDesignerLanguageExtension *lang = nullptr)
 {
-    if (lang == 0 || !lang->isLanguageResource(path))
+    if (lang == nullptr || !lang->isLanguageResource(path))
         path = QFileInfo(workingDirectory, path).absoluteFilePath();
     icon.setPixmap(m, s, PropertySheetPixmapValue(path));
 }
@@ -178,7 +187,7 @@ QVariant QDesignerResourceBuilder::loadResource(const QDir &workingDirectory, co
             PropertySheetPixmapValue pixmap;
             DomResourcePixmap *dp = property->elementPixmap();
             if (!dp->text().isEmpty()) {
-                if (m_lang != 0 && m_lang->isLanguageResource(dp->text())) {
+                if (m_lang != nullptr && m_lang->isLanguageResource(dp->text())) {
                     pixmap.setPath(dp->text());
                 } else {
                     pixmap.setPath(QFileInfo(workingDirectory, dp->text()).absoluteFilePath());
@@ -194,7 +203,16 @@ QVariant QDesignerResourceBuilder::loadResource(const QDir &workingDirectory, co
         case DomProperty::IconSet: {
             PropertySheetIconValue icon;
             DomResourceIcon *di = property->elementIconSet();
-            icon.setTheme(di->attributeTheme());
+            const bool hasTheme = di->hasAttributeTheme();
+            if (hasTheme) {
+                const QString &theme = di->attributeTheme();
+                const qsizetype themeEnum = theme.startsWith("QIcon::"_L1)
+                    ? QDesignerResourceBuilder::themeIconIndex(theme) : -1;
+                if (themeEnum != -1)
+                    icon.setThemeEnum(themeEnum);
+                else
+                    icon.setTheme(theme);
+            }
             if (const int flags = iconStateFlags(di)) { // new, post 4.4 format
                 if (flags & NormalOff)
                     setIconPixmap(QIcon::Normal, QIcon::Off, workingDirectory, di->elementNormalOff()->text(), icon, m_lang);
@@ -212,7 +230,7 @@ QVariant QDesignerResourceBuilder::loadResource(const QDir &workingDirectory, co
                     setIconPixmap(QIcon::Selected, QIcon::Off, workingDirectory, di->elementSelectedOff()->text(), icon, m_lang);
                 if (flags & SelectedOn)
                     setIconPixmap(QIcon::Selected, QIcon::On, workingDirectory, di->elementSelectedOn()->text(), icon, m_lang);
-            } else {
+            } else if (!hasTheme) {
 #ifdef OLD_RESOURCE_FORMAT
                 setIconPixmap(QIcon::Normal, QIcon::Off, workingDirectory, di->text(), icon, m_lang);
                 if (di->hasAttributeResource())
@@ -267,20 +285,22 @@ DomProperty *QDesignerResourceBuilder::saveResource(const QDir &workingDirectory
         }
         p->setElementPixmap(rp);
         return p;
-    } else if (value.canConvert<PropertySheetIconValue>()) {
+    }
+    if (value.canConvert<PropertySheetIconValue>()) {
         const PropertySheetIconValue icon = qvariant_cast<PropertySheetIconValue>(value);
-        const QMap<QPair<QIcon::Mode, QIcon::State>, PropertySheetPixmapValue> pixmaps = icon.paths();
-        const QString theme = icon.theme();
+        const auto &pixmaps = icon.paths();
+        const int themeEnum = icon.themeEnum();
+        const QString theme = themeEnum != -1
+            ? QDesignerResourceBuilder::fullyQualifiedThemeIconName(themeEnum) : icon.theme();
         if (!pixmaps.isEmpty() || !theme.isEmpty()) {
             DomResourceIcon *ri = new DomResourceIcon;
             if (!theme.isEmpty())
                 ri->setAttributeTheme(theme);
-            QMapIterator<QPair<QIcon::Mode, QIcon::State>, PropertySheetPixmapValue> itPix(pixmaps);
-            while (itPix.hasNext()) {
-                const QIcon::Mode mode = itPix.next().key().first;
+            for (auto itPix = pixmaps.cbegin(), end = pixmaps.cend(); itPix != end; ++itPix) {
+                const QIcon::Mode mode = itPix.key().first;
                 const QIcon::State state = itPix.key().second;
                 DomResourcePixmap *rp = new DomResourcePixmap;
-                const PropertySheetPixmapValue pix = itPix.value();
+                const PropertySheetPixmapValue &pix = itPix.value();
                 const PropertySheetPixmapValue::PixmapSource ps = pix.pixmapSource(m_core);
                 const QString pixPath = pix.path();
                 rp->setText(ps == PropertySheetPixmapValue::FilePixmap && m_saveRelative ? workingDirectory.relativeFilePath(pixPath) : pixPath);
@@ -321,14 +341,13 @@ DomProperty *QDesignerResourceBuilder::saveResource(const QDir &workingDirectory
         }
     }
     delete p;
-    return 0;
+    return nullptr;
 }
 
 bool QDesignerResourceBuilder::isResourceType(const QVariant &value) const
 {
-    if (value.canConvert<PropertySheetPixmapValue>() || value.canConvert<PropertySheetIconValue>())
-        return true;
-    return false;
+    return value.canConvert<PropertySheetPixmapValue>()
+        || value.canConvert<PropertySheetIconValue>();
 }
 // ------------------------- QDesignerTextBuilder
 
@@ -341,8 +360,11 @@ inline void translationParametersToDom(const PropertySheetTranslatableData &data
     const QString propertyExtracomment = data.comment();
     if (!propertyExtracomment.isEmpty())
         e->setAttributeExtraComment(propertyExtracomment);
+    const QString &id = data.id();
+    if (!id.isEmpty())
+        e->setAttributeId(id);
     if (!data.translatable())
-        e->setAttributeNotr(QStringLiteral("true"));
+        e->setAttributeNotr(u"true"_s);
 }
 
 template <class DomElement> // for DomString, potentially DomStringList
@@ -352,9 +374,11 @@ inline void translationParametersFromDom(const DomElement *e, PropertySheetTrans
         data->setDisambiguation(e->attributeComment());
     if (e->hasAttributeExtraComment())
         data->setComment(e->attributeExtraComment());
+    if (e->hasAttributeId())
+        data->setId(e->attributeId());
     if (e->hasAttributeNotr()) {
         const QString notr = e->attributeNotr();
-        const bool translatable = !(notr == QStringLiteral("true") || notr == QStringLiteral("yes"));
+        const bool translatable = !(notr == "true"_L1 || notr == "yes"_L1);
         data->setTranslatable(translatable);
     }
 }
@@ -362,13 +386,13 @@ inline void translationParametersFromDom(const DomElement *e, PropertySheetTrans
 class QDesignerTextBuilder : public QTextBuilder
 {
 public:
-    QDesignerTextBuilder() {}
+    QDesignerTextBuilder()  = default;
 
-    QVariant loadText(const DomProperty *icon) const Q_DECL_OVERRIDE;
+    QVariant loadText(const DomProperty *icon) const override;
 
-    QVariant toNativeValue(const QVariant &value) const Q_DECL_OVERRIDE;
+    QVariant toNativeValue(const QVariant &value) const override;
 
-    DomProperty *saveText(const QVariant &value) const Q_DECL_OVERRIDE;
+    DomProperty *saveText(const QVariant &value) const override;
 };
 
 QVariant QDesignerTextBuilder::loadText(const DomProperty *text) const
@@ -416,14 +440,14 @@ DomProperty *QDesignerTextBuilder::saveText(const QVariant &value) const
     }
     if (value.canConvert<QString>())
         return stringToDomProperty(value.toString());
-    return 0;
+    return nullptr;
 }
 
 QDesignerResource::QDesignerResource(FormWindow *formWindow)  :
     QEditorFormBuilder(formWindow->core()),
     m_formWindow(formWindow),
     m_copyWidget(false),
-    m_selected(0),
+    m_selected(nullptr),
     m_resourceBuilder(new QDesignerResourceBuilder(m_formWindow->core(), m_formWindow->pixmapCache(), m_formWindow->iconCache()))
 {
     // Check language unless extension present (Jambi)
@@ -436,36 +460,42 @@ QDesignerResource::QDesignerResource(FormWindow *formWindow)  :
     setTextBuilder(new QDesignerTextBuilder());
 
     // ### generalise
-    const QString designerWidget = QStringLiteral("QDesignerWidget");
-    const QString layoutWidget   = QStringLiteral("QLayoutWidget");
-    const QString widget = QStringLiteral("QWidget");
+    const QString designerWidget = u"QDesignerWidget"_s;
+    const QString layoutWidget   = u"QLayoutWidget"_s;
+    const QString widget = u"QWidget"_s;
     m_internal_to_qt.insert(layoutWidget, widget);
     m_internal_to_qt.insert(designerWidget, widget);
-    m_internal_to_qt.insert(QStringLiteral("QDesignerDialog"), QStringLiteral("QDialog"));
-    m_internal_to_qt.insert(QStringLiteral("QDesignerMenuBar"), QStringLiteral("QMenuBar"));
-    m_internal_to_qt.insert(QStringLiteral("QDesignerMenu"), QStringLiteral("QMenu"));
-    m_internal_to_qt.insert(QStringLiteral("QDesignerDockWidget"), QStringLiteral("QDockWidget"));
+    m_internal_to_qt.insert(u"QDesignerDialog"_s, u"QDialog"_s);
+    m_internal_to_qt.insert(u"QDesignerMenuBar"_s, u"QMenuBar"_s);
+    m_internal_to_qt.insert(u"QDesignerMenu"_s, u"QMenu"_s);
+    m_internal_to_qt.insert(u"QDesignerDockWidget"_s, u"QDockWidget"_s);
 
     // invert
-    QHash<QString, QString>::const_iterator cend = m_internal_to_qt.constEnd();
-    for (QHash<QString, QString>::const_iterator it = m_internal_to_qt.constBegin();it != cend; ++it )  {
+    for (auto it = m_internal_to_qt.cbegin(), cend = m_internal_to_qt.cend(); it != cend; ++it )  {
         if (it.value() != designerWidget  && it.value() != layoutWidget)
             m_qt_to_internal.insert(it.value(), it.key());
 
     }
 }
 
-QDesignerResource::~QDesignerResource()
+QDesignerResource::~QDesignerResource() = default;
+
+DomUI *QDesignerResource::readUi(QIODevice *dev)
 {
+    return d->readUi(dev);
 }
 
 static inline QString messageBoxTitle()
 {
-    return QApplication::translate("Designer", "Qt Designer");
+    return QApplication::translate("Designer", "Qt Widgets Designer");
 }
 
 void QDesignerResource::save(QIODevice *dev, QWidget *widget)
 {
+    // Do not write fully qualified enumerations for spacer/line orientations
+    // and other enum/flag properties for older Qt versions since that breaks
+    // older uic.
+    d->m_fullyQualifiedEnums = supportsQualifiedEnums(m_formWindow->core()->integration()->qtVersion());
     QAbstractFormBuilder::save(dev, widget);
 }
 
@@ -474,11 +504,11 @@ void QDesignerResource::saveDom(DomUI *ui, QWidget *widget)
     QAbstractFormBuilder::saveDom(ui, widget);
 
     QDesignerPropertySheetExtension *sheet = qt_extension<QDesignerPropertySheetExtension*>(core()->extensionManager(), widget);
-    Q_ASSERT(sheet != 0);
+    Q_ASSERT(sheet != nullptr);
 
-    const QVariant classVar = sheet->property(sheet->indexOf(QStringLiteral("objectName")));
+    const QVariant classVar = sheet->property(sheet->indexOf(u"objectName"_s));
     QString classStr;
-    if (classVar.canConvert(QVariant::String))
+    if (classVar.canConvert<QString>())
         classStr = classVar.toString();
     else
         classStr = qvariant_cast<PropertySheetStringValue>(classVar).value();
@@ -486,7 +516,7 @@ void QDesignerResource::saveDom(DomUI *ui, QWidget *widget)
 
     for (int index = 0; index < m_formWindow->toolCount(); ++index) {
         QDesignerFormWindowToolInterface *tool = m_formWindow->tool(index);
-        Q_ASSERT(tool != 0);
+        Q_ASSERT(tool != nullptr);
         tool->saveToDom(ui, widget);
     }
 
@@ -505,15 +535,19 @@ void QDesignerResource::saveDom(DomUI *ui, QWidget *widget)
         ui->setElementExportMacro(exportMacro);
     }
 
+    if (m_formWindow->useIdBasedTranslations())
+        ui->setAttributeIdbasedtr(true);
+    if (!m_formWindow->connectSlotsByName()) // Don't write out if true (default)
+        ui->setAttributeConnectslotsbyname(false);
+
     const QVariantMap designerFormData = m_formWindow->formData();
-    if (!designerFormData.empty()) {
+    if (!designerFormData.isEmpty()) {
         DomPropertyList domPropertyList;
-        const  QVariantMap::const_iterator cend = designerFormData.constEnd();
-        for (QVariantMap::const_iterator it = designerFormData.constBegin(); it != cend; ++it) {
+        for (auto it = designerFormData.cbegin(), cend = designerFormData.cend(); it != cend; ++it) {
             if (DomProperty *prop = variantToDomProperty(this, widget->metaObject(), it.key(), it.value()))
                 domPropertyList += prop;
         }
-        if (!domPropertyList.empty()) {
+        if (!domPropertyList.isEmpty()) {
             DomDesignerData* domDesignerFormData = new DomDesignerData;
             domDesignerFormData->setElementProperty(domPropertyList);
             ui->setElementDesignerdata(domDesignerFormData);
@@ -521,17 +555,19 @@ void QDesignerResource::saveDom(DomUI *ui, QWidget *widget)
     }
 
     if (!m_formWindow->includeHints().isEmpty()) {
-        const QString local = QStringLiteral("local");
-        const QString global = QStringLiteral("global");
-        QList<DomInclude*> ui_includes;
-        foreach (QString includeHint, m_formWindow->includeHints()) {
+        const QString local = u"local"_s;
+        const QString global = u"global"_s;
+        QList<DomInclude *> ui_includes;
+        const QStringList &includeHints = m_formWindow->includeHints();
+        ui_includes.reserve(includeHints.size());
+        for (QString includeHint : includeHints) {
             if (includeHint.isEmpty())
                 continue;
             DomInclude *incl = new DomInclude;
-            const QString location = includeHint.at(0) == QLatin1Char('<') ? global : local;
-            includeHint.remove(QLatin1Char('"'));
-            includeHint.remove(QLatin1Char('<'));
-            includeHint.remove(QLatin1Char('>'));
+            const QString location = includeHint.at(0) == u'<' ? global : local;
+            includeHint.remove(u'"');
+            includeHint.remove(u'<');
+            includeHint.remove(u'>');
             incl->setAttributeLocation(location);
             incl->setText(includeHint);
             ui_includes.append(incl);
@@ -578,7 +614,7 @@ void QDesignerResource::saveDom(DomUI *ui, QWidget *widget)
         const MetaDataBaseItem *item = metaDataBase->metaDataBaseItem(m_formWindow->mainContainer());
         const QStringList fakeSlots = item->fakeSlots();
         const QStringList fakeSignals  =item->fakeSignals();
-        if (!fakeSlots.empty() || !fakeSignals.empty()) {
+        if (!fakeSlots.isEmpty() || !fakeSignals.isEmpty()) {
             DomSlots *domSlots = new DomSlots();
             domSlots->setElementSlot(fakeSlots);
             domSlots->setElementSignal(fakeSignals);
@@ -589,10 +625,19 @@ void QDesignerResource::saveDom(DomUI *ui, QWidget *widget)
 
 QWidget *QDesignerResource::load(QIODevice *dev, QWidget *parentWidget)
 {
-    QWidget *w = QEditorFormBuilder::load(dev, parentWidget);
-    if (w)  // Store the class name as 'reset' value for the main container's object name.
-        w->setProperty("_q_classname", w->objectName());
-    return w;
+    QScopedPointer<DomUI> ui(readUi(dev));
+    return ui.isNull() ? nullptr : loadUi(ui.data(), parentWidget);
+}
+
+QWidget *QDesignerResource::loadUi(DomUI *ui, QWidget *parentWidget)
+{
+    QWidget *widget = create(ui, parentWidget);
+    // Store the class name as 'reset' value for the main container's object name.
+    if (widget)
+        widget->setProperty("_q_classname", widget->objectName());
+    else if (d->m_errorString.isEmpty())
+        d->m_errorString = QFormBuilderExtra::msgInvalidUiFile();
+    return widget;
 }
 
 bool QDesignerResource::saveRelative() const
@@ -614,18 +659,25 @@ QWidget *QDesignerResource::create(DomUI *ui, QWidget *parentWidget)
             const QString errorMessage = QApplication::translate("Designer", "This file cannot be read because the extra info extension failed to load.");
             core()->dialogGui()->message(parentWidget->window(), QDesignerDialogGuiInterface::FormLoadFailureMessage,
                                          QMessageBox::Warning, messageBoxTitle(), errorMessage, QMessageBox::Ok);
-            return 0;
+            return nullptr;
         }
     }
 
     qdesigner_internal::WidgetFactory *factory = qobject_cast<qdesigner_internal::WidgetFactory*>(core()->widgetFactory());
-    Q_ASSERT(factory != 0);
+    Q_ASSERT(factory != nullptr);
 
     QDesignerFormWindowInterface *previousFormWindow = factory->currentFormWindow(m_formWindow);
 
     m_isMainWidget = true;
     QDesignerWidgetItemInstaller wii; // Make sure we use QDesignerWidgetItem.
     QWidget *mainWidget = QAbstractFormBuilder::create(ui, parentWidget);
+
+    if (m_formWindow) {
+        m_formWindow->setUseIdBasedTranslations(ui->attributeIdbasedtr());
+        // Default to true unless set.
+        const bool connectSlotsByName = !ui->hasAttributeConnectslotsbyname() || ui->attributeConnectslotsbyname();
+        m_formWindow->setConnectSlotsByName(connectSlotsByName);
+    }
 
     if (mainWidget && m_formWindow) {
         m_formWindow->setAuthor(ui->elementAuthor());
@@ -636,11 +688,10 @@ QWidget *QDesignerResource::create(DomUI *ui, QWidget *parentWidget)
         QVariantMap designerFormData;
         if (ui->hasElementDesignerdata()) {
             const DomPropertyList domPropertyList = ui->elementDesignerdata()->elementProperty();
-            const DomPropertyList::const_iterator cend = domPropertyList.constEnd();
-            for (DomPropertyList::const_iterator it = domPropertyList.constBegin(); it != cend; ++it) {
-                const QVariant vprop = domPropertyToVariant(this, mainWidget->metaObject(), *it);
-                if (vprop.type() != QVariant::Invalid)
-                    designerFormData.insert((*it)->attributeName(), vprop);
+            for (auto *prop : domPropertyList) {
+                const QVariant vprop = domPropertyToVariant(this, mainWidget->metaObject(), prop);
+                if (vprop.metaType().id() != QMetaType::UnknownType)
+                    designerFormData.insert(prop->attributeName(), vprop);
             }
         }
         m_formWindow->setFormData(designerFormData);
@@ -656,18 +707,21 @@ QWidget *QDesignerResource::create(DomUI *ui, QWidget *parentWidget)
         }
 
         if (DomIncludes *includes = ui->elementIncludes()) {
-            const QString global = QStringLiteral("global");
+            const auto global = "global"_L1;
             QStringList includeHints;
-            foreach (DomInclude *incl, includes->elementInclude()) {
+            const auto &elementInclude = includes->elementInclude();
+            for (DomInclude *incl : elementInclude) {
                 QString text = incl->text();
 
                 if (text.isEmpty())
                     continue;
 
                 if (incl->hasAttributeLocation() && incl->attributeLocation() == global ) {
-                    text = text.prepend(QLatin1Char('<')).append(QLatin1Char('>'));
+                    text.prepend(u'<');
+                    text.append(u'>');
                 } else {
-                    text = text.prepend(QLatin1Char('"')).append(QLatin1Char('"'));
+                    text.prepend(u'"');
+                    text.append(u'"');
                 }
 
                 includeHints.append(text);
@@ -678,18 +732,15 @@ QWidget *QDesignerResource::create(DomUI *ui, QWidget *parentWidget)
 
         // Register all button groups the form builder adds as children of the main container for them to be found
         // in the signal slot editor
-        const QObjectList mchildren = mainWidget->children();
-        if (!mchildren.empty()) {
-            QDesignerMetaDataBaseInterface *mdb = core()->metaDataBase();
-            const QObjectList::const_iterator cend = mchildren.constEnd();
-            for (QObjectList::const_iterator it = mchildren.constBegin(); it != cend; ++it)
-                if (QButtonGroup *bg = qobject_cast<QButtonGroup*>(*it))
-                    mdb->add(bg);
+        auto *mdb = core()->metaDataBase();
+        for (auto *child : mainWidget->children()) {
+            if (QButtonGroup *bg = qobject_cast<QButtonGroup*>(child))
+                mdb->add(bg);
         }
         // Load tools
         for (int index = 0; index < m_formWindow->toolCount(); ++index) {
             QDesignerFormWindowToolInterface *tool = m_formWindow->tool(index);
-            Q_ASSERT(tool != 0);
+            Q_ASSERT(tool != nullptr);
             tool->loadFromDom(ui, mainWidget);
         }
     }
@@ -710,14 +761,14 @@ QWidget *QDesignerResource::create(DomUI *ui, QWidget *parentWidget)
     if (mainWidget) {
         // Initialize the mainwindow geometry. Has it been  explicitly specified?
         bool hasExplicitGeometry = false;
-        const QList<DomProperty *> properties = ui->elementWidget()->elementProperty();
-        if (!properties.empty()) {
-            const QString geometry = QStringLiteral("geometry");
-            foreach (const DomProperty *p, properties)
-                if (p->attributeName() == geometry) {
+        const auto &properties = ui->elementWidget()->elementProperty();
+        if (!properties.isEmpty()) {
+            for (const DomProperty *p : properties) {
+                if (p->attributeName() == "geometry"_L1) {
                     hasExplicitGeometry = true;
                     break;
                 }
+            }
         }
         if (hasExplicitGeometry) {
             // Geometry was specified explicitly: Verify that smartMinSize is respected
@@ -755,44 +806,41 @@ QWidget *QDesignerResource::create(DomUI *ui, QWidget *parentWidget)
 QWidget *QDesignerResource::create(DomWidget *ui_widget, QWidget *parentWidget)
 {
     const QString className = ui_widget->attributeClass();
-    if (!m_isMainWidget && className == QStringLiteral("QWidget") && ui_widget->elementLayout().size() &&
-                !ui_widget->hasAttributeNative()) {
+    if (!m_isMainWidget && className == "QWidget"_L1
+        && !ui_widget->elementLayout().isEmpty()
+        && !ui_widget->hasAttributeNative()) {
         // ### check if elementLayout.size() == 1
 
         QDesignerContainerExtension *container = qt_extension<QDesignerContainerExtension*>(core()->extensionManager(), parentWidget);
 
-        if (container == 0) {
+        if (container == nullptr) {
             // generate a QLayoutWidget iff the parent is not an QDesignerContainerExtension.
-            ui_widget->setAttributeClass(QStringLiteral("QLayoutWidget"));
+            ui_widget->setAttributeClass(u"QLayoutWidget"_s);
         }
     }
 
     // save the actions
-    const QList<DomActionRef*> actionRefs = ui_widget->elementAddAction();
-    ui_widget->setElementAddAction(QList<DomActionRef*>());
+    const auto &actionRefs = ui_widget->elementAddAction();
+    ui_widget->setElementAddAction(QList<DomActionRef *>());
 
     QWidget *w = QAbstractFormBuilder::create(ui_widget, parentWidget);
 
     // restore the actions
     ui_widget->setElementAddAction(actionRefs);
 
-    if (w == 0)
-       return 0;
+    if (w == nullptr)
+       return nullptr;
 
     // ### generalize using the extension manager
     QDesignerMenu *menu = qobject_cast<QDesignerMenu*>(w);
     QDesignerMenuBar *menuBar = qobject_cast<QDesignerMenuBar*>(w);
 
-    if (menu) {
-        menu->interactive(false);
+    if (menu)
         menu->hide();
-    } else if (menuBar) {
-        menuBar->interactive(false);
-    }
 
-    foreach (DomActionRef *ui_action_ref, actionRefs) {
+    for (DomActionRef *ui_action_ref : actionRefs) {
         const QString name = ui_action_ref->attributeName();
-        if (name == QStringLiteral("separator")) {
+        if (name == "separator"_L1) {
             QAction *sep = new QAction(w);
             sep->setSeparator(true);
             w->addAction(sep);
@@ -807,13 +855,10 @@ QWidget *QDesignerResource::create(DomWidget *ui_widget, QWidget *parentWidget)
         }
     }
 
-    if (menu) {
-        menu->interactive(true);
+    if (menu)
         menu->adjustSpecialActions();
-    } else if (menuBar) {
-        menuBar->interactive(true);
+    else if (menuBar)
         menuBar->adjustSpecialActions();
-    }
 
     ui_widget->setAttributeClass(className); // fix the class name
     applyExtensionDataFromDOM(this, core(), ui_widget, w);
@@ -841,7 +886,7 @@ QLayoutItem *QDesignerResource::create(DomLayoutItem *ui_layoutItem, QLayout *la
 {
     if (ui_layoutItem->kind() == DomLayoutItem::Spacer) {
         const DomSpacer *domSpacer = ui_layoutItem->elementSpacer();
-        Spacer *spacer = static_cast<Spacer*>(core()->widgetFactory()->createWidget(QStringLiteral("Spacer"), parentWidget));
+        Spacer *spacer = static_cast<Spacer*>(core()->widgetFactory()->createWidget(u"Spacer"_s, parentWidget));
         if (domSpacer->hasAttributeName())
             changeObjectName(spacer, domSpacer->attributeName());
         core()->metaDataBase()->add(spacer);
@@ -853,17 +898,18 @@ QLayoutItem *QDesignerResource::create(DomLayoutItem *ui_layoutItem, QLayout *la
         if (m_formWindow) {
             m_formWindow->manageWidget(spacer);
             if (QDesignerPropertySheetExtension *sheet = qt_extension<QDesignerPropertySheetExtension*>(core()->extensionManager(), spacer))
-                sheet->setChanged(sheet->indexOf(QStringLiteral("orientation")), true);
+                sheet->setChanged(sheet->indexOf(u"orientation"_s), true);
         }
 
         return new QWidgetItem(spacer);
-    } else if (ui_layoutItem->kind() == DomLayoutItem::Layout && parentWidget) {
+    }
+    if (ui_layoutItem->kind() == DomLayoutItem::Layout && parentWidget) {
         DomLayout *ui_layout = ui_layoutItem->elementLayout();
         QLayoutWidget *layoutWidget = new QLayoutWidget(m_formWindow, parentWidget);
         core()->metaDataBase()->add(layoutWidget);
         if (m_formWindow)
             m_formWindow->manageWidget(layoutWidget);
-        (void) create(ui_layout, 0, layoutWidget);
+        (void) create(ui_layout, nullptr, layoutWidget);
         return new QWidgetItem(layoutWidget);
     }
     return QAbstractFormBuilder::create(ui_layoutItem, layout, parentWidget);
@@ -914,9 +960,32 @@ static bool readDomEnumerationValue(const DomProperty *p,
     return false;
 }
 
+// ### fixme Qt 7 remove this: Exclude deprecated properties of Qt 5.
+static bool isDeprecatedQt5Property(const QObject *o, const DomProperty *p)
+{
+    const QString &propertyName = p->attributeName();
+    switch (p->kind()) {
+    case DomProperty::Set:
+        if (propertyName == u"features" && o->inherits("QDockWidget")
+            && p->elementSet() == u"QDockWidget::AllDockWidgetFeatures") {
+            return true;
+        }
+        break;
+    case DomProperty::Enum:
+        if (propertyName == u"sizeAdjustPolicy" && o->inherits("QComboBox")
+            && p->elementEnum() == u"QComboBox::AdjustToMinimumContentsLength") {
+            return true;
+        }
+        break;
+    default:
+        break;
+    }
+    return false;
+}
+
 void QDesignerResource::applyProperties(QObject *o, const QList<DomProperty*> &properties)
 {
-    if (properties.empty())
+    if (properties.isEmpty())
         return;
 
     QDesignerPropertySheetExtension *sheet = qt_extension<QDesignerPropertySheetExtension*>(core()->extensionManager(), o);
@@ -926,17 +995,16 @@ void QDesignerResource::applyProperties(QObject *o, const QList<DomProperty*> &p
     QDesignerDynamicPropertySheetExtension *dynamicSheet = qt_extension<QDesignerDynamicPropertySheetExtension*>(core()->extensionManager(), o);
     const bool dynamicPropertiesAllowed = dynamicSheet && dynamicSheet->dynamicPropertiesAllowed();
 
-    const QString objectNameProperty = QStringLiteral("objectName");
-    const DomPropertyList::const_iterator cend = properties.constEnd();
-    for (DomPropertyList::const_iterator it = properties.constBegin(); it != cend; ++it) {
-        const DomProperty *p = *it;
+    for (DomProperty *p : properties) {
+        if (isDeprecatedQt5Property(o, p)) // ### fixme Qt 7 remove this
+            continue; // ### fixme Qt 7 remove this: Exclude deprecated value of Qt 5.
         QString propertyName = p->attributeName();
-        if (propertyName == QLatin1String("numDigits") && o->inherits("QLCDNumber")) // Deprecated in Qt 4, removed in Qt 5.
-            propertyName = QLatin1String("digitCount");
+        if (propertyName == "numDigits"_L1 && o->inherits("QLCDNumber")) // Deprecated in Qt 4, removed in Qt 5.
+            propertyName = u"digitCount"_s;
         const int index = sheet->indexOf(propertyName);
         QVariant v;
         if (!readDomEnumerationValue(p, sheet, index, v))
-            v = toVariant(o->metaObject(), *it);
+            v = toVariant(o->metaObject(), p);
 
         switch (p->kind()) {
         case DomProperty::String:
@@ -968,25 +1036,25 @@ void QDesignerResource::applyProperties(QObject *o, const QList<DomProperty*> &p
             sheet->setProperty(index, v);
             sheet->setChanged(index, true);
         } else if (dynamicPropertiesAllowed) {
-            QVariant defaultValue = QVariant(v.type());
+            QVariant defaultValue = QVariant(v.metaType());
             bool isDefault = (v == defaultValue);
             if (v.canConvert<PropertySheetIconValue>()) {
-                defaultValue = QVariant(QVariant::Icon);
+                defaultValue = QVariant(QMetaType(QMetaType::QIcon));
                 isDefault = (qvariant_cast<PropertySheetIconValue>(v) == PropertySheetIconValue());
             } else if (v.canConvert<PropertySheetPixmapValue>()) {
-                defaultValue = QVariant(QVariant::Pixmap);
+                defaultValue = QVariant(QMetaType(QMetaType::QPixmap));
                 isDefault = (qvariant_cast<PropertySheetPixmapValue>(v) == PropertySheetPixmapValue());
             } else if (v.canConvert<PropertySheetStringValue>()) {
-                defaultValue = QVariant(QVariant::String);
+                defaultValue = QVariant(QMetaType(QMetaType::QString));
                 isDefault = (qvariant_cast<PropertySheetStringValue>(v) == PropertySheetStringValue());
             } else if (v.canConvert<PropertySheetStringListValue>()) {
-                defaultValue = QVariant(QVariant::StringList);
+                defaultValue = QVariant(QMetaType(QMetaType::QStringList));
                 isDefault = (qvariant_cast<PropertySheetStringListValue>(v) == PropertySheetStringListValue());
             } else if (v.canConvert<PropertySheetKeySequenceValue>()) {
-                defaultValue = QVariant(QVariant::KeySequence);
+                defaultValue = QVariant(QMetaType(QMetaType::QKeySequence));
                 isDefault = (qvariant_cast<PropertySheetKeySequenceValue>(v) == PropertySheetKeySequenceValue());
             }
-            if (defaultValue.type() != QVariant::UserType) {
+            if (defaultValue.metaType().id() != QMetaType::User) {
                 const int idx = dynamicSheet->addDynamicProperty(p->attributeName(), defaultValue);
                 if (idx != -1) {
                     sheet->setProperty(idx, v);
@@ -995,7 +1063,7 @@ void QDesignerResource::applyProperties(QObject *o, const QList<DomProperty*> &p
             }
         }
 
-        if (propertyName == objectNameProperty)
+        if (propertyName == "objectName"_L1)
             changeObjectName(o, o->objectName());
     }
 }
@@ -1003,13 +1071,12 @@ void QDesignerResource::applyProperties(QObject *o, const QList<DomProperty*> &p
 QWidget *QDesignerResource::createWidget(const QString &widgetName, QWidget *parentWidget, const QString &_name)
 {
     QString name = _name;
-    QString className = widgetName;
     if (m_isMainWidget)
         m_isMainWidget = false;
 
-    QWidget *w = core()->widgetFactory()->createWidget(className, parentWidget);
+    QWidget *w = core()->widgetFactory()->createWidget(widgetName, parentWidget);
     if (!w)
-        return 0;
+        return nullptr;
 
     if (name.isEmpty()) {
         QDesignerWidgetDataBaseInterface *db = core()->widgetDataBase();
@@ -1023,10 +1090,10 @@ QWidget *QDesignerResource::createWidget(const QString &widgetName, QWidget *par
     if (!qobject_cast<QMenu*>(w) && (!parentWidget || !container)) {
         m_formWindow->manageWidget(w);
         if (parentWidget) {
-            QList<QWidget *> list = qvariant_cast<QWidgetList>(parentWidget->property("_q_widgetOrder"));
+            QWidgetList list = qvariant_cast<QWidgetList>(parentWidget->property("_q_widgetOrder"));
             list.append(w);
             parentWidget->setProperty("_q_widgetOrder", QVariant::fromValue(list));
-            QList<QWidget *> zOrder = qvariant_cast<QWidgetList>(parentWidget->property("_q_zOrder"));
+            QWidgetList zOrder = qvariant_cast<QWidgetList>(parentWidget->property("_q_zOrder"));
             zOrder.append(w);
             parentWidget->setProperty("_q_zOrder", QVariant::fromValue(zOrder));
         }
@@ -1043,13 +1110,13 @@ QWidget *QDesignerResource::createWidget(const QString &widgetName, QWidget *par
 
 QLayout *QDesignerResource::createLayout(const QString &layoutName, QObject *parent, const QString &name)
 {
-    QWidget *layoutBase = 0;
+    QWidget *layoutBase = nullptr;
     QLayout *layout = qobject_cast<QLayout*>(parent);
 
     if (parent->isWidgetType())
         layoutBase = static_cast<QWidget*>(parent);
     else {
-        Q_ASSERT( layout != 0 );
+        Q_ASSERT( layout != nullptr );
         layoutBase = layout->parentWidget();
     }
 
@@ -1059,7 +1126,7 @@ QLayout *QDesignerResource::createLayout(const QString &layoutName, QObject *par
         layoutType = LayoutInfo::Grid;
     }
     QLayout *lay = core()->widgetFactory()->createLayout(layoutBase, layout, layoutType);
-    if (lay != 0)
+    if (lay != nullptr)
         changeObjectName(lay, name);
 
     return lay;
@@ -1070,13 +1137,13 @@ DomWidget *QDesignerResource::createDom(QWidget *widget, DomWidget *ui_parentWid
 {
     QDesignerMetaDataBaseItemInterface *item = core()->metaDataBase()->item(widget);
     if (!item)
-        return 0;
+        return nullptr;
 
-    if (qobject_cast<Spacer*>(widget) && m_copyWidget == false)
-        return 0;
+    if (qobject_cast<Spacer*>(widget) && !m_copyWidget)
+        return nullptr;
 
     const QDesignerWidgetDataBaseInterface *wdb = core()->widgetDataBase();
-    QDesignerWidgetDataBaseItemInterface *widgetInfo =  0;
+    QDesignerWidgetDataBaseItemInterface *widgetInfo =  nullptr;
     const int widgetInfoIndex = wdb->indexOfObject(widget, false);
     if (widgetInfoIndex != -1) {
         widgetInfo = wdb->item(widgetInfoIndex);
@@ -1085,16 +1152,14 @@ DomWidget *QDesignerResource::createDom(QWidget *widget, DomWidget *ui_parentWid
         while (customInfo && customInfo->isCustom()) {
             m_usedCustomWidgets.insert(customInfo, true);
             const QString extends = customInfo->extends();
-            if (extends == customInfo->name()) {
+            if (extends == customInfo->name())
                 break; // There are faulty files around that have name==extends
-            } else {
-                const int extendsIndex = wdb->indexOfClassName(customInfo->extends());
-                customInfo = extendsIndex != -1 ?  wdb->item(extendsIndex) : static_cast<QDesignerWidgetDataBaseItemInterface *>(0);
-            }
+            const int extendsIndex = wdb->indexOfClassName(customInfo->extends());
+            customInfo = extendsIndex != -1 ?  wdb->item(extendsIndex) : nullptr;
         }
     }
 
-    DomWidget *w = 0;
+    DomWidget *w = nullptr;
 
     if (QTabWidget *tabWidget = qobject_cast<QTabWidget*>(widget))
         w = saveWidget(tabWidget, ui_parentWidget);
@@ -1113,27 +1178,23 @@ DomWidget *QDesignerResource::createDom(QWidget *widget, DomWidget *ui_parentWid
     else
         w = QAbstractFormBuilder::createDom(widget, ui_parentWidget, recursive);
 
-    Q_ASSERT( w != 0 );
+    Q_ASSERT( w != nullptr );
 
-    if (!qobject_cast<QLayoutWidget*>(widget) && w->attributeClass() == QStringLiteral("QWidget")) {
+    if (!qobject_cast<QLayoutWidget*>(widget) && w->attributeClass() == "QWidget"_L1)
         w->setAttributeNative(true);
-    }
 
     const QString className = w->attributeClass();
     if (m_internal_to_qt.contains(className))
         w->setAttributeClass(m_internal_to_qt.value(className));
 
-    w->setAttributeName(widget->objectName());
-
     if (isPromoted( core(), widget)) { // is promoted?
-        Q_ASSERT(widgetInfo != 0);
+        Q_ASSERT(widgetInfo != nullptr);
 
-        w->setAttributeName(widget->objectName());
         w->setAttributeClass(widgetInfo->name());
 
-        QList<DomProperty*> prop_list = w->elementProperty();
-        foreach (DomProperty *prop, prop_list) {
-            if (prop->attributeName() == QStringLiteral("geometry")) {
+        const auto &prop_list = w->elementProperty();
+        for (DomProperty *prop : prop_list) {
+            if (prop->attributeName() == "geometry"_L1) {
                 if (DomRect *rect = prop->elementRect()) {
                     rect->setElementX(widget->x());
                     rect->setElementY(widget->y());
@@ -1141,7 +1202,7 @@ DomWidget *QDesignerResource::createDom(QWidget *widget, DomWidget *ui_parentWid
                 break;
             }
         }
-    } else if (widgetInfo != 0 && m_usedCustomWidgets.contains(widgetInfo)) {
+    } else if (widgetInfo != nullptr && m_usedCustomWidgets.contains(widgetInfo)) {
         if (widgetInfo->name() != w->attributeClass())
             w->setAttributeClass(widgetInfo->name());
     }
@@ -1153,26 +1214,26 @@ DomLayout *QDesignerResource::createDom(QLayout *layout, DomLayout *ui_parentLay
 {
     QDesignerMetaDataBaseItemInterface *item = core()->metaDataBase()->item(layout);
 
-    if (item == 0) {
+    if (item == nullptr) {
         layout = layout->findChild<QLayout*>();
         // refresh the meta database item
         item = core()->metaDataBase()->item(layout);
     }
 
-    if (item == 0) {
+    if (item == nullptr) {
         // nothing to do.
-        return 0;
+        return nullptr;
     }
 
     if (qobject_cast<QSplitter*>(layout->parentWidget()) != 0) {
         // nothing to do.
-        return 0;
+        return nullptr;
     }
 
     m_chain.push(layout);
 
     DomLayout *l = QAbstractFormBuilder::createDom(layout, ui_parentLayout, ui_parentWidget);
-    Q_ASSERT(l != 0);
+    Q_ASSERT(l != nullptr);
     LayoutPropertySheet::stretchAttributesToDom(core(), layout, l);
 
     m_chain.pop();
@@ -1182,19 +1243,18 @@ DomLayout *QDesignerResource::createDom(QLayout *layout, DomLayout *ui_parentLay
 
 DomLayoutItem *QDesignerResource::createDom(QLayoutItem *item, DomLayout *ui_layout, DomWidget *ui_parentWidget)
 {
-    DomLayoutItem *ui_item = 0;
+    DomLayoutItem *ui_item = nullptr;
 
     if (Spacer *s = qobject_cast<Spacer*>(item->widget())) {
         if (!core()->metaDataBase()->item(s))
-            return 0;
+            return nullptr;
 
         DomSpacer *spacer = new DomSpacer();
         const QString objectName = s->objectName();
         if (!objectName.isEmpty())
             spacer->setAttributeName(objectName);
-        const QList<DomProperty*> properties = computeProperties(item->widget());
         // ### filter the properties
-        spacer->setElementProperty(properties);
+        spacer->setElementProperty(computeProperties(item->widget()));
 
         ui_item = new DomLayoutItem();
         ui_item->setElementSpacer(spacer);
@@ -1209,7 +1269,7 @@ DomLayoutItem *QDesignerResource::createDom(QLayoutItem *item, DomLayout *ui_lay
     } else if (!item->spacerItem()) { // we use spacer as fake item in the Designer
         ui_item = QAbstractFormBuilder::createDom(item, ui_layout, ui_parentWidget);
     } else {
-        return 0;
+        return nullptr;
     }
     return ui_item;
 }
@@ -1225,27 +1285,29 @@ DomTabStops *QDesignerResource::saveTabStops()
     Q_ASSERT(item);
 
     QStringList tabStops;
-    foreach (QWidget *widget, item->tabOrder()) {
+    const QWidgetList &tabOrder = item->tabOrder();
+    for (QWidget *widget : tabOrder) {
         if (m_formWindow->mainContainer()->isAncestorOf(widget))
             tabStops.append(widget->objectName());
     }
 
-    if (tabStops.count()) {
+    if (!tabStops.isEmpty()) {
         DomTabStops *dom = new DomTabStops;
         dom->setElementTabStop(tabStops);
         return dom;
     }
 
-    return 0;
+    return nullptr;
 }
 
 void QDesignerResource::applyTabStops(QWidget *widget, DomTabStops *tabStops)
 {
-    if (!tabStops)
+    if (tabStops == nullptr || widget == nullptr)
         return;
 
-    QList<QWidget*> tabOrder;
-    foreach (const QString &widgetName, tabStops->elementTabStop()) {
+    QWidgetList tabOrder;
+    const QStringList &elementTabStop = tabStops->elementTabStop();
+    for (const QString &widgetName : elementTabStop) {
         if (QWidget *w = widget->findChild<QWidget*>(widgetName)) {
             tabOrder.append(w);
         }
@@ -1273,7 +1335,7 @@ inline QString msgUnmanagedPage(QDesignerFormEditorInterface *core,
 DomWidget *QDesignerResource::saveWidget(QWidget *widget, QDesignerContainerExtension *container, DomWidget *ui_parentWidget)
 {
     DomWidget *ui_widget = QAbstractFormBuilder::createDom(widget, ui_parentWidget, false);
-    QList<DomWidget*> ui_widget_list;
+    QList<DomWidget *> ui_widget_list;
 
     for (int i=0; i<container->count(); ++i) {
         QWidget *page = container->widget(i);
@@ -1294,7 +1356,7 @@ DomWidget *QDesignerResource::saveWidget(QWidget *widget, QDesignerContainerExte
 DomWidget *QDesignerResource::saveWidget(QStackedWidget *widget, DomWidget *ui_parentWidget)
 {
     DomWidget *ui_widget = QAbstractFormBuilder::createDom(widget, ui_parentWidget, false);
-    QList<DomWidget*> ui_widget_list;
+    QList<DomWidget *> ui_widget_list;
     if (QDesignerContainerExtension *container = qt_extension<QDesignerContainerExtension*>(core()->extensionManager(), widget)) {
         for (int i=0; i<container->count(); ++i) {
             QWidget *page = container->widget(i);
@@ -1319,16 +1381,16 @@ DomWidget *QDesignerResource::saveWidget(QToolBar *toolBar, DomWidget *ui_parent
         const bool toolBarBreak = mainWindow->toolBarBreak(toolBar);
         const Qt::ToolBarArea area = mainWindow->toolBarArea(toolBar);
 
-        QList<DomProperty*> attributes = ui_widget->elementAttribute();
+        auto attributes = ui_widget->elementAttribute();
 
         DomProperty *attr = new DomProperty();
-        attr->setAttributeName(QStringLiteral("toolBarArea"));
-        attr->setElementEnum(QLatin1String(toolBarAreaMetaEnum().valueToKey(area)));
+        attr->setAttributeName(u"toolBarArea"_s);
+        attr->setElementEnum(QLatin1StringView(toolBarAreaMetaEnum().valueToKey(area)));
         attributes  << attr;
 
         attr = new DomProperty();
-        attr->setAttributeName(QStringLiteral("toolBarBreak"));
-        attr->setElementBool(toolBarBreak ? QLatin1String("true") : QLatin1String("false"));
+        attr->setAttributeName(u"toolBarBreak"_s);
+        attr->setElementBool(toolBarBreak ? u"true"_s : u"false"_s);
         attributes  << attr;
         ui_widget->setElementAttribute(attributes);
     }
@@ -1342,7 +1404,7 @@ DomWidget *QDesignerResource::saveWidget(QDesignerDockWidget *dockWidget, DomWid
     if (QMainWindow *mainWindow = qobject_cast<QMainWindow*>(dockWidget->parentWidget())) {
         const Qt::DockWidgetArea area = mainWindow->dockWidgetArea(dockWidget);
         DomProperty *attr = new DomProperty();
-        attr->setAttributeName(QStringLiteral("dockWidgetArea"));
+        attr->setAttributeName(u"dockWidgetArea"_s);
         attr->setElementNumber(int(area));
         ui_widget->setElementAttribute(ui_widget->elementAttribute() << attr);
     }
@@ -1353,7 +1415,7 @@ DomWidget *QDesignerResource::saveWidget(QDesignerDockWidget *dockWidget, DomWid
 DomWidget *QDesignerResource::saveWidget(QTabWidget *widget, DomWidget *ui_parentWidget)
 {
     DomWidget *ui_widget = QAbstractFormBuilder::createDom(widget, ui_parentWidget, false);
-    QList<DomWidget*> ui_widget_list;
+    QList<DomWidget *> ui_widget_list;
 
     if (QDesignerContainerExtension *container = qt_extension<QDesignerContainerExtension*>(core()->extensionManager(), widget)) {
         const int current = widget->currentIndex();
@@ -1368,39 +1430,38 @@ DomWidget *QDesignerResource::saveWidget(QTabWidget *widget, DomWidget *ui_paren
             }
             QList<DomProperty*> ui_attribute_list;
 
-            const QFormBuilderStrings &strings = QFormBuilderStrings::instance();
             // attribute `icon'
             widget->setCurrentIndex(i);
             QDesignerPropertySheetExtension *sheet = qt_extension<QDesignerPropertySheetExtension*>(core()->extensionManager(), widget);
-            PropertySheetIconValue icon = qvariant_cast<PropertySheetIconValue>(sheet->property(sheet->indexOf(QStringLiteral("currentTabIcon"))));
+            PropertySheetIconValue icon = qvariant_cast<PropertySheetIconValue>(sheet->property(sheet->indexOf(u"currentTabIcon"_s)));
             DomProperty *p = resourceBuilder()->saveResource(workingDirectory(), QVariant::fromValue(icon));
             if (p) {
-                p->setAttributeName(strings.iconAttribute);
+                p->setAttributeName(QFormBuilderStrings::iconAttribute);
                 ui_attribute_list.append(p);
             }
             // attribute `title'
-            p = textBuilder()->saveText(sheet->property(sheet->indexOf(QStringLiteral("currentTabText"))));
+            p = textBuilder()->saveText(sheet->property(sheet->indexOf(u"currentTabText"_s)));
             if (p) {
-                p->setAttributeName(strings.titleAttribute);
+                p->setAttributeName(QFormBuilderStrings::titleAttribute);
                 ui_attribute_list.append(p);
             }
 
             // attribute `toolTip'
-            QVariant v = sheet->property(sheet->indexOf(QStringLiteral("currentTabToolTip")));
+            QVariant v = sheet->property(sheet->indexOf(u"currentTabToolTip"_s));
             if (!qvariant_cast<PropertySheetStringValue>(v).value().isEmpty()) {
                 p = textBuilder()->saveText(v);
                 if (p) {
-                    p->setAttributeName(strings.toolTipAttribute);
+                    p->setAttributeName(QFormBuilderStrings::toolTipAttribute);
                 ui_attribute_list.append(p);
                 }
             }
 
             // attribute `whatsThis'
-            v = sheet->property(sheet->indexOf(QStringLiteral("currentTabWhatsThis")));
+            v = sheet->property(sheet->indexOf(u"currentTabWhatsThis"_s));
             if (!qvariant_cast<PropertySheetStringValue>(v).value().isEmpty()) {
                 p = textBuilder()->saveText(v);
                 if (p) {
-                    p->setAttributeName(strings.whatsThisAttribute);
+                    p->setAttributeName(QFormBuilderStrings::whatsThisAttribute);
                 ui_attribute_list.append(p);
                 }
             }
@@ -1420,7 +1481,7 @@ DomWidget *QDesignerResource::saveWidget(QTabWidget *widget, DomWidget *ui_paren
 DomWidget *QDesignerResource::saveWidget(QToolBox *widget, DomWidget *ui_parentWidget)
 {
     DomWidget *ui_widget = QAbstractFormBuilder::createDom(widget, ui_parentWidget, false);
-    QList<DomWidget*> ui_widget_list;
+    QList<DomWidget *> ui_widget_list;
 
     if (QDesignerContainerExtension *container = qt_extension<QDesignerContainerExtension*>(core()->extensionManager(), widget)) {
         const int current = widget->currentIndex();
@@ -1437,29 +1498,27 @@ DomWidget *QDesignerResource::saveWidget(QToolBox *widget, DomWidget *ui_parentW
             // attribute `label'
             QList<DomProperty*> ui_attribute_list;
 
-            const QFormBuilderStrings &strings = QFormBuilderStrings::instance();
-
             // attribute `icon'
             widget->setCurrentIndex(i);
             QDesignerPropertySheetExtension *sheet = qt_extension<QDesignerPropertySheetExtension*>(core()->extensionManager(), widget);
-            PropertySheetIconValue icon = qvariant_cast<PropertySheetIconValue>(sheet->property(sheet->indexOf(QStringLiteral("currentItemIcon"))));
+            PropertySheetIconValue icon = qvariant_cast<PropertySheetIconValue>(sheet->property(sheet->indexOf(u"currentItemIcon"_s)));
             DomProperty *p = resourceBuilder()->saveResource(workingDirectory(), QVariant::fromValue(icon));
             if (p) {
-                p->setAttributeName(strings.iconAttribute);
+                p->setAttributeName(QFormBuilderStrings::iconAttribute);
                 ui_attribute_list.append(p);
             }
-            p = textBuilder()->saveText(sheet->property(sheet->indexOf(QStringLiteral("currentItemText"))));
+            p = textBuilder()->saveText(sheet->property(sheet->indexOf(u"currentItemText"_s)));
             if (p) {
-                p->setAttributeName(strings.labelAttribute);
+                p->setAttributeName(QFormBuilderStrings::labelAttribute);
                 ui_attribute_list.append(p);
             }
 
             // attribute `toolTip'
-            QVariant v = sheet->property(sheet->indexOf(QStringLiteral("currentItemToolTip")));
+            QVariant v = sheet->property(sheet->indexOf(u"currentItemToolTip"_s));
             if (!qvariant_cast<PropertySheetStringValue>(v).value().isEmpty()) {
                 p = textBuilder()->saveText(v);
                 if (p) {
-                    p->setAttributeName(strings.toolTipAttribute);
+                    p->setAttributeName(QFormBuilderStrings::toolTipAttribute);
                     ui_attribute_list.append(p);
                 }
             }
@@ -1481,12 +1540,12 @@ DomWidget *QDesignerResource::saveWidget(QWizardPage *wizardPage, DomWidget *ui_
     DomWidget *ui_widget = QAbstractFormBuilder::createDom(wizardPage, ui_parentWidget, true);
     QDesignerPropertySheetExtension *sheet = qt_extension<QDesignerPropertySheetExtension*>(core()->extensionManager(), wizardPage);
     // Save the page id (string) attribute, append to existing attributes
-    const QString pageIdPropertyName = QLatin1String(QWizardPagePropertySheet::pageIdProperty);
+    const QString pageIdPropertyName = QLatin1StringView(QWizardPagePropertySheet::pageIdProperty);
     const int pageIdIndex = sheet->indexOf(pageIdPropertyName);
     if (pageIdIndex != -1 && sheet->isChanged(pageIdIndex)) {
         DomProperty *property = variantToDomProperty(this, wizardPage->metaObject(), pageIdPropertyName, sheet->property(pageIdIndex));
         Q_ASSERT(property);
-        property->elementString()->setAttributeNotr(QStringLiteral("true"));
+        property->elementString()->setAttributeNotr(u"true"_s);
         DomPropertyList attributes = ui_widget->elementAttribute();
         attributes.push_back(property);
         ui_widget->setElementAttribute(attributes);
@@ -1513,17 +1572,17 @@ bool QDesignerResource::checkProperty(QObject *obj, const QString &prop) const
     const QDesignerMetaObjectInterface *meta = core()->introspection()->metaObject(obj);
 
     const int pindex = meta->indexOfProperty(prop);
-    if (pindex != -1 && !(meta->property(pindex)->attributes(obj) & QDesignerMetaPropertyInterface::StoredAttribute))
+    if (pindex != -1 && !meta->property(pindex)->attributes().testFlag(QDesignerMetaPropertyInterface::StoredAttribute))
         return false;
 
-    if (prop == QStringLiteral("objectName") || prop == QStringLiteral("spacerName"))  // ### don't store the property objectName
+    if (prop == "objectName"_L1 || prop == "spacerName"_L1)  // ### don't store the property objectName
         return false;
 
-    QWidget *check_widget = 0;
+    QWidget *check_widget = nullptr;
     if (obj->isWidgetType())
         check_widget = static_cast<QWidget*>(obj);
 
-    if (check_widget && prop == QStringLiteral("geometry")) {
+    if (check_widget && prop == "geometry"_L1) {
         if (check_widget == m_formWindow->mainContainer())
             return true; // Save although maincontainer is technically laid-out by embedding container
          if (m_selected && m_selected == check_widget)
@@ -1553,19 +1612,20 @@ bool QDesignerResource::checkProperty(QObject *obj, const QString &prop) const
 
 bool QDesignerResource::addItem(DomLayoutItem *ui_item, QLayoutItem *item, QLayout *layout)
 {
-    if (item->widget() == 0) {
+    if (item->widget() == nullptr) {
         return false;
     }
 
     QGridLayout *grid = qobject_cast<QGridLayout*>(layout);
     QBoxLayout *box = qobject_cast<QBoxLayout*>(layout);
 
-    if (grid != 0) {
+    if (grid != nullptr) {
         const int rowSpan = ui_item->hasAttributeRowSpan() ? ui_item->attributeRowSpan() : 1;
         const int colSpan = ui_item->hasAttributeColSpan() ? ui_item->attributeColSpan() : 1;
         grid->addWidget(item->widget(), ui_item->attributeRow(), ui_item->attributeColumn(), rowSpan, colSpan, item->alignment());
         return true;
-    } else if (box != 0) {
+    }
+    if (box != nullptr) {
         box->addItem(item);
         return true;
     }
@@ -1588,25 +1648,23 @@ bool QDesignerResource::addItem(DomWidget *ui_widget, QWidget *widget, QWidget *
 
         tabWidget->setCurrentIndex(tabIndex);
 
-        const QFormBuilderStrings &strings = QFormBuilderStrings::instance();
-
-        const DomPropertyHash attributes = propertyMap(ui_widget->elementAttribute());
+        const auto &attributes = ui_widget->elementAttribute();
         QDesignerPropertySheetExtension *sheet = qt_extension<QDesignerPropertySheetExtension*>(core()->extensionManager(), parentWidget);
-        if (DomProperty *picon = attributes.value(strings.iconAttribute)) {
+        if (auto *picon = QFBE::propertyByName(attributes, QFormBuilderStrings::iconAttribute)) {
             QVariant v = resourceBuilder()->loadResource(workingDirectory(), picon);
-            sheet->setProperty(sheet->indexOf(QStringLiteral("currentTabIcon")), v);
+            sheet->setProperty(sheet->indexOf(u"currentTabIcon"_s), v);
         }
-        if (DomProperty *ptext = attributes.value(strings.titleAttribute)) {
+        if (auto *ptext = QFBE::propertyByName(attributes, QFormBuilderStrings::titleAttribute)) {
             QVariant v = textBuilder()->loadText(ptext);
-            sheet->setProperty(sheet->indexOf(QStringLiteral("currentTabText")), v);
+            sheet->setProperty(sheet->indexOf(u"currentTabText"_s), v);
         }
-        if (DomProperty *ptext = attributes.value(strings.toolTipAttribute)) {
+        if (auto *ptext = QFBE::propertyByName(attributes, QFormBuilderStrings::toolTipAttribute)) {
             QVariant v = textBuilder()->loadText(ptext);
-            sheet->setProperty(sheet->indexOf(QStringLiteral("currentTabToolTip")), v);
+            sheet->setProperty(sheet->indexOf(u"currentTabToolTip"_s), v);
         }
-        if (DomProperty *ptext = attributes.value(strings.whatsThisAttribute)) {
+        if (auto *ptext = QFBE::propertyByName(attributes, QFormBuilderStrings::whatsThisAttribute)) {
             QVariant v = textBuilder()->loadText(ptext);
-            sheet->setProperty(sheet->indexOf(QStringLiteral("currentTabWhatsThis")), v);
+            sheet->setProperty(sheet->indexOf(u"currentTabWhatsThis"_s), v);
         }
         tabWidget->setCurrentIndex(current);
     } else if (QToolBox *toolBox = qobject_cast<QToolBox*>(parentWidget)) {
@@ -1615,21 +1673,19 @@ bool QDesignerResource::addItem(DomWidget *ui_widget, QWidget *widget, QWidget *
 
         toolBox->setCurrentIndex(itemIndex);
 
-        const QFormBuilderStrings &strings = QFormBuilderStrings::instance();
-
-        const DomPropertyHash attributes = propertyMap(ui_widget->elementAttribute());
+        const auto &attributes = ui_widget->elementAttribute();
         QDesignerPropertySheetExtension *sheet = qt_extension<QDesignerPropertySheetExtension*>(core()->extensionManager(), parentWidget);
-        if (DomProperty *picon = attributes.value(strings.iconAttribute)) {
+        if (auto *picon = QFBE::propertyByName(attributes, QFormBuilderStrings::iconAttribute)) {
             QVariant v = resourceBuilder()->loadResource(workingDirectory(), picon);
-            sheet->setProperty(sheet->indexOf(QStringLiteral("currentItemIcon")), v);
+            sheet->setProperty(sheet->indexOf(u"currentItemIcon"_s), v);
         }
-        if (DomProperty *ptext = attributes.value(strings.labelAttribute)) {
+        if (auto *ptext = QFBE::propertyByName(attributes, QFormBuilderStrings::labelAttribute)) {
             QVariant v = textBuilder()->loadText(ptext);
-            sheet->setProperty(sheet->indexOf(QStringLiteral("currentItemText")), v);
+            sheet->setProperty(sheet->indexOf(u"currentItemText"_s), v);
         }
-        if (DomProperty *ptext = attributes.value(strings.toolTipAttribute)) {
+        if (auto *ptext = QFBE::propertyByName(attributes, QFormBuilderStrings::toolTipAttribute)) {
             QVariant v = textBuilder()->loadText(ptext);
-            sheet->setProperty(sheet->indexOf(QStringLiteral("currentItemToolTip")), v);
+            sheet->setProperty(sheet->indexOf(u"currentItemToolTip"_s), v);
         }
         toolBox->setCurrentIndex(current);
     }
@@ -1662,37 +1718,36 @@ bool QDesignerResource::copy(QIODevice *dev, const FormBuilderClipboard &selecti
 DomUI *QDesignerResource::copy(const FormBuilderClipboard &selection)
 {
     if (selection.empty())
-        return 0;
+        return nullptr;
 
     m_copyWidget = true;
 
     DomWidget *ui_widget = new DomWidget();
-    ui_widget->setAttributeName(QLatin1String(clipboardObjectName));
+    ui_widget->setAttributeName(clipboardObjectName);
     bool hasItems = false;
     // Widgets
-    if (!selection.m_widgets.empty()) {
-        QList<DomWidget*> ui_widget_list;
-        const int size = selection.m_widgets.size();
-        for (int i=0; i< size; ++i) {
-            QWidget *w = selection.m_widgets.at(i);
+    if (!selection.m_widgets.isEmpty()) {
+        QList<DomWidget *> ui_widget_list;
+        for (auto *w : selection.m_widgets) {
             m_selected = w;
             DomWidget *ui_child = createDom(w, ui_widget);
-            m_selected = 0;
+            m_selected = nullptr;
             if (ui_child)
                 ui_widget_list.append(ui_child);
         }
-        if (!ui_widget_list.empty()) {
+        if (!ui_widget_list.isEmpty()) {
             ui_widget->setElementWidget(ui_widget_list);
             hasItems = true;
         }
     }
     // actions
-    if (!selection.m_actions.empty()) {
-        QList<DomAction*> domActions;
-        foreach(QAction* action, selection.m_actions)
+    if (!selection.m_actions.isEmpty()) {
+        QList<DomAction *> domActions;
+        for (QAction* action : std::as_const(selection.m_actions)) {
             if (DomAction *domAction = createDom(action))
                 domActions += domAction;
-        if (!domActions.empty()) {
+        }
+        if (!domActions.isEmpty()) {
             ui_widget-> setElementAction(domActions);
             hasItems = true;
         }
@@ -1703,11 +1758,11 @@ DomUI *QDesignerResource::copy(const FormBuilderClipboard &selection)
 
     if (!hasItems) {
         delete ui_widget;
-        return 0;
+        return nullptr;
     }
     // UI
     DomUI *ui = new DomUI();
-    ui->setAttributeVersion(QLatin1String(currentUiVersion));
+    ui->setAttributeVersion(currentUiVersion);
     ui->setElementWidget(ui_widget);
     ui->setElementResources(saveResources(m_resourceBuilder->usedQrcFiles()));
     if (DomCustomWidgets *cws = saveCustomWidgets())
@@ -1726,10 +1781,10 @@ FormBuilderClipboard QDesignerResource::paste(DomUI *ui, QWidget *widgetParent, 
     // Widgets
     const DomWidget *topLevel = ui->elementWidget();
     initialize(ui);
-    const QList<DomWidget*> domWidgets = topLevel->elementWidget();
-    if (!domWidgets.empty()) {
+    const auto &domWidgets = topLevel->elementWidget();
+    if (!domWidgets.isEmpty()) {
         const QPoint offset = m_formWindow->grid();
-        foreach (DomWidget* domWidget, domWidgets) {
+        for (DomWidget* domWidget : domWidgets) {
             if (QWidget *w = create(domWidget, widgetParent)) {
                 w->move(w->pos() + offset);
                 // ### change the init properties of w
@@ -1737,11 +1792,11 @@ FormBuilderClipboard QDesignerResource::paste(DomUI *ui, QWidget *widgetParent, 
             }
         }
     }
-    const QList<DomAction*> domActions = topLevel->elementAction();
-    if (!domActions.empty())
-        foreach (DomAction *domAction, domActions)
-            if (QAction *a = create(domAction, actionParent))
-                rc.m_actions .append(a);
+    const auto domActions = topLevel->elementAction();
+    for (DomAction *domAction : domActions) {
+        if (QAction *a = create(domAction, actionParent))
+            rc.m_actions .append(a);
+    }
 
     m_isMainWidget = saved;
 
@@ -1759,10 +1814,9 @@ FormBuilderClipboard QDesignerResource::paste(QIODevice *dev, QWidget *widgetPar
     QXmlStreamReader reader(dev);
     bool uiInitialized = false;
 
-    const QString uiElement = QStringLiteral("ui");
     while (!reader.atEnd()) {
         if (reader.readNext() == QXmlStreamReader::StartElement) {
-            if (reader.name().compare(uiElement, Qt::CaseInsensitive)) {
+            if (reader.name().compare("ui"_L1, Qt::CaseInsensitive)) {
                 ui.read(reader);
                 uiInitialized = true;
             } else {
@@ -1777,7 +1831,7 @@ FormBuilderClipboard QDesignerResource::paste(QIODevice *dev, QWidget *widgetPar
                                     .arg(reader.lineNumber()).arg(reader.columnNumber())
                                     .arg(reader.errorString()));
         uiInitialized = false;
-    } else if (uiInitialized == false) {
+    } else if (!uiInitialized) {
         //: Parsing clipboard contents
         designerWarning(QCoreApplication::translate("QDesignerResource", "Error while pasting clipboard contents: The root element <ui> is missing."));
     }
@@ -1798,18 +1852,17 @@ void QDesignerResource::layoutInfo(DomLayout *layout, QObject *parent, int *marg
 DomCustomWidgets *QDesignerResource::saveCustomWidgets()
 {
     if (m_usedCustomWidgets.isEmpty())
-        return 0;
+        return nullptr;
 
     // We would like the list to be in order of the widget database indexes
     // to ensure that base classes come first (nice optics)
     QDesignerFormEditorInterface *core = m_formWindow->core();
     QDesignerWidgetDataBaseInterface *db = core->widgetDataBase();
     const bool isInternalWidgetDataBase = qobject_cast<const WidgetDataBase *>(db);
-    typedef QMap<int,DomCustomWidget*>  OrderedDBIndexDomCustomWidgetMap;
-    OrderedDBIndexDomCustomWidgetMap orderedMap;
+    QMap<int, DomCustomWidget *> orderedMap;
 
-    const QString global = QStringLiteral("global");
-    foreach (QDesignerWidgetDataBaseItemInterface *item, m_usedCustomWidgets.keys()) {
+    for (auto it = m_usedCustomWidgets.cbegin(), end = m_usedCustomWidgets.cend(); it != end; ++it) {
+        QDesignerWidgetDataBaseItemInterface *item = it.key();
         const QString name = item->name();
         DomCustomWidget *custom_widget = new DomCustomWidget;
 
@@ -1822,7 +1875,7 @@ DomCustomWidgets *QDesignerResource::saveCustomWidgets()
             const  IncludeSpecification spec = includeSpecification(item->includeFile());
             header->setText(spec.first);
             if (spec.second == IncludeGlobal) {
-                header->setAttributeLocation(global);
+                header->setAttributeLocation(u"global"_s);
             }
             custom_widget->setElementHeader(header);
             custom_widget->setElementExtends(item->extends());
@@ -1832,7 +1885,7 @@ DomCustomWidgets *QDesignerResource::saveCustomWidgets()
             WidgetDataBaseItem *internalItem = static_cast<WidgetDataBaseItem *>(item);
             const QStringList fakeSlots = internalItem->fakeSlots();
             const QStringList fakeSignals = internalItem->fakeSignals();
-            if (!fakeSlots.empty() || !fakeSignals.empty()) {
+            if (!fakeSlots.isEmpty() || !fakeSignals.isEmpty()) {
                 DomSlots *domSlots = new DomSlots();
                 domSlots->setElementSlot(fakeSlots);
                 domSlots->setElementSignal(fakeSignals);
@@ -1847,7 +1900,7 @@ DomCustomWidgets *QDesignerResource::saveCustomWidgets()
     }
 
     DomCustomWidgets *customWidgets = new DomCustomWidgets;
-    customWidgets->setElementCustomWidget(orderedMap.values());
+    customWidgets->setElementCustomWidget(orderedMap.values().toVector());
     return customWidgets;
 }
 
@@ -1855,8 +1908,8 @@ bool QDesignerResource::canCompressSpacings(QObject *object) const
 {
     if (QDesignerPropertySheetExtension *sheet = qt_extension<QDesignerPropertySheetExtension*>(core()->extensionManager(), object)) {
         if (qobject_cast<QGridLayout *>(object)) {
-            const int h = sheet->property(sheet->indexOf(QStringLiteral("horizontalSpacing"))).toInt();
-            const int v = sheet->property(sheet->indexOf(QStringLiteral("verticalSpacing"))).toInt();
+            const int h = sheet->property(sheet->indexOf(u"horizontalSpacing"_s)).toInt();
+            const int v = sheet->property(sheet->indexOf(u"verticalSpacing"_s)).toInt();
             if (h == v)
                 return true;
         }
@@ -1878,13 +1931,13 @@ QList<DomProperty*> QDesignerResource::computeProperties(QObject *object)
 
             const QString propertyName = sheet->propertyName(index);
             // Suppress windowModality in legacy forms that have it set on child widgets
-            if (propertyName == QStringLiteral("windowModality") && !sheet->isVisible(index))
+            if (propertyName == "windowModality"_L1 && !sheet->isVisible(index))
                 continue;
 
             const QVariant value = sheet->property(index);
             if (DomProperty *p = createProperty(object, propertyName, value)) {
-                if (compressSpacings && (propertyName == QStringLiteral("horizontalSpacing")
-                        || propertyName == QStringLiteral("verticalSpacing"))) {
+                if (compressSpacings && (propertyName == "horizontalSpacing"_L1
+                    || propertyName == "verticalSpacing"_L1)) {
                     spacingProperties.append(p);
                 } else {
                     properties.append(p);
@@ -1892,9 +1945,9 @@ QList<DomProperty*> QDesignerResource::computeProperties(QObject *object)
             }
         }
         if (compressSpacings) {
-            if (spacingProperties.count() == 2) {
+            if (spacingProperties.size() == 2) {
                 DomProperty *spacingProperty = spacingProperties.at(0);
-                spacingProperty->setAttributeName(QStringLiteral("spacing"));
+                spacingProperty->setAttributeName(u"spacing"_s);
                 properties.append(spacingProperty);
                 delete spacingProperties.at(1);
             } else {
@@ -1908,7 +1961,7 @@ QList<DomProperty*> QDesignerResource::computeProperties(QObject *object)
 DomProperty *QDesignerResource::applyProperStdSetAttribute(QObject *object, const QString &propertyName, DomProperty *property)
 {
     if (!property)
-        return 0;
+        return nullptr;
 
     QExtensionManager *mgr = core()->extensionManager();
     if (const QDesignerPropertySheetExtension *sheet = qt_extension<QDesignerPropertySheetExtension*>(mgr, object)) {
@@ -1934,14 +1987,16 @@ static inline bool hasSetter(QDesignerFormEditorInterface *core, QObject *object
 DomProperty *QDesignerResource::createProperty(QObject *object, const QString &propertyName, const QVariant &value)
 {
     if (!checkProperty(object, propertyName)) {
-        return 0;
+        return nullptr;
     }
 
     if (value.canConvert<PropertySheetFlagValue>()) {
         const PropertySheetFlagValue f = qvariant_cast<PropertySheetFlagValue>(value);
-        const QString flagString = f.metaFlags.toString(f.value, DesignerMetaFlags::FullyQualified);
+        const auto mode = d->m_fullyQualifiedEnums
+                          ? DesignerMetaFlags::FullyQualified : DesignerMetaFlags::Qualified;
+        const QString flagString = f.metaFlags.toString(f.value, mode);
         if (flagString.isEmpty())
-            return 0;
+            return nullptr;
 
         DomProperty *p = new DomProperty;
         // check if we have a standard cpp set function
@@ -1950,14 +2005,17 @@ DomProperty *QDesignerResource::createProperty(QObject *object, const QString &p
         p->setAttributeName(propertyName);
         p->setElementSet(flagString);
         return applyProperStdSetAttribute(object, propertyName, p);
-    } else if (value.canConvert<PropertySheetEnumValue>()) {
+    }
+    if (value.canConvert<PropertySheetEnumValue>()) {
         const PropertySheetEnumValue e = qvariant_cast<PropertySheetEnumValue>(value);
+        const auto mode = d->m_fullyQualifiedEnums
+                          ? DesignerMetaEnum::FullyQualified : DesignerMetaEnum::Qualified;
         bool ok;
-        const QString id = e.metaEnum.toString(e.value, DesignerMetaEnum::FullyQualified, &ok);
+        const QString id = e.metaEnum.toString(e.value, mode, &ok);
         if (!ok)
             designerWarning(e.metaEnum.messageToStringFailed(e.value));
         if (id.isEmpty())
-            return 0;
+            return nullptr;
 
         DomProperty *p = new DomProperty;
         // check if we have a standard cpp set function
@@ -1966,7 +2024,8 @@ DomProperty *QDesignerResource::createProperty(QObject *object, const QString &p
         p->setAttributeName(propertyName);
         p->setElementEnum(id);
         return applyProperStdSetAttribute(object, propertyName, p);
-    } else if (value.canConvert<PropertySheetStringValue>()) {
+    }
+    if (value.canConvert<PropertySheetStringValue>()) {
         const PropertySheetStringValue strVal = qvariant_cast<PropertySheetStringValue>(value);
         DomProperty *p = stringToDomProperty(strVal.value(), strVal);
         if (!hasSetter(core(), object, propertyName))
@@ -1975,7 +2034,8 @@ DomProperty *QDesignerResource::createProperty(QObject *object, const QString &p
         p->setAttributeName(propertyName);
 
         return applyProperStdSetAttribute(object, propertyName, p);
-    } else if (value.canConvert<PropertySheetStringListValue>()) {
+    }
+    if (value.canConvert<PropertySheetStringListValue>()) {
         const PropertySheetStringListValue listValue = qvariant_cast<PropertySheetStringListValue>(value);
         DomProperty *p = new DomProperty;
         if (!hasSetter(core(), object, propertyName))
@@ -1988,7 +2048,8 @@ DomProperty *QDesignerResource::createProperty(QObject *object, const QString &p
         translationParametersToDom(listValue, domStringList);
         p->setElementStringList(domStringList);
         return applyProperStdSetAttribute(object, propertyName, p);
-    } else if (value.canConvert<PropertySheetKeySequenceValue>()) {
+    }
+    if (value.canConvert<PropertySheetKeySequenceValue>()) {
         const PropertySheetKeySequenceValue keyVal = qvariant_cast<PropertySheetKeySequenceValue>(value);
         DomProperty *p = stringToDomProperty(keyVal.value().toString(), keyVal);
         if (!hasSetter(core(), object, propertyName))
@@ -2006,13 +2067,10 @@ QStringList QDesignerResource::mergeWithLoadedPaths(const QStringList &paths) co
 {
     QStringList newPaths = paths;
 #ifdef OLD_RESOURCE_FORMAT
-    QStringList loadedPaths = m_resourceBuilder->loadedQrcFiles();
-    QStringListIterator it(loadedPaths);
-    while (it.hasNext()) {
-        const QString path = it.next();
-        if (!newPaths.contains(path))
-            newPaths << path;
-    }
+    const QStringList loadedPaths = m_resourceBuilder->loadedQrcFiles();
+    std::remove_copy_if(loadedPaths.cbegin(), loadedPaths.cend(),
+                        std::back_inserter(newPaths),
+                        [&newPaths] (const QString &path) { return newPaths.contains(path); });
 #endif
     return newPaths;
 }
@@ -2021,9 +2079,9 @@ QStringList QDesignerResource::mergeWithLoadedPaths(const QStringList &paths) co
 void QDesignerResource::createResources(DomResources *resources)
 {
     QStringList paths;
-    if (resources != 0) {
-        const QList<DomResource*> dom_include = resources->elementInclude();
-        foreach (DomResource *res, dom_include) {
+    if (resources != nullptr) {
+        const auto &dom_include = resources->elementInclude();
+        for (DomResource *res : dom_include) {
             QString path = QDir::cleanPath(m_formWindow->absoluteDir().absoluteFilePath(res->attributeLocation()));
             while (!QFile::exists(path)) {
                 QWidget *dialogParent = m_formWindow->core()->topLevel();
@@ -2057,20 +2115,16 @@ void QDesignerResource::createResources(DomResources *resources)
 
     QtResourceSet *resourceSet = m_formWindow->resourceSet();
     if (resourceSet) {
-        QStringList oldPaths = resourceSet->activeResourceFilePaths();
-        QStringList newPaths = oldPaths;
-        QStringListIterator it(paths);
-        while (it.hasNext()) {
-            const QString path = it.next();
-            if (!newPaths.contains(path))
-                newPaths << path;
-        }
+        QStringList newPaths = resourceSet->activeResourceFilePaths();
+        std::remove_copy_if(paths.cbegin(), paths.cend(),
+                            std::back_inserter(newPaths),
+                            [&newPaths] (const QString &path) { return newPaths.contains(path); });
         resourceSet->activateResourceFilePaths(newPaths);
     } else {
         resourceSet = m_formWindow->core()->resourceModel()->addResourceSet(paths);
         m_formWindow->setResourceSet(resourceSet);
-        QObject::connect(m_formWindow->core()->resourceModel(), SIGNAL(resourceSetActivated(QtResourceSet*,bool)),
-                m_formWindow, SLOT(resourceSetActivated(QtResourceSet*,bool)));
+        QObject::connect(m_formWindow->core()->resourceModel(), &QtResourceModel::resourceSetActivated,
+                m_formWindow, &FormWindowBase::resourceSetActivated);
     }
 }
 
@@ -2093,16 +2147,17 @@ DomResources *QDesignerResource::saveResources()
 DomResources *QDesignerResource::saveResources(const QStringList &qrcPaths)
 {
     QtResourceSet *resourceSet = m_formWindow->resourceSet();
-    QList<DomResource*> dom_include;
+    QList<DomResource *> dom_include;
     if (resourceSet) {
         const QStringList activePaths = resourceSet->activeResourceFilePaths();
-        foreach (const QString &path, activePaths) {
+        for (const QString &path : activePaths) {
             if (qrcPaths.contains(path)) {
                 DomResource *dom_res = new DomResource;
                 QString conv_path = path;
                 if (m_resourceBuilder->isSaveRelative())
                     conv_path = m_formWindow->absoluteDir().relativeFilePath(path);
-                dom_res->setAttributeLocation(conv_path.replace(QDir::separator(), QLatin1Char('/')));
+                conv_path.replace(QDir::separator(), u'/');
+                dom_res->setAttributeLocation(conv_path);
                 dom_include.append(dom_res);
             }
         }
@@ -2117,18 +2172,18 @@ DomResources *QDesignerResource::saveResources(const QStringList &qrcPaths)
 DomAction *QDesignerResource::createDom(QAction *action)
 {
     if (!core()->metaDataBase()->item(action) || action->menu())
-        return 0;
+        return nullptr;
 
     return QAbstractFormBuilder::createDom(action);
 }
 
 DomActionGroup *QDesignerResource::createDom(QActionGroup *actionGroup)
 {
-    if (core()->metaDataBase()->item(actionGroup) != 0) {
+    if (core()->metaDataBase()->item(actionGroup) != nullptr) {
         return QAbstractFormBuilder::createDom(actionGroup);
     }
 
-    return 0;
+    return nullptr;
 }
 
 QAction *QDesignerResource::create(DomAction *ui_action, QObject *parent)
@@ -2138,7 +2193,7 @@ QAction *QDesignerResource::create(DomAction *ui_action, QObject *parent)
         return action;
     }
 
-    return 0;
+    return nullptr;
 }
 
 QActionGroup *QDesignerResource::create(DomActionGroup *ui_action_group, QObject *parent)
@@ -2148,14 +2203,14 @@ QActionGroup *QDesignerResource::create(DomActionGroup *ui_action_group, QObject
         return actionGroup;
     }
 
-    return 0;
+    return nullptr;
 }
 
 DomActionRef *QDesignerResource::createActionRefDom(QAction *action)
 {
     if (!core()->metaDataBase()->item(action)
             || (!action->isSeparator() && !action->menu() && action->objectName().isEmpty()))
-        return 0;
+        return nullptr;
 
     return QAbstractFormBuilder::createActionRefDom(action);
 }
@@ -2172,7 +2227,7 @@ QAction *QDesignerResource::createAction(QObject *parent, const QString &name)
         return action;
     }
 
-    return 0;
+    return nullptr;
 }
 
 QActionGroup *QDesignerResource::createActionGroup(QObject *parent, const QString &name)
@@ -2182,7 +2237,7 @@ QActionGroup *QDesignerResource::createActionGroup(QObject *parent, const QStrin
         return actionGroup;
     }
 
-    return 0;
+    return nullptr;
 }
 
 /* Apply the attributes to a widget via property sheet where appropriate,
@@ -2190,18 +2245,17 @@ QActionGroup *QDesignerResource::createActionGroup(QObject *parent, const QStrin
 void QDesignerResource::applyAttributesToPropertySheet(const DomWidget *ui_widget, QWidget *widget)
 {
     const DomPropertyList attributes = ui_widget->elementAttribute();
-    if (attributes.empty())
+    if (attributes.isEmpty())
         return;
     QDesignerPropertySheetExtension *sheet = qt_extension<QDesignerPropertySheetExtension*>(m_formWindow->core()->extensionManager(), widget);
-    const DomPropertyList::const_iterator acend = attributes.constEnd();
-    for (DomPropertyList::const_iterator it = attributes.constBegin(); it != acend; ++it) {
-        const QString name = (*it)->attributeName();
+    for (auto *prop : attributes) {
+        const QString name = prop->attributeName();
         const int index = sheet->indexOf(name);
         if (index == -1) {
-            const QString msg = QString::fromUtf8("Unable to apply attributive property '%1' to '%2'. It does not exist.").arg(name, widget->objectName());
+            const QString msg = "Unable to apply attributive property '%1' to '%2'. It does not exist."_L1.arg(name, widget->objectName());
             designerWarning(msg);
         } else {
-            sheet->setProperty(index, domPropertyToVariant(this, widget->metaObject(), *it));
+            sheet->setProperty(index, domPropertyToVariant(this, widget->metaObject(), prop));
             sheet->setChanged(index, true);
         }
     }

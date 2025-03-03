@@ -1,42 +1,12 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #ifndef BUTTON_TASKMENU_H
 #define BUTTON_TASKMENU_H
 
-#include <QtWidgets/QAbstractButton>
-#include <QtWidgets/QCommandLinkButton>
-#include <QtWidgets/QButtonGroup>
+#include <QtWidgets/qabstractbutton.h>
+#include <QtWidgets/qcommandlinkbutton.h>
+#include <QtWidgets/qbuttongroup.h>
 
 #include <qdesigner_taskmenu_p.h>
 #include <extensionfactory_p.h>
@@ -54,14 +24,14 @@ namespace qdesigner_internal {
 class ButtonGroupMenu : public QObject
 {
     Q_OBJECT
-    Q_DISABLE_COPY(ButtonGroupMenu)
+    Q_DISABLE_COPY_MOVE(ButtonGroupMenu)
 public:
-    ButtonGroupMenu(QObject *parent = 0);
+    ButtonGroupMenu(QObject *parent = nullptr);
 
     void initialize(QDesignerFormWindowInterface *formWindow,
-                    QButtonGroup *buttonGroup = 0,
+                    QButtonGroup *buttonGroup = nullptr,
                     /* Current button for selection in ButtonMode */
-                    QAbstractButton *currentButton = 0);
+                    QAbstractButton *currentButton = nullptr);
 
     QAction *selectGroupAction() const { return m_selectGroupAction; }
     QAction *breakGroupAction() const  { return m_breakGroupAction; }
@@ -74,22 +44,22 @@ private:
     QAction *m_selectGroupAction;
     QAction *m_breakGroupAction;
 
-    QDesignerFormWindowInterface *m_formWindow;
-    QButtonGroup *m_buttonGroup;
-    QAbstractButton *m_currentButton;
+    QDesignerFormWindowInterface *m_formWindow = nullptr;
+    QButtonGroup *m_buttonGroup = nullptr;
+    QAbstractButton *m_currentButton = nullptr;
 };
 
 // Task menu extension of a QButtonGroup
 class ButtonGroupTaskMenu : public QObject, public QDesignerTaskMenuExtension
 {
     Q_OBJECT
-    Q_DISABLE_COPY(ButtonGroupTaskMenu)
+    Q_DISABLE_COPY_MOVE(ButtonGroupTaskMenu)
     Q_INTERFACES(QDesignerTaskMenuExtension)
 public:
-    explicit ButtonGroupTaskMenu(QButtonGroup *buttonGroup, QObject *parent = 0);
+    explicit ButtonGroupTaskMenu(QButtonGroup *buttonGroup, QObject *parent = nullptr);
 
-    QAction *preferredEditAction() const Q_DECL_OVERRIDE;
-    QList<QAction*> taskActions() const Q_DECL_OVERRIDE;
+    QAction *preferredEditAction() const override;
+    QList<QAction*> taskActions() const override;
 
 private:
     QButtonGroup *m_buttonGroup;
@@ -101,13 +71,13 @@ private:
 class ButtonTaskMenu: public QDesignerTaskMenu
 {
     Q_OBJECT
-    Q_DISABLE_COPY(ButtonTaskMenu)
+    Q_DISABLE_COPY_MOVE(ButtonTaskMenu)
 public:
-    explicit ButtonTaskMenu(QAbstractButton *button, QObject *parent = 0);
-    virtual ~ButtonTaskMenu();
+    explicit ButtonTaskMenu(QAbstractButton *button, QObject *parent = nullptr);
+    ~ButtonTaskMenu() override;
 
-    QAction *preferredEditAction() const Q_DECL_OVERRIDE;
-    QList<QAction*> taskActions() const Q_DECL_OVERRIDE;
+    QAction *preferredEditAction() const override;
+    QList<QAction*> taskActions() const override;
 
     QAbstractButton *button() const;
 
@@ -126,7 +96,7 @@ private:
         GroupedButtonSelection
     };
 
-    SelectionType selectionType(const QDesignerFormWindowCursorInterface *cursor, QButtonGroup ** ptrToGroup = 0) const;
+    SelectionType selectionType(const QDesignerFormWindowCursorInterface *cursor, QButtonGroup ** ptrToGroup = nullptr) const;
     bool refreshAssignMenu(const QDesignerFormWindowInterface *fw, int buttonCount, SelectionType st, QButtonGroup *currentGroup);
     QMenu *createGroupSelectionMenu(const QDesignerFormWindowInterface *fw);
 
@@ -147,14 +117,14 @@ private:
 class CommandLinkButtonTaskMenu: public ButtonTaskMenu
 {
     Q_OBJECT
-    Q_DISABLE_COPY(CommandLinkButtonTaskMenu)
+    Q_DISABLE_COPY_MOVE(CommandLinkButtonTaskMenu)
 public:
-    explicit CommandLinkButtonTaskMenu(QCommandLinkButton *button, QObject *parent = 0);
+    explicit CommandLinkButtonTaskMenu(QCommandLinkButton *button, QObject *parent = nullptr);
 };
 
-typedef ExtensionFactory<QDesignerTaskMenuExtension, QButtonGroup, ButtonGroupTaskMenu> ButtonGroupTaskMenuFactory;
-typedef ExtensionFactory<QDesignerTaskMenuExtension, QCommandLinkButton, CommandLinkButtonTaskMenu>  CommandLinkButtonTaskMenuFactory;
-typedef ExtensionFactory<QDesignerTaskMenuExtension, QAbstractButton, ButtonTaskMenu>  ButtonTaskMenuFactory;
+using ButtonGroupTaskMenuFactory = ExtensionFactory<QDesignerTaskMenuExtension, QButtonGroup, ButtonGroupTaskMenu>;
+using CommandLinkButtonTaskMenuFactory = ExtensionFactory<QDesignerTaskMenuExtension, QCommandLinkButton, CommandLinkButtonTaskMenu>;
+using ButtonTaskMenuFactory = ExtensionFactory<QDesignerTaskMenuExtension, QAbstractButton, ButtonTaskMenu>;
 }  // namespace qdesigner_internal
 
 QT_END_NAMESPACE

@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qdesigner_promotiondialog_p.h"
 #include "promotionmodel_p.h"
@@ -37,33 +7,35 @@
 #include "widgetdatabase_p.h"
 #include "signalslotdialog_p.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerPromotionInterface>
-#include <QtDesigner/QDesignerWidgetDataBaseItemInterface>
-#include <QtDesigner/QDesignerIntegrationInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractpromotioninterface.h>
+#include <QtDesigner/abstractwidgetdatabase.h>
+#include <QtDesigner/abstractintegration.h>
 #include <abstractdialoggui_p.h>
 
-#include <QtCore/QTimer>
-#include <QtWidgets/QVBoxLayout>
-#include <QtWidgets/QHBoxLayout>
-#include <QtWidgets/QFormLayout>
-#include <QtWidgets/QDialogButtonBox>
-#include <QtWidgets/QTreeView>
-#include <QtWidgets/QHeaderView>
-#include <QtWidgets/QPushButton>
-#include <QtCore/QItemSelectionModel>
-#include <QtCore/QItemSelection>
-#include <QtWidgets/QComboBox>
-#include <QtWidgets/QLineEdit>
-#include <QtWidgets/QCheckBox>
-#include <QtGui/QRegExpValidator>
-#include <QtWidgets/QLabel>
-#include <QtWidgets/QSpacerItem>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QAction>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qformlayout.h>
+#include <QtWidgets/qdialogbuttonbox.h>
+#include <QtWidgets/qtreeview.h>
+#include <QtWidgets/qheaderview.h>
+#include <QtWidgets/qpushbutton.h>
+#include <QtWidgets/qcombobox.h>
+#include <QtWidgets/qlineedit.h>
+#include <QtWidgets/qcheckbox.h>
+#include <QtWidgets/qlabel.h>
+#include <QtWidgets/qlayoutitem.h>
+#include <QtWidgets/qmenu.h>
+
+#include <QtGui/qaction.h>
+#include <QtGui/qvalidator.h>
+
+#include <QtCore/qitemselectionmodel.h>
+#include <QtCore/qtimer.h>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 namespace qdesigner_internal {
     // PromotionParameters
@@ -88,9 +60,11 @@ namespace qdesigner_internal {
         setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Maximum);
         QHBoxLayout *hboxLayout = new QHBoxLayout(this);
 
-        m_classNameEdit->setValidator(new QRegExpValidator(QRegExp(QStringLiteral("[_a-zA-Z:][:_a-zA-Z0-9]*")), m_classNameEdit));
-        connect(m_classNameEdit,   SIGNAL(textChanged(QString)), this, SLOT(slotNameChanged(QString)));
-        connect(m_includeFileEdit, SIGNAL(textChanged(QString)), this, SLOT(slotIncludeFileChanged(QString)));
+        m_classNameEdit->setValidator(new QRegularExpressionValidator(QRegularExpression(u"^[_a-zA-Z:][:_a-zA-Z0-9]*$"_s), m_classNameEdit));
+        connect(m_classNameEdit,   &QLineEdit::textChanged,
+                this, &NewPromotedClassPanel::slotNameChanged);
+        connect(m_includeFileEdit, &QLineEdit::textChanged,
+                this, &NewPromotedClassPanel::slotIncludeFileChanged);
 
         m_baseClassCombo->setEditable(false);
         m_baseClassCombo->addItems(baseClasses);
@@ -102,21 +76,32 @@ namespace qdesigner_internal {
         formLayout->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow); // Mac
         formLayout->addRow(tr("Base class name:"),     m_baseClassCombo);
         formLayout->addRow(tr("Promoted class name:"), m_classNameEdit);
-        formLayout->addRow(tr("Header file:"),         m_includeFileEdit);
-        formLayout->addRow(tr("Global include"),       m_globalIncludeCheckBox);
+
+        QString toolTip = tr("Header file for C++ classes or module name for Qt for Python.");
+        auto *label = new QLabel(tr("Header file:"));
+        label->setToolTip(toolTip);
+        formLayout->addRow(label, m_includeFileEdit);
+        m_includeFileEdit->setToolTip(toolTip);
+
+        toolTip = tr("Indicates that the header file is a global header file. Does not have any effect on Qt for Python.");
+        label = new QLabel(tr("Global include"));
+        label->setToolTip(toolTip);
+        formLayout->addRow(label, m_globalIncludeCheckBox);
+        m_globalIncludeCheckBox->setToolTip(toolTip);
+
         hboxLayout->addLayout(formLayout);
         hboxLayout->addItem(new QSpacerItem(15, 0, QSizePolicy::Fixed, QSizePolicy::Ignored));
         // Button box
         QVBoxLayout *buttonLayout = new QVBoxLayout();
 
         m_addButton->setAutoDefault(false);
-        connect(m_addButton, SIGNAL(clicked()), this, SLOT(slotAdd()));
+        connect(m_addButton, &QAbstractButton::clicked, this, &NewPromotedClassPanel::slotAdd);
         m_addButton->setEnabled(false);
         buttonLayout->addWidget(m_addButton);
 
         QPushButton *resetButton = new QPushButton(tr("Reset"));
         resetButton->setAutoDefault(false);
-        connect(resetButton, SIGNAL(clicked()), this, SLOT(slotReset()));
+        connect(resetButton, &QAbstractButton::clicked, this, &NewPromotedClassPanel::slotReset);
 
         buttonLayout->addWidget(resetButton);
         buttonLayout->addItem(new QSpacerItem(0, 0, QSizePolicy::Ignored, QSizePolicy::Expanding));
@@ -146,12 +131,11 @@ namespace qdesigner_internal {
     void NewPromotedClassPanel::slotNameChanged(const QString &className) {
         // Suggest a name
         if (!className.isEmpty()) {
-            const QChar dot(QLatin1Char('.'));
             QString suggestedHeader = m_promotedHeaderLowerCase ?
                                       className.toLower() : className;
-            suggestedHeader.replace(QStringLiteral("::"), QString(QLatin1Char('_')));
-            if (!m_promotedHeaderSuffix.startsWith(dot))
-                suggestedHeader += dot;
+            suggestedHeader.replace("::"_L1, "_"_L1);
+            if (!m_promotedHeaderSuffix.startsWith(u'.'))
+                suggestedHeader += u'.';
             suggestedHeader += m_promotedHeaderSuffix;
 
             const bool blocked = m_includeFileEdit->blockSignals(true);
@@ -192,20 +176,19 @@ namespace qdesigner_internal {
                                                        const QString &promotableWidgetClassName,
                                                        QString *promoteTo) :
         QDialog(parent),
-        m_mode(promotableWidgetClassName.isEmpty() || promoteTo == 0 ? ModeEdit : ModeEditChooseClass),
+        m_mode(promotableWidgetClassName.isEmpty() || promoteTo == nullptr ? ModeEdit : ModeEditChooseClass),
         m_promotableWidgetClassName(promotableWidgetClassName),
         m_core(core),
         m_promoteTo(promoteTo),
         m_promotion(core->promotion()),
         m_model(new PromotionModel(core)),
         m_treeView(new QTreeView),
-        m_buttonBox(0),
-        m_removeButton(new QPushButton(createIconSet(QString::fromUtf8("minus.png")), QString()))
+        m_buttonBox(nullptr),
+        m_removeButton(new QPushButton(createIconSet("minus.png"_L1), QString()))
     {
         m_buttonBox = createButtonBox();
         setModal(true);
         setWindowTitle(tr("Promoted Widgets"));
-        setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
         QVBoxLayout *vboxLayout = new QVBoxLayout(this);
 
@@ -218,11 +201,11 @@ namespace qdesigner_internal {
         m_treeView->setMinimumWidth(450);
         m_treeView->setContextMenuPolicy(Qt::CustomContextMenu);
 
-        connect(m_treeView->selectionModel(), SIGNAL(selectionChanged(QItemSelection,QItemSelection)),
-                this, SLOT(slotSelectionChanged(QItemSelection,QItemSelection)));
+        connect(m_treeView->selectionModel(), &QItemSelectionModel::selectionChanged,
+                this, &QDesignerPromotionDialog::slotSelectionChanged);
 
-        connect(m_treeView, SIGNAL(customContextMenuRequested(QPoint)),
-                this, SLOT(slotTreeViewContextMenu(QPoint)));
+        connect(m_treeView, &QWidget::customContextMenuRequested,
+                this, &QDesignerPromotionDialog::slotTreeViewContextMenu);
 
         QHeaderView *headerView = m_treeView->header();
         headerView->setSectionResizeMode(QHeaderView::ResizeToContents);
@@ -232,7 +215,7 @@ namespace qdesigner_internal {
         hboxLayout->addItem(new QSpacerItem(0, 0, QSizePolicy::Expanding, QSizePolicy::Ignored));
 
         m_removeButton->setAutoDefault(false);
-        connect(m_removeButton, SIGNAL(clicked()), this, SLOT(slotRemove()));
+        connect(m_removeButton, &QAbstractButton::clicked, this, &QDesignerPromotionDialog::slotRemove);
         m_removeButton->setEnabled(false);
         hboxLayout->addWidget(m_removeButton);
         treeViewVBoxLayout->addLayout(hboxLayout);
@@ -244,23 +227,24 @@ namespace qdesigner_internal {
             preselectedBaseClass = baseClassNameList.indexOf(m_promotableWidgetClassName);
         }
         if (preselectedBaseClass == -1)
-            preselectedBaseClass = baseClassNameList.indexOf(QStringLiteral("QFrame"));
+            preselectedBaseClass = baseClassNameList.indexOf("QFrame"_L1);
 
         NewPromotedClassPanel *newPromotedClassPanel = new NewPromotedClassPanel(baseClassNameList, preselectedBaseClass);
         newPromotedClassPanel->setPromotedHeaderSuffix(core->integration()->headerSuffix());
         newPromotedClassPanel->setPromotedHeaderLowerCase(core->integration()->isHeaderLowercase());
-        connect(newPromotedClassPanel, SIGNAL(newPromotedClass(PromotionParameters,bool*)), this, SLOT(slotNewPromotedClass(PromotionParameters,bool*)));
-        connect(this, SIGNAL(selectedBaseClassChanged(QString)),
-                newPromotedClassPanel, SLOT(chooseBaseClass(QString)));
+        connect(newPromotedClassPanel, &NewPromotedClassPanel::newPromotedClass,
+                this, &QDesignerPromotionDialog::slotNewPromotedClass);
+        connect(this, &QDesignerPromotionDialog::selectedBaseClassChanged,
+                newPromotedClassPanel, &NewPromotedClassPanel::chooseBaseClass);
         vboxLayout->addWidget(newPromotedClassPanel);
         // button box
         vboxLayout->addWidget(m_buttonBox);
         // connect model
-        connect(m_model, SIGNAL(includeFileChanged(QDesignerWidgetDataBaseItemInterface*,QString)),
-                this, SLOT(slotIncludeFileChanged(QDesignerWidgetDataBaseItemInterface*,QString)));
+        connect(m_model, &PromotionModel::includeFileChanged,
+                this, &QDesignerPromotionDialog::slotIncludeFileChanged);
 
-        connect(m_model, SIGNAL(classNameChanged(QDesignerWidgetDataBaseItemInterface*,QString)),
-                this, SLOT(slotClassNameChanged(QDesignerWidgetDataBaseItemInterface*,QString)));
+        connect(m_model, &PromotionModel::classNameChanged,
+                this, &QDesignerPromotionDialog::slotClassNameChanged);
 
         // focus
         if (m_mode == ModeEditChooseClass)
@@ -272,11 +256,12 @@ namespace qdesigner_internal {
     QDialogButtonBox *QDesignerPromotionDialog::createButtonBox() {
         QDialogButtonBox *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Close);
 
-        connect(buttonBox , SIGNAL(accepted()), this, SLOT(slotAcceptPromoteTo()));
+        connect(buttonBox, &QDialogButtonBox::accepted,
+                this, &QDesignerPromotionDialog::slotAcceptPromoteTo);
         buttonBox->button(QDialogButtonBox::Ok)->setText(tr("Promote"));
         buttonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
 
-        connect(buttonBox , SIGNAL(rejected()), this, SLOT(reject()));
+        connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
         return buttonBox;
     }
 
@@ -287,19 +272,17 @@ namespace qdesigner_internal {
     }
 
     void QDesignerPromotionDialog::delayedUpdateFromWidgetDatabase() {
-        QTimer::singleShot(0, this, SLOT(slotUpdateFromWidgetDatabase()));
+        QTimer::singleShot(0, this, &QDesignerPromotionDialog::slotUpdateFromWidgetDatabase);
     }
 
     const QStringList &QDesignerPromotionDialog::baseClassNames(const QDesignerPromotionInterface *promotion) {
-        typedef QList<QDesignerWidgetDataBaseItemInterface *> WidgetDataBaseItemList;
+        using WidgetDataBaseItemList = QList<QDesignerWidgetDataBaseItemInterface *>;
         static QStringList rc;
-        if (rc.empty()) {
+        if (rc.isEmpty()) {
             // Convert the item list into a string list.
             const WidgetDataBaseItemList dbItems =  promotion->promotionBaseClasses();
-            const WidgetDataBaseItemList::const_iterator cend =  dbItems.constEnd();
-            for (WidgetDataBaseItemList::const_iterator it = dbItems.constBegin() ; it != cend; ++it) {
-                rc.push_back( (*it)->name());
-            }
+            for (auto *item : dbItems)
+                rc.append(item->name());
         }
         return rc;
     }
@@ -354,14 +337,13 @@ namespace qdesigner_internal {
     QDesignerWidgetDataBaseItemInterface *QDesignerPromotionDialog::databaseItemAt(const QItemSelection &selected, unsigned &flags) const {
         flags = 0;
         const QModelIndexList indexes = selected.indexes();
-        if (indexes.empty())
-            return 0;
-
-        bool referenced;
-        QDesignerWidgetDataBaseItemInterface *dbItem = m_model->databaseItemAt(indexes.front(), &referenced);
+        if (indexes.isEmpty())
+            return nullptr;
+        const PromotionModel::ModelData data = m_model->modelData(indexes.constFirst());
+        QDesignerWidgetDataBaseItemInterface *dbItem = data.promotedItem;
 
         if (dbItem) {
-            if (referenced)
+            if (data.referenced)
                 flags |= Referenced;
             // In choose mode, can we promote to the class?
             if (m_mode == ModeEditChooseClass &&  dbItem && dbItem->isPromoted() && dbItem->extends() ==  m_promotableWidgetClassName)
@@ -426,7 +408,8 @@ namespace qdesigner_internal {
 
         QMenu menu;
         QAction *signalSlotAction = menu.addAction(tr("Change signals/slots..."));
-        connect(signalSlotAction, SIGNAL(triggered()), this, SLOT(slotEditSignalsSlots()));
+        connect(signalSlotAction, &QAction::triggered,
+                this, &QDesignerPromotionDialog::slotEditSignalsSlots);
 
         menu.exec(m_treeView->viewport()->mapToGlobal(pos));
     }

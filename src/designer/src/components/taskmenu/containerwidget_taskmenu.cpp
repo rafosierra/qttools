@@ -1,61 +1,34 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "containerwidget_taskmenu.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerContainerExtension>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/container.h>
 
 #include <qdesigner_command_p.h>
 #include <qdesigner_dockwidget_p.h>
 #include <promotiontaskmenu_p.h>
 #include <widgetdatabase_p.h>
 
-#include <QtWidgets/QAction>
-#include <QtWidgets/QMainWindow>
-#include <QtWidgets/QToolBox>
-#include <QtWidgets/QStackedWidget>
-#include <QtWidgets/QTabWidget>
-#include <QtWidgets/QScrollArea>
-#include <QtWidgets/QMdiArea>
-#include <QtWidgets/QWizard>
-#include <QtWidgets/QMenu>
+#include <QtWidgets/qmainwindow.h>
+#include <QtWidgets/qtoolbox.h>
+#include <QtWidgets/qstackedwidget.h>
+#include <QtWidgets/qtabwidget.h>
+#include <QtWidgets/qscrollarea.h>
+#include <QtWidgets/qmdiarea.h>
+#include <QtWidgets/qwizard.h>
+#include <QtWidgets/qmenu.h>
+
+#include <QtGui/qaction.h>
 
 #include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 namespace qdesigner_internal {
 
@@ -64,19 +37,19 @@ ContainerWidgetTaskMenu::ContainerWidgetTaskMenu(QWidget *widget, ContainerType 
     m_type(type),
     m_containerWidget(widget),
     m_core(formWindow()->core()),
-    m_pagePromotionTaskMenu(new PromotionTaskMenu(0, PromotionTaskMenu::ModeSingleWidget, this)),
+    m_pagePromotionTaskMenu(new PromotionTaskMenu(nullptr, PromotionTaskMenu::ModeSingleWidget, this)),
     m_pageMenuAction(new QAction(this)),
     m_pageMenu(new QMenu),
     m_actionInsertPageAfter(new QAction(this)),
-    m_actionInsertPage(0),
+    m_actionInsertPage(nullptr),
     m_actionDeletePage(new QAction(tr("Delete"), this))
 {
     Q_ASSERT(m_core);
     m_taskActions.append(createSeparator());
 
-    connect(m_actionDeletePage, SIGNAL(triggered()), this, SLOT(removeCurrentPage()));
+    connect(m_actionDeletePage, &QAction::triggered, this, &ContainerWidgetTaskMenu::removeCurrentPage);
 
-    connect(m_actionInsertPageAfter, SIGNAL(triggered()), this, SLOT(addPageAfter()));
+    connect(m_actionInsertPageAfter, &QAction::triggered, this, &ContainerWidgetTaskMenu::addPageAfter);
     // Empty Per-Page submenu, deletion and promotion. Updated on demand due to promotion state
     switch (m_type) {
     case WizardContainer:
@@ -97,7 +70,7 @@ ContainerWidgetTaskMenu::ContainerWidgetTaskMenu(QWidget *widget, ContainerType 
         QMenu *insertMenu = new QMenu;
         // before
         m_actionInsertPage = new QAction(tr("Insert Page Before Current Page"), this);
-        connect(m_actionInsertPage, SIGNAL(triggered()), this, SLOT(addPage()));
+        connect(m_actionInsertPage, &QAction::triggered, this, &ContainerWidgetTaskMenu::addPage);
         insertMenu->addAction(m_actionInsertPage);
         // after
         m_actionInsertPageAfter->setText(tr("Insert Page After Current Page"));
@@ -114,13 +87,11 @@ ContainerWidgetTaskMenu::ContainerWidgetTaskMenu(QWidget *widget, ContainerType 
     }
 }
 
-ContainerWidgetTaskMenu::~ContainerWidgetTaskMenu()
-{
-}
+ContainerWidgetTaskMenu::~ContainerWidgetTaskMenu() = default;
 
 QAction *ContainerWidgetTaskMenu::preferredEditAction() const
 {
-    return 0;
+    return nullptr;
 }
 
 bool ContainerWidgetTaskMenu::canDeletePage() const
@@ -157,7 +128,7 @@ QList<QAction*> ContainerWidgetTaskMenu::taskActions() const
     const QDesignerContainerExtension *ce = containerExtension();
     const int index = ce->currentIndex();
 
-    QList<QAction*> actions = QDesignerTaskMenu::taskActions();
+    auto actions = QDesignerTaskMenu::taskActions();
     actions += m_taskActions;
     // Update the page submenu, deletion and promotion. Updated on demand due to promotion state.
     m_pageMenu->clear();
@@ -229,9 +200,9 @@ WizardContainerWidgetTaskMenu::WizardContainerWidgetTaskMenu(QWizard *w, QObject
     m_nextAction(new QAction(tr("Next"), this)),
     m_previousAction(new QAction(tr("Back"), this))
 {
-    connect(m_nextAction, SIGNAL(triggered()), w, SLOT(next()));
-    connect(m_previousAction, SIGNAL(triggered()), w, SLOT(back()));
-    QList<QAction*> &l = containerActions();
+    connect(m_nextAction, &QAction::triggered, w, &QWizard::next);
+    connect(m_previousAction, &QAction::triggered, w, &QWizard::back);
+    auto &l = containerActions();
     l.push_front(createSeparator());
     l.push_front(m_nextAction);
     l.push_front(m_previousAction);
@@ -254,10 +225,10 @@ MdiContainerWidgetTaskMenu::MdiContainerWidgetTaskMenu(QMdiArea *m, QObject *par
     ContainerWidgetTaskMenu(m, MdiContainer, parent)
 {
     initializeActions();
-    connect(m_nextAction, SIGNAL(triggered()), m, SLOT(activateNextSubWindow()));
-    connect(m_previousAction, SIGNAL(triggered()), m , SLOT(activatePreviousSubWindow()));
-    connect(m_tileAction, SIGNAL(triggered()), m, SLOT(tileSubWindows()));
-    connect(m_cascadeAction, SIGNAL(triggered()), m, SLOT(cascadeSubWindows()));
+    connect(m_nextAction, &QAction::triggered, m, &QMdiArea::activateNextSubWindow);
+    connect(m_previousAction, &QAction::triggered, m , &QMdiArea::activatePreviousSubWindow);
+    connect(m_tileAction, &QAction::triggered, m, &QMdiArea::tileSubWindows);
+    connect(m_cascadeAction, &QAction::triggered, m, &QMdiArea::cascadeSubWindows);
 }
 
 void MdiContainerWidgetTaskMenu::initializeActions()
@@ -267,7 +238,7 @@ void MdiContainerWidgetTaskMenu::initializeActions()
     m_tileAction = new QAction(tr("Tile"), this);
     m_cascadeAction = new QAction(tr("Cascade"), this);
 
-    QList<QAction*> &l = containerActions();
+    auto &l = containerActions();
     l.push_front(createSeparator());
     l.push_front(m_tileAction);
     l.push_front(m_cascadeAction);
@@ -278,7 +249,7 @@ void MdiContainerWidgetTaskMenu::initializeActions()
 
 QList<QAction*> MdiContainerWidgetTaskMenu::taskActions() const
 {
-    const QList<QAction*> rc = ContainerWidgetTaskMenu::taskActions();
+    const auto rc = ContainerWidgetTaskMenu::taskActions();
     // Enable
     const int count = pageCount();
     m_nextAction->setEnabled(count > 1);
@@ -298,8 +269,8 @@ ContainerWidgetTaskMenuFactory::ContainerWidgetTaskMenuFactory(QDesignerFormEdit
 
 QObject *ContainerWidgetTaskMenuFactory::createExtension(QObject *object, const QString &iid, QObject *parent) const
 {
-    if (iid != QStringLiteral("QDesignerInternalTaskMenuExtension") || !object->isWidgetType())
-        return 0;
+    if (iid != "QDesignerInternalTaskMenuExtension"_L1 || !object->isWidgetType())
+        return nullptr;
 
     QWidget *widget = qobject_cast<QWidget*>(object);
 
@@ -313,12 +284,12 @@ QObject *ContainerWidgetTaskMenuFactory::createExtension(QObject *object, const 
             const int idx = wb->indexOfObject(widget);
             const WidgetDataBaseItem *item = static_cast<const WidgetDataBaseItem *>(wb->item(idx));
             if (item->addPageMethod().isEmpty())
-                return 0;
+                return nullptr;
         }
     }
 
-    if (qt_extension<QDesignerContainerExtension*>(extensionManager(), object) == 0)
-        return 0;
+    if (qt_extension<QDesignerContainerExtension*>(extensionManager(), object) == nullptr)
+        return nullptr;
 
     if (QMdiArea* ma = qobject_cast<QMdiArea*>(widget))
         return new MdiContainerWidgetTaskMenu(ma, parent);

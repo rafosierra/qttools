@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 /*  TRANSLATOR PhraseBookBox
 
@@ -73,25 +43,31 @@ PhraseBookBox::PhraseBookBox(PhraseBook *phraseBook, QWidget *parent)
     phraseList->header()->setDefaultSectionSize(150);
     phraseList->header()->setSectionResizeMode(QHeaderView::Interactive);
 
-    connect(sourceLed, SIGNAL(textChanged(QString)),
-            this, SLOT(sourceChanged(QString)));
-    connect(targetLed, SIGNAL(textChanged(QString)),
-            this, SLOT(targetChanged(QString)));
-    connect(definitionLed, SIGNAL(textChanged(QString)),
-            this, SLOT(definitionChanged(QString)));
-    connect(phraseList->selectionModel(), SIGNAL(currentChanged(QModelIndex,QModelIndex)),
-            this, SLOT(selectionChanged()));
-    connect(newBut, SIGNAL(clicked()), this, SLOT(newPhrase()));
-    connect(removeBut, SIGNAL(clicked()), this, SLOT(removePhrase()));
-    connect(settingsBut, SIGNAL(clicked()), this, SLOT(settings()));
-    connect(saveBut, SIGNAL(clicked()), this, SLOT(save()));
-    connect(m_phraseBook, SIGNAL(modifiedChanged(bool)), this, SLOT(setWindowModified(bool)));
+    connect(sourceLed, &QLineEdit::textChanged,
+            this, &PhraseBookBox::sourceChanged);
+    connect(targetLed, &QLineEdit::textChanged,
+            this, &PhraseBookBox::targetChanged);
+    connect(definitionLed, &QLineEdit::textChanged,
+            this, &PhraseBookBox::definitionChanged);
+    connect(phraseList->selectionModel(), &QItemSelectionModel::currentChanged,
+            this, &PhraseBookBox::selectionChanged);
+    connect(newBut, &QAbstractButton::clicked,
+            this, &PhraseBookBox::newPhrase);
+    connect(removeBut, &QAbstractButton::clicked,
+            this, &PhraseBookBox::removePhrase);
+    connect(settingsBut, &QAbstractButton::clicked,
+            this, &PhraseBookBox::settings);
+    connect(saveBut, &QAbstractButton::clicked,
+            this, &PhraseBookBox::save);
+    connect(m_phraseBook, &PhraseBook::modifiedChanged,
+            this, &PhraseBookBox::setWindowModified);
 
     sourceLed->installEventFilter(this);
     targetLed->installEventFilter(this);
     definitionLed->installEventFilter(this);
 
-    foreach (Phrase *p, phraseBook->phrases())
+    const auto phrases = phraseBook->phrases();
+    for (Phrase *p : phrases)
         phrMdl->addPhrase(p);
 
     phraseList->sortByColumn(0, Qt::AscendingOrder);

@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #ifndef ABSTRACTFORMBUILDERPRIVATE_H
 #define ABSTRACTFORMBUILDERPRIVATE_H
@@ -47,11 +17,12 @@
 
 #include "uilib_global.h"
 
-#include <QtCore/QHash>
-#include <QtCore/QPointer>
-#include <QtCore/QStringList>
-#include <QtCore/QMap>
-#include <QtCore/QDir>
+#include <QtCore/qhash.h>
+#include <QtCore/qpointer.h>
+#include <QtCore/qstringlist.h>
+#include <QtCore/qmap.h>
+#include <QtCore/qdir.h>
+#include <QtGui/qpalette.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -72,9 +43,14 @@ namespace QFormInternal
 {
 #endif
 
+class DomBrush;
 class DomButtonGroups;
 class DomButtonGroup;
+class DomColorGroup;
 class DomCustomWidget;
+class DomPalette;
+class DomProperty;
+class DomUI;
 
 class QAbstractFormBuilder;
 class QResourceBuilder;
@@ -83,6 +59,8 @@ class QTextBuilder;
 class QDESIGNER_UILIB_EXPORT QFormBuilderExtra
 {
 public:
+    Q_DISABLE_COPY_MOVE(QFormBuilderExtra);
+
     QFormBuilderExtra();
     ~QFormBuilderExtra();
 
@@ -93,10 +71,13 @@ public:
         QString addPageMethod;
         QString script;
         QString baseClass;
-        bool isContainer;
+        bool isContainer = false;
     };
 
     void clear();
+
+    DomUI *readUi(QIODevice *dev);
+    static QString msgInvalidUiFile();
 
     bool applyPropertyInternally(QObject *o, const QString &propertyName, const QVariant &value);
 
@@ -126,10 +107,13 @@ public:
     // --- Hash used in creating button groups on demand. Store a map of name and pair of dom group and real group
     void registerButtonGroups(const DomButtonGroups *groups);
 
-    typedef QPair<DomButtonGroup *, QButtonGroup*> ButtonGroupEntry;
-    typedef QHash<QString, ButtonGroupEntry> ButtonGroupHash;
+    using ButtonGroupEntry = std::pair<DomButtonGroup *, QButtonGroup *>;
+    using ButtonGroupHash = QHash<QString, ButtonGroupEntry>;
     const ButtonGroupHash &buttonGroups() const { return m_buttonGroups; }
     ButtonGroupHash &buttonGroups()  { return m_buttonGroups; }
+
+    static void getLayoutMargins(const QList<DomProperty*> &properties,
+                                 int *left, int *top, int *right, int *bottom);
 
     // return stretch as a comma-separated list
     static QString boxLayoutStretch(const QBoxLayout*);
@@ -154,12 +138,28 @@ public:
     static bool setGridLayoutColumnMinimumWidth(const QString &, QGridLayout *);
     static void clearGridLayoutColumnMinimumWidth(QGridLayout *);
 
+    static void setPixmapProperty(DomProperty *p, const std::pair<QString, QString> &ip);
+    static QPalette loadPalette(const DomPalette *dom);
+    static void setupColorGroup(QPalette *palette, QPalette::ColorGroup colorGroup,
+                                const DomColorGroup *group);
+    static DomColorGroup *saveColorGroup(const QPalette &palette,
+                                         QPalette::ColorGroup colorGroup);
+    static DomPalette *savePalette(const QPalette &palette);
+    static QBrush setupBrush(const DomBrush *brush);
+    static DomBrush *saveBrush(const QBrush &br);
+
+    static DomProperty *propertyByName(const QList<DomProperty*> &properties,
+                                       QAnyStringView needle);
+
+    static bool isQFontComboBox(const QWidget *w);
+
     QStringList m_pluginPaths;
     QMap<QString, QDesignerCustomWidgetInterface*> m_customWidgets;
 
     QHash<QObject*, bool> m_laidout;
     QHash<QString, QAction*> m_actions;
     QHash<QString, QActionGroup*> m_actionGroups;
+    bool m_fullyQualifiedEnums = true;
     int m_defaultMargin;
     int m_defaultSpacing;
     QDir m_workingDirectory;
@@ -170,19 +170,18 @@ private:
     void clearResourceBuilder();
     void clearTextBuilder();
 
-    typedef QHash<QLabel*, QString> BuddyHash;
-    BuddyHash m_buddies;
+    QHash<QLabel *, QString> m_buddies;
 
     QHash<QString, CustomWidgetData> m_customWidgetDataHash;
 
     ButtonGroupHash m_buttonGroups;
 
-    bool m_layoutWidget;
-    QResourceBuilder *m_resourceBuilder;
-    QTextBuilder *m_textBuilder;
+    bool m_layoutWidget = false;
+    QResourceBuilder *m_resourceBuilder = nullptr;
+    QTextBuilder *m_textBuilder = nullptr;
 
     QPointer<QWidget> m_parentWidget;
-    bool m_parentWidgetIsSet;
+    bool m_parentWidgetIsSet = false;
 };
 
 void uiLibWarning(const QString &message);
@@ -193,58 +192,24 @@ struct QDESIGNER_UILIB_EXPORT QFormBuilderStrings {
 
     static const QFormBuilderStrings &instance();
 
-    const QString buddyProperty;
-    const QString cursorProperty;
-    const QString objectNameProperty;
-    const QString trueValue;
-    const QString falseValue;
-    const QString horizontalPostFix;
-    const QString separator;
-    const QString defaultTitle;
-    const QString titleAttribute;
-    const QString labelAttribute;
-    const QString toolTipAttribute;
-    const QString whatsThisAttribute;
-    const QString flagsAttribute;
-    const QString iconAttribute;
-    const QString pixmapAttribute;
-    const QString textAttribute;
-    const QString currentIndexProperty;
-    const QString toolBarAreaAttribute;
-    const QString toolBarBreakAttribute;
-    const QString dockWidgetAreaAttribute;
-    const QString marginProperty;
-    const QString spacingProperty;
-    const QString leftMarginProperty;
-    const QString topMarginProperty;
-    const QString rightMarginProperty;
-    const QString bottomMarginProperty;
-    const QString horizontalSpacingProperty;
-    const QString verticalSpacingProperty;
-    const QString sizeHintProperty;
-    const QString sizeTypeProperty;
-    const QString orientationProperty;
-    const QString styleSheetProperty;
-    const QString qtHorizontal;
-    const QString qtVertical;
-    const QString currentRowProperty;
-    const QString tabSpacingProperty;
-    const QString qWidgetClass;
-    const QString lineClass;
-    const QString geometryProperty;
-    const QString scriptWidgetVariable;
-    const QString scriptChildWidgetsVariable;
+    static constexpr auto titleAttribute = QLatin1StringView("title");
+    static constexpr auto labelAttribute = QLatin1StringView("label");
+    static constexpr auto toolTipAttribute = QLatin1StringView("toolTip");
+    static constexpr auto whatsThisAttribute = QLatin1StringView("whatsThis");
+    static constexpr auto flagsAttribute = QLatin1StringView("flags");
+    static constexpr auto iconAttribute = QLatin1StringView("icon");
+    static constexpr auto textAttribute = QLatin1StringView("text") ;
 
-    typedef QPair<Qt::ItemDataRole, QString> RoleNName;
+    using RoleNName = std::pair<Qt::ItemDataRole, QString>;
     QList<RoleNName> itemRoles;
     QHash<QString, Qt::ItemDataRole> treeItemRoleHash;
 
     // first.first is primary role, first.second is shadow role.
     // Shadow is used for either the translation source or the designer
     // representation of the string value.
-    typedef QPair<QPair<Qt::ItemDataRole, Qt::ItemDataRole>, QString> TextRoleNName;
+    using TextRoleNName = std::pair<std::pair<Qt::ItemDataRole, Qt::ItemDataRole>, QString>;
     QList<TextRoleNName> itemTextRoles;
-    QHash<QString, QPair<Qt::ItemDataRole, Qt::ItemDataRole> > treeItemTextRoleHash;
+    QHash<QString, std::pair<Qt::ItemDataRole, Qt::ItemDataRole> > treeItemTextRoleHash;
 };
 #ifdef QFORMINTERNAL_NAMESPACE
 }

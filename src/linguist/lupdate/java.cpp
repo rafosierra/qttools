@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "lupdate.h"
 
@@ -37,12 +7,12 @@
 
 #include <QtCore/QDebug>
 #include <QtCore/QFile>
-#include <QtCore/QRegExp>
 #include <QtCore/QStack>
 #include <QtCore/QStack>
 #include <QtCore/QString>
-#include <QtCore/QTextCodec>
 #include <QtCore/QCoreApplication>
+#include <QtCore/QStringConverter>
+#include <QtCore/QTextStream>
 
 #include <iostream>
 
@@ -50,9 +20,7 @@
 
 QT_BEGIN_NAMESPACE
 
-class LU {
-    Q_DECLARE_TR_FUNCTIONS(LUpdate)
-};
+using namespace Qt::Literals::StringLiterals;
 
 enum { Tok_Eof, Tok_class, Tok_return, Tok_tr,
        Tok_translate, Tok_Ident, Tok_Package,
@@ -88,7 +56,7 @@ static QChar yyCh;
 static QString yyIdent;
 static QString yyComment;
 static QString yyString;
-
+static bool yyEOF = false;
 
 static qlonglong yyInteger;
 static int yyParenDepth;
@@ -112,12 +80,14 @@ std::ostream &yyMsg(int line = 0)
 
 static QChar getChar()
 {
-    if (yyInPos >= yyInStr.size())
-        return EOF;
+    if (yyInPos >= yyInStr.size()) {
+        yyEOF = true;
+        return QChar();
+    }
     QChar c = yyInStr[yyInPos++];
-    if (c.unicode() == '\n')
+    if (c == u'\n')
         ++yyCurLineNo;
-    return c.unicode();
+    return c;
 }
 
 static int getToken()
@@ -129,7 +99,7 @@ static int getToken()
     yyComment.clear();
     yyString.clear();
 
-    while ( yyCh != EOF ) {
+    while (!yyEOF) {
         yyLineNo = yyCurLineNo;
 
         if ( yyCh.isLetter() || yyCh.toLatin1() == '_' ) {
@@ -141,28 +111,28 @@ static int getToken()
             if (yyTok != Tok_Dot) {
                 switch ( yyIdent.at(0).toLatin1() ) {
                     case 'r':
-                        if ( yyIdent == QLatin1String("return") )
+                        if (yyIdent == "return"_L1)
                             return Tok_return;
                         break;
                      case 'c':
-                        if ( yyIdent == QLatin1String("class") )
-                            return Tok_class;
-                        break;
+                         if (yyIdent == "class"_L1)
+                             return Tok_class;
+                         break;
                      case 'n':
-                         if ( yyIdent == QLatin1String("null") )
+                         if (yyIdent == "null"_L1)
                              return Tok_null;
                         break;
                 }
             }
             switch ( yyIdent.at(0).toLatin1() ) {
             case 'p':
-                if( yyIdent == QLatin1String("package") )
+                if (yyIdent == "package"_L1)
                     return Tok_Package;
                 break;
             case 't':
-                if ( yyIdent == QLatin1String("tr") )
+                if (yyIdent == "tr"_L1)
                     return Tok_tr;
-                if ( yyIdent == QLatin1String("translate") )
+                if (yyIdent == "translate"_L1)
                     return Tok_translate;
                 }
             return Tok_Ident;
@@ -171,31 +141,31 @@ static int getToken()
 
             case '/':
                 yyCh = getChar();
-                if ( yyCh == QLatin1Char('/') ) {
+                if (yyCh == u'/') {
                     do {
                         yyCh = getChar();
-                        if (yyCh == EOF)
+                        if (yyEOF)
                             break;
                         yyComment.append(yyCh);
-                    } while (yyCh != QLatin1Char('\n'));
+                    } while (yyCh != u'\n');
                     return Tok_Comment;
 
-                } else if ( yyCh == QLatin1Char('*') ) {
+                } else if (yyCh == u'*') {
                     bool metAster = false;
                     bool metAsterSlash = false;
 
                     while ( !metAsterSlash ) {
                         yyCh = getChar();
-                        if ( yyCh == EOF ) {
-                            yyMsg() << qPrintable(LU::tr("Unterminated Java comment.\n"));
+                        if (yyEOF) {
+                            yyMsg() << "Unterminated Java comment.\n";
                             return Tok_Comment;
                         }
 
                         yyComment.append( yyCh );
 
-                        if ( yyCh == QLatin1Char('*') )
+                        if (yyCh == u'*')
                             metAster = true;
-                        else if ( metAster && yyCh == QLatin1Char('/') )
+                        else if (metAster && yyCh == u'/')
                             metAsterSlash = true;
                         else
                             metAster = false;
@@ -209,10 +179,11 @@ static int getToken()
             case '"':
                 yyCh = getChar();
 
-                while ( yyCh != EOF && yyCh != QLatin1Char('\n') && yyCh != QLatin1Char('"') ) {
-                    if ( yyCh == QLatin1Char('\\') ) {
+                while (!yyEOF && yyCh != u'\n' && yyCh != u'"') {
+
+                    if (yyCh == u'\\') {
                         yyCh = getChar();
-                        if ( yyCh == QLatin1Char('u') ) {
+                        if (yyCh == u'u') {
                             yyCh = getChar();
                             uint unicode(0);
                             for (int i = 4; i > 0; --i) {
@@ -223,7 +194,7 @@ static int getToken()
                                 else {
                                     int sub(yyCh.toLower().toLatin1() - 87);
                                     if( sub > 15 || sub < 10) {
-                                        yyMsg() << qPrintable(LU::tr("Invalid Unicode value.\n"));
+                                        yyMsg() << "Invalid Unicode value.\n";
                                         break;
                                     }
                                     unicode += sub;
@@ -231,12 +202,14 @@ static int getToken()
                                 yyCh = getChar();
                             }
                             yyString.append(QChar(unicode));
-                        }
-                        else if ( yyCh == QLatin1Char('\n') ) {
+                        } else if (yyCh == u'\n') {
                             yyCh = getChar();
-                        }
-                        else {
-                            yyString.append( QLatin1Char(backTab[strchr( tab, yyCh.toLatin1() ) - tab]) );
+                        } else if (const char *p = strchr(tab, yyCh.toLatin1()); p) {
+                            yyString.append(QLatin1Char(backTab[p - tab]));
+                            yyCh = getChar();
+                        } else {
+                            yyMsg() << "Invalid escaped character \'\\" << qPrintable(yyCh)
+                                    << "\'\n";
                             yyCh = getChar();
                         }
                     } else {
@@ -245,8 +218,8 @@ static int getToken()
                     }
                 }
 
-                if ( yyCh != QLatin1Char('"') )
-                    yyMsg() << qPrintable(LU::tr("Unterminated string.\n"));
+                if (yyCh != u'"')
+                    yyMsg() << "Unterminated string.\n";
 
                 yyCh = getChar();
 
@@ -258,11 +231,11 @@ static int getToken()
             case '\'':
                 yyCh = getChar();
 
-                if ( yyCh == QLatin1Char('\\') )
+                if (yyCh == u'\\')
                     yyCh = getChar();
                 do {
                     yyCh = getChar();
-                } while ( yyCh != EOF && yyCh != QLatin1Char('\'') );
+                } while (!yyEOF && yyCh != u'\'');
                 yyCh = getChar();
                 break;
             case '{':
@@ -294,11 +267,11 @@ static int getToken()
                 return Tok_Semicolon;
             case '+':
                 yyCh = getChar();
-                if (yyCh == QLatin1Char('+')) {
+                if (yyCh == u'+') {
                     yyCh = getChar();
                     return Tok_PlusPlus;
                 }
-                if( yyCh == QLatin1Char('=') ){
+                if (yyCh == u'=') {
                     yyCh = getChar();
                     return Tok_PlusEq;
                 }
@@ -317,7 +290,7 @@ static int getToken()
                     QByteArray ba;
                     ba += yyCh.toLatin1();
                     yyCh = getChar();
-                    bool hex = yyCh == QLatin1Char('x');
+                    bool hex = yyCh == u'x';
                     if ( hex ) {
                         ba += yyCh.toLatin1();
                         yyCh = getChar();
@@ -359,9 +332,9 @@ static bool matchString( QString &s )
         if (yyTok == Tok_String)
             s += yyString;
         else {
-            yyMsg() << qPrintable(LU::tr(
+            yyMsg() <<
                 "String used in translation can contain only literals"
-                " concatenated with other literals, not expressions or numbers.\n"));
+                " concatenated with other literals, not expressions or numbers.\n";
             return false;
         }
         yyTok = getToken();
@@ -429,9 +402,9 @@ static const QString context()
       for (int i = 0; i < yyScope.size(); ++i) {
          if (yyScope.at(i)->type == Scope::Clazz) {
              if (innerClass)
-                 context.append(QLatin1String("$"));
+                 context.append("$"_L1);
              else
-                 context.append(QLatin1String("."));
+                 context.append("."_L1);
 
              context.append(yyScope.at(i)->name);
              innerClass = true;
@@ -458,6 +431,7 @@ static void parse(Translator *tor, ConversionData &cd)
     QString com;
     QString extracomment;
 
+    yyEOF = false;
     yyCh = getChar();
 
     yyTok = getToken();
@@ -469,7 +443,7 @@ static void parse(Translator *tor, ConversionData &cd)
                 yyScope.push(new Scope(yyIdent, Scope::Clazz, yyLineNo));
             }
             else {
-                yyMsg() << qPrintable(LU::tr("'class' must be followed by a class name.\n"));
+                yyMsg() << "'class' must be followed by a class name.\n";
                 break;
             }
             while (!match(Tok_LeftBrace)) {
@@ -492,8 +466,7 @@ static void parse(Translator *tor, ConversionData &cd)
                         plural = true;
                     }
                 }
-                if (!text.isEmpty())
-                    recordMessage(tor, context(), text, com, extracomment, plural, cd);
+                recordMessage(tor, context(), text, com, extracomment, plural, cd);
             }
             break;
         case Tok_translate:
@@ -521,8 +494,7 @@ static void parse(Translator *tor, ConversionData &cd)
                             break;
                         }
                     }
-                    if (!text.isEmpty())
-                        recordMessage(tor, contextOverride, text, com, extracomment, plural, cd);
+                    recordMessage(tor, contextOverride, text, com, extracomment, plural, cd);
                 }
             }
             break;
@@ -532,7 +504,7 @@ static void parse(Translator *tor, ConversionData &cd)
             break;
 
         case Tok_Comment:
-            if (yyComment.startsWith(QLatin1Char(':'))) {
+            if (yyComment.startsWith(u':')) {
                 yyComment.remove(0, 1);
                 extracomment.append(yyComment);
             }
@@ -541,7 +513,7 @@ static void parse(Translator *tor, ConversionData &cd)
 
         case Tok_RightBrace:
             if ( yyScope.isEmpty() ) {
-                yyMsg() << qPrintable(LU::tr("Excess closing brace.\n"));
+                yyMsg() << "Excess closing brace.\n";
             }
             else
                 delete (yyScope.pop());
@@ -567,10 +539,10 @@ static void parse(Translator *tor, ConversionData &cd)
                         yyPackage.append(yyIdent);
                         break;
                     case Tok_Dot:
-                        yyPackage.append(QLatin1String("."));
+                        yyPackage.append("."_L1);
                         break;
                     default:
-                         yyMsg() << qPrintable(LU::tr("'package' must be followed by package name.\n"));
+                         yyMsg() << "'package' must be followed by package name.\n";
                          break;
                 }
                 yyTok = getToken();
@@ -583,9 +555,9 @@ static void parse(Translator *tor, ConversionData &cd)
     }
 
     if ( !yyScope.isEmpty() )
-        yyMsg(yyScope.top()->line) << qPrintable(LU::tr("Unbalanced opening brace.\n"));
+        yyMsg(yyScope.top()->line) << "Unbalanced opening brace.\n";
     else if ( yyParenDepth != 0 )
-        yyMsg(yyParenLineNo) << qPrintable(LU::tr("Unbalanced opening parenthesis.\n"));
+        yyMsg(yyParenLineNo) << "Unbalanced opening parenthesis.\n";
 }
 
 
@@ -593,7 +565,7 @@ bool loadJava(Translator &translator, const QString &filename, ConversionData &c
 {
     QFile file(filename);
     if (!file.open(QIODevice::ReadOnly)) {
-        cd.appendError(LU::tr("Cannot open %1: %2").arg(filename, file.errorString()));
+        cd.appendError(QStringLiteral("Cannot open %1: %2").arg(filename, file.errorString()));
         return false;
     }
 
@@ -607,7 +579,7 @@ bool loadJava(Translator &translator, const QString &filename, ConversionData &c
     yyParenLineNo = 1;
 
     QTextStream ts(&file);
-    ts.setCodec(QTextCodec::codecForName(cd.m_sourceIsUtf16 ? "UTF-16" : "UTF-8"));
+    ts.setEncoding(cd.m_sourceIsUtf16 ? QStringConverter::Utf16 : QStringConverter::Utf8);
     ts.setAutoDetectUnicode(true);
     yyInStr = ts.readAll();
     yyInPos = 0;

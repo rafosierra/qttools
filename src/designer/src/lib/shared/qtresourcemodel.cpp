@@ -1,48 +1,19 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qtresourcemodel_p.h"
 #include "rcc_p.h"
 
-#include <QtCore/QStringList>
-#include <QtCore/QMap>
-#include <QtCore/QResource>
-#include <QtCore/QFileInfo>
-#include <QtCore/QIODevice>
-#include <QtCore/QDir>
-#include <QtCore/QDebug>
-#include <QtCore/QBuffer>
-#include <QtCore/QFileSystemWatcher>
+#include <QtCore/qstringlist.h>
+#include <QtCore/qhash.h>
+#include <QtCore/qmap.h>
+#include <QtCore/qresource.h>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qiodevice.h>
+#include <QtCore/qdir.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qbuffer.h>
+#include <QtCore/qfilesystemwatcher.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -54,13 +25,13 @@ class QtResourceSetPrivate
     QtResourceSet *q_ptr;
     Q_DECLARE_PUBLIC(QtResourceSet)
 public:
-    QtResourceSetPrivate(QtResourceModel *model = 0);
+    QtResourceSetPrivate(QtResourceModel *model = nullptr);
 
     QtResourceModel *m_resourceModel;
 };
 
 QtResourceSetPrivate::QtResourceSetPrivate(QtResourceModel *model) :
-   q_ptr(0),
+   q_ptr(nullptr),
    m_resourceModel(model)
 {
 }
@@ -68,34 +39,33 @@ QtResourceSetPrivate::QtResourceSetPrivate(QtResourceModel *model) :
 // -------------------- QtResourceModelPrivate
 class QtResourceModelPrivate
 {
-    QtResourceModel *q_ptr;
+    QtResourceModel *q_ptr = nullptr;
     Q_DECLARE_PUBLIC(QtResourceModel)
-    Q_DISABLE_COPY(QtResourceModelPrivate)
+    Q_DISABLE_COPY_MOVE(QtResourceModelPrivate)
 public:
     QtResourceModelPrivate();
-    void activate(QtResourceSet *resourceSet, const QStringList &newPaths, int *errorCount = 0, QString *errorMessages = 0);
+    void activate(QtResourceSet *resourceSet, const QStringList &newPaths, int *errorCount = nullptr, QString *errorMessages = nullptr);
     void removeOldPaths(QtResourceSet *resourceSet, const QStringList &newPaths);
 
-    QMap<QString, bool>                     m_pathToModified;
-    QMap<QtResourceSet *, QStringList>      m_resourceSetToPaths;
-    QMap<QtResourceSet *, bool>             m_resourceSetToReload; // while path is recreated it needs to be reregistered
-                                                                   // (it is - in the new current resource set, but when the path was used in
-                                                                   // other resource set
-                                                                   // then later when that resource set is activated it needs to be reregistered)
-    QMap<QtResourceSet *, bool>             m_newlyCreated; // all created but not activated yet
-                                                            // (if was active at some point and it's not now it will not be on that map)
-    QMap<QString, QList<QtResourceSet *> >  m_pathToResourceSet;
-    QtResourceSet                          *m_currentResourceSet;
+    QMap<QString, bool> m_pathToModified;
+    QHash<QtResourceSet *, QStringList> m_resourceSetToPaths;
+    QHash<QtResourceSet *, bool> m_resourceSetToReload; // while path is recreated it needs to be reregistered
+                                                        // (it is - in the new current resource set, but when the path was used in
+                                                        // other resource set
+                                                        // then later when that resource set is activated it needs to be reregistered)
+    QHash<QtResourceSet *, bool> m_newlyCreated; // all created but not activated yet
+                                                 // (if was active at some point and it's not now it will not be on that map)
+    QMap<QString, QList<QtResourceSet *>> m_pathToResourceSet;
+    QtResourceSet                         *m_currentResourceSet = nullptr;
 
-    typedef QMap<QString, const QByteArray *> PathDataMap;
-    PathDataMap m_pathToData;
+    QMap<QString, const QByteArray *> m_pathToData;
 
     QMap<QString, QStringList> m_pathToContents; // qrc path to its contents.
     QMap<QString, QString>     m_fileToQrc; // this map contains the content of active resource set only.
                                             // Activating different resource set changes the contents.
 
-    QFileSystemWatcher *m_fileWatcher;
-    bool m_fileWatcherEnabled;
+    QFileSystemWatcher *m_fileWatcher = nullptr;
+    bool m_fileWatcherEnabled = true;
     QMap<QString, bool> m_fileWatchedMap;
 private:
     void registerResourceSet(QtResourceSet *resourceSet);
@@ -110,13 +80,7 @@ private:
     void deleteResource(const QByteArray *data) const;
 };
 
-QtResourceModelPrivate::QtResourceModelPrivate() :
-    q_ptr(0),
-    m_currentResourceSet(0),
-    m_fileWatcher(0),
-    m_fileWatcherEnabled(true)
-{
-}
+QtResourceModelPrivate::QtResourceModelPrivate() = default;
 
 // --------------------- QtResourceSet
 QtResourceSet::QtResourceSet() :
@@ -131,9 +95,7 @@ QtResourceSet::QtResourceSet(QtResourceModel *model) :
     d_ptr->q_ptr = this;
 }
 
-QtResourceSet::~QtResourceSet()
-{
-}
+QtResourceSet::~QtResourceSet() = default;
 
 QStringList QtResourceSet::activeResourceFilePaths() const
 {
@@ -159,13 +121,13 @@ void QtResourceSet::setModified(const QString &path)
 // ------------------- QtResourceModelPrivate
 const QByteArray *QtResourceModelPrivate::createResource(const QString &path, QStringList *contents, int *errorCount, QIODevice &errorDevice) const
 {
-    typedef RCCResourceLibrary::ResourceDataFileMap ResourceDataFileMap;
-    const QByteArray *rc = 0;
+    using ResourceDataFileMap = RCCResourceLibrary::ResourceDataFileMap;
+    const QByteArray *rc = nullptr;
     *errorCount = -1;
     contents->clear();
     do {
         // run RCC
-        RCCResourceLibrary library;
+        RCCResourceLibrary library(3);
         library.setVerbose(true);
         library.setInputFiles(QStringList(path));
         library.setFormat(RCCResourceLibrary::Binary);
@@ -176,13 +138,13 @@ const QByteArray *QtResourceModelPrivate::createResource(const QString &path, QS
             break;
         // return code cannot be fully trusted, might still be empty
         const ResourceDataFileMap resMap = library.resourceDataFileMap();
-        if (!library.output(buffer, errorDevice))
+        if (!library.output(buffer, buffer /* tempfile, unused */, errorDevice))
             break;
 
         *errorCount = library.failedResources().size();
         *contents = resMap.keys();
 
-        if (resMap.empty())
+        if (resMap.isEmpty())
             break;
 
         buffer.close();
@@ -209,23 +171,19 @@ void QtResourceModelPrivate::registerResourceSet(QtResourceSet *resourceSet)
         return;
 
     // unregister old paths (all because the order of registration is important), later it can be optimized a bit
-    QStringList toRegister = resourceSet->activeResourceFilePaths();
-    QStringListIterator itRegister(toRegister);
-    while (itRegister.hasNext()) {
-        const QString path = itRegister.next();
+    const QStringList toRegister = resourceSet->activeResourceFilePaths();
+    for (const QString &path : toRegister) {
         if (debugResourceModel)
             qDebug() << "registerResourceSet " << path;
-        const PathDataMap::const_iterator itRcc = m_pathToData.constFind(path);
+        const auto itRcc = m_pathToData.constFind(path);
         if (itRcc != m_pathToData.constEnd()) { // otherwise data was not created yet
             const QByteArray *data = itRcc.value();
             if (data) {
                 if (!QResource::registerResource(reinterpret_cast<const uchar *>(data->constData()))) {
                     qWarning() << "** WARNING: Failed to register " << path << " (QResource failure).";
                 } else {
-                    QStringList contents = m_pathToContents.value(path);
-                    QStringListIterator itContents(contents);
-                    while (itContents.hasNext()) {
-                        const QString filePath = itContents.next();
+                    const QStringList contents = m_pathToContents.value(path);
+                    for (const QString &filePath : contents) {
                         if (!m_fileToQrc.contains(filePath)) // the first loaded resource has higher priority in qt resource system
                             m_fileToQrc.insert(filePath, path);
                     }
@@ -241,13 +199,11 @@ void QtResourceModelPrivate::unregisterResourceSet(QtResourceSet *resourceSet)
         return;
 
     // unregister old paths (all because the order of registration is importans), later it can be optimized a bit
-    QStringList toUnregister = resourceSet->activeResourceFilePaths();
-    QStringListIterator itUnregister(toUnregister);
-    while (itUnregister.hasNext()) {
-        const QString path = itUnregister.next();
+    const QStringList toUnregister = resourceSet->activeResourceFilePaths();
+    for (const QString &path : toUnregister) {
         if (debugResourceModel)
             qDebug() << "unregisterResourceSet " << path;
-        const PathDataMap::const_iterator itRcc = m_pathToData.constFind(path);
+        const auto itRcc = m_pathToData.constFind(path);
         if (itRcc != m_pathToData.constEnd()) { // otherwise data was not created yet
             const QByteArray *data = itRcc.value();
             if (data) {
@@ -278,14 +234,12 @@ void QtResourceModelPrivate::activate(QtResourceSet *resourceSet, const QStringL
     if (resourceSet && resourceSet->activeResourceFilePaths() != newPaths && !m_newlyCreated.contains(resourceSet))
         newResourceSetChanged = true;
 
-    PathDataMap newPathToData = m_pathToData;
+    auto newPathToData = m_pathToData;
 
-    QStringListIterator itPath(newPaths);
-    while (itPath.hasNext()) {
-        const QString path = itPath.next();
+    for (const QString &path : newPaths) {
         if (resourceSet && !m_pathToResourceSet[path].contains(resourceSet))
             m_pathToResourceSet[path].append(resourceSet);
-        const QMap<QString, bool>::iterator itMod = m_pathToModified.find(path);
+        const auto itMod = m_pathToModified.find(path);
         if (itMod == m_pathToModified.end() || itMod.value()) { // new path or path is already created, but needs to be recreated
             QStringList contents;
             int qrcErrorCount;
@@ -300,12 +254,10 @@ void QtResourceModelPrivate::activate(QtResourceSet *resourceSet, const QStringL
             m_pathToModified.insert(path, false);
             m_pathToContents.insert(path, contents);
             newResourceSetChanged = true;
-            const QMap<QString, QList<QtResourceSet *> >::iterator itReload = m_pathToResourceSet.find(path);
+            const auto itReload = m_pathToResourceSet.find(path);
             if (itReload != m_pathToResourceSet.end()) {
-                QList<QtResourceSet *> resources = itReload.value();
-                QListIterator<QtResourceSet *> itRes(resources);
-                while (itRes.hasNext()) {
-                    QtResourceSet *res = itRes.next();
+                const auto resources = itReload.value();
+                for (QtResourceSet *res : resources) {
                     if (res != resourceSet) {
                         m_resourceSetToReload[res] = true;
                     }
@@ -315,13 +267,11 @@ void QtResourceModelPrivate::activate(QtResourceSet *resourceSet, const QStringL
         }
     }
 
-    QList<const QByteArray *> oldData = m_pathToData.values();
-    QList<const QByteArray *> newData = newPathToData.values();
+    const auto oldData = m_pathToData.values();
+    const auto newData = newPathToData.values();
 
     QList<const QByteArray *> toDelete;
-    QListIterator<const QByteArray *> itOld(oldData);
-    if (itOld.hasNext()) {
-        const QByteArray *array = itOld.next();
+    for (const QByteArray *array : oldData) {
         if (array && !newData.contains(array))
             toDelete.append(array);
     }
@@ -338,7 +288,7 @@ void QtResourceModelPrivate::activate(QtResourceSet *resourceSet, const QStringL
             *errorMessages = stderrOutput;
     }
     // register
-    const QMap<QtResourceSet *, bool>::iterator itReload = m_resourceSetToReload.find(resourceSet);
+    const auto itReload = m_resourceSetToReload.find(resourceSet);
     if (itReload != m_resourceSetToReload.end()) {
         if (itReload.value()) {
             newResourceSetChanged = true;
@@ -352,7 +302,7 @@ void QtResourceModelPrivate::activate(QtResourceSet *resourceSet, const QStringL
 
     const bool needReregister = (oldActivePaths != newPaths) || newResourceSetChanged;
 
-    QMap<QtResourceSet *, bool>::iterator itNew = m_newlyCreated.find(resourceSet);
+    const auto itNew = m_newlyCreated.find(resourceSet);
     if (itNew != m_newlyCreated.end()) {
         m_newlyCreated.remove(resourceSet);
         if (needReregister)
@@ -360,7 +310,7 @@ void QtResourceModelPrivate::activate(QtResourceSet *resourceSet, const QStringL
     }
 
     if (!newResourceSetChanged && !needReregister && (m_currentResourceSet == resourceSet)) {
-        foreach (const QByteArray *data, toDelete)
+        for (const QByteArray *data : std::as_const(toDelete))
             deleteResource(data);
 
         return; // nothing changed
@@ -369,7 +319,7 @@ void QtResourceModelPrivate::activate(QtResourceSet *resourceSet, const QStringL
     if (needReregister)
         unregisterResourceSet(m_currentResourceSet);
 
-    foreach (const QByteArray *data, toDelete)
+    for (const QByteArray *data : std::as_const(toDelete))
         deleteResource(data);
 
     m_pathToData = newPathToData;
@@ -393,20 +343,18 @@ void QtResourceModelPrivate::activate(QtResourceSet *resourceSet, const QStringL
 
 void QtResourceModelPrivate::removeOldPaths(QtResourceSet *resourceSet, const QStringList &newPaths)
 {
-    QStringList oldPaths = m_resourceSetToPaths.value(resourceSet);
+    const QStringList oldPaths = m_resourceSetToPaths.value(resourceSet);
     if (oldPaths != newPaths) {
         // remove old
-        QStringListIterator itOldPaths(oldPaths);
-        while (itOldPaths.hasNext()) {
-            QString oldPath = itOldPaths.next();
+        for (const QString &oldPath : oldPaths) {
             if (!newPaths.contains(oldPath)) {
-                const QMap<QString, QList<QtResourceSet *> >::iterator itRemove = m_pathToResourceSet.find(oldPath);
+                const auto itRemove = m_pathToResourceSet.find(oldPath);
                 if (itRemove != m_pathToResourceSet.end()) {
                     const int idx = itRemove.value().indexOf(resourceSet);
                     if (idx >= 0)
                         itRemove.value().removeAt(idx);
-                    if (itRemove.value().count() == 0) {
-                        PathDataMap::iterator it = m_pathToData.find(oldPath);
+                    if (itRemove.value().isEmpty()) {
+                        const auto it = m_pathToData.find(oldPath);
                         if (it != m_pathToData.end())
                             deleteResource(it.value());
                         m_pathToResourceSet.erase(itRemove);
@@ -436,8 +384,8 @@ void QtResourceModelPrivate::setWatcherEnabled(const QString &path, bool enable)
 
 void QtResourceModelPrivate::addWatcher(const QString &path)
 {
-    QMap<QString, bool>::ConstIterator it = m_fileWatchedMap.constFind(path);
-    if (it != m_fileWatchedMap.constEnd() && it.value() == false)
+    const auto it = m_fileWatchedMap.constFind(path);
+    if (it != m_fileWatchedMap.constEnd() && !it.value())
         return;
 
     m_fileWatchedMap.insert(path, true);
@@ -472,17 +420,16 @@ QtResourceModel::QtResourceModel(QObject *parent) :
     d_ptr->q_ptr = this;
 
     d_ptr->m_fileWatcher = new QFileSystemWatcher(this);
-    connect(d_ptr->m_fileWatcher, SIGNAL(fileChanged(QString)),
-            this, SLOT(slotFileChanged(QString)));
+    connect(d_ptr->m_fileWatcher, &QFileSystemWatcher::fileChanged,
+            this, [this](const QString &fileName) { d_ptr->slotFileChanged(fileName); });
 }
 
 QtResourceModel::~QtResourceModel()
 {
     blockSignals(true);
-    QList<QtResourceSet *> resourceList = resourceSets();
-    QListIterator<QtResourceSet *> it(resourceList);
-    while (it.hasNext())
-        removeResourceSet(it.next());
+    const auto resourceList = resourceSets();
+    for (QtResourceSet *rs : resourceList)
+        removeResourceSet(rs);
     blockSignals(false);
 }
 
@@ -493,27 +440,22 @@ QStringList QtResourceModel::loadedQrcFiles() const
 
 bool QtResourceModel::isModified(const QString &path) const
 {
-    QMap<QString, bool>::const_iterator it = d_ptr->m_pathToModified.find(path);
-    if (it != d_ptr->m_pathToModified.constEnd())
-        return it.value();
-    return true;
+    return d_ptr->m_pathToModified.value(path, true);
 }
 
 void QtResourceModel::setModified(const QString &path)
 {
-    QMap<QString, bool>::const_iterator itMod = d_ptr->m_pathToModified.find(path);
-    if (itMod == d_ptr->m_pathToModified.constEnd())
+    if (!d_ptr->m_pathToModified.contains(path))
         return;
 
     d_ptr->m_pathToModified[path] = true;
-    QMap<QString, QList<QtResourceSet *> >::const_iterator it = d_ptr->m_pathToResourceSet.constFind(path);
+    const auto it = d_ptr->m_pathToResourceSet.constFind(path);
     if (it == d_ptr->m_pathToResourceSet.constEnd())
         return;
 
-    QList<QtResourceSet *> resourceList = it.value();
-    QListIterator<QtResourceSet *> itReload(resourceList);
-    while (itReload.hasNext())
-        d_ptr->m_resourceSetToReload.insert(itReload.next(), true);
+    const auto resourceList = it.value();
+    for (QtResourceSet *rs : resourceList)
+        d_ptr->m_resourceSetToReload.insert(rs, true);
 }
 
 QList<QtResourceSet *> QtResourceModel::resourceSets() const
@@ -537,11 +479,8 @@ QtResourceSet *QtResourceModel::addResourceSet(const QStringList &paths)
     d_ptr->m_resourceSetToPaths.insert(newResource, paths);
     d_ptr->m_resourceSetToReload.insert(newResource, false);
     d_ptr->m_newlyCreated.insert(newResource, true);
-    QStringListIterator it(paths);
-    while (it.hasNext()) {
-        const QString path = it.next();
+    for (const QString &path : paths)
         d_ptr->m_pathToResourceSet[path].append(newResource);
-    }
     return newResource;
 }
 
@@ -551,7 +490,7 @@ void QtResourceModel::removeResourceSet(QtResourceSet *resourceSet)
     if (!resourceSet)
         return;
     if (currentResourceSet() == resourceSet)
-        setCurrentResourceSet(0);
+        setCurrentResourceSet(nullptr);
 
     // remove rcc files for those paths which are not used in any other resource set
     d_ptr->removeOldPaths(resourceSet, QStringList());
@@ -571,19 +510,12 @@ void QtResourceModel::reload(const QString &path, int *errorCount, QString *erro
 
 void QtResourceModel::reload(int *errorCount, QString *errorMessages)
 {
-    QMap<QString, bool>::iterator it = d_ptr->m_pathToModified.begin();
-    QMap<QString, bool>::iterator itEnd = d_ptr->m_pathToModified.end(); // will it be valid when I iterate the map and change it???
-    while (it != itEnd) {
-        it = d_ptr->m_pathToModified.insert(it.key(), true);
-        ++it;
-    }
+    for (auto it = d_ptr->m_pathToModified.begin(), end = d_ptr->m_pathToModified.end(); it != end; ++it)
+        it.value() = true;
 
-    QMap<QtResourceSet *, bool>::iterator itReload = d_ptr->m_resourceSetToReload.begin();
-    QMap<QtResourceSet *, bool>::iterator itReloadEnd = d_ptr->m_resourceSetToReload.end();
-    while (itReload != itReloadEnd) {
-        itReload = d_ptr->m_resourceSetToReload.insert(itReload.key(), true); // empty resourceSets could be omitted here
-        ++itReload;
-    }
+    // empty resourceSets could be omitted here
+    for (auto itReload = d_ptr->m_resourceSetToReload.begin(), end = d_ptr->m_resourceSetToReload.end(); itReload != end; ++itReload)
+        itReload.value() = true;
 
     d_ptr->activate(d_ptr->m_currentResourceSet, d_ptr->m_resourceSetToPaths.value(d_ptr->m_currentResourceSet), errorCount, errorMessages);
 }
@@ -605,9 +537,8 @@ void QtResourceModel::setWatcherEnabled(bool enable)
 
     d_ptr->m_fileWatcherEnabled = enable;
 
-    QMapIterator<QString, bool> it(d_ptr->m_fileWatchedMap);
-    if (it.hasNext())
-        d_ptr->setWatcherEnabled(it.next().key(), d_ptr->m_fileWatcherEnabled);
+    if (!d_ptr->m_fileWatchedMap.isEmpty())
+        d_ptr->setWatcherEnabled(d_ptr->m_fileWatchedMap.firstKey(), d_ptr->m_fileWatcherEnabled);
 }
 
 bool QtResourceModel::isWatcherEnabled() const
@@ -617,7 +548,7 @@ bool QtResourceModel::isWatcherEnabled() const
 
 void QtResourceModel::setWatcherEnabled(const QString &path, bool enable)
 {
-    QMap<QString, bool>::Iterator it = d_ptr->m_fileWatchedMap.find(path);
+    const auto it = d_ptr->m_fileWatchedMap.find(path);
     if (it == d_ptr->m_fileWatchedMap.end())
         return;
 

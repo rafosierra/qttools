@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 //
 //  W A R N I N G
@@ -48,7 +18,7 @@
 #include "shared_global_p.h"
 #include "qdesigner_propertysheet_p.h"
 #include "qdesigner_utils_p.h"
-#include <QtGui/QPalette>
+#include <QtGui/qpalette.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -76,7 +46,7 @@ public:
     QPalette::ColorRole currentItemBackgroundRole() const;
     void setCurrentItemBackgroundRole(QPalette::ColorRole role);
 
-    bool eventFilter(QObject *watched, QEvent *event);
+    bool eventFilter(QObject *watched, QEvent *event) override;
     // Add context menu and return page submenu or 0.
 
     QMenu *addContextMenuActions(QMenu *popup) const;
@@ -99,12 +69,12 @@ private:
 // PropertySheet to handle the page properties
 class QDESIGNER_SHARED_EXPORT QToolBoxWidgetPropertySheet : public QDesignerPropertySheet {
 public:
-    explicit QToolBoxWidgetPropertySheet(QToolBox *object, QObject *parent = 0);
+    explicit QToolBoxWidgetPropertySheet(QToolBox *object, QObject *parent = nullptr);
 
-    void setProperty(int index, const QVariant &value) Q_DECL_OVERRIDE;
-    QVariant property(int index) const Q_DECL_OVERRIDE;
-    bool reset(int index) Q_DECL_OVERRIDE;
-    bool isEnabled(int index) const Q_DECL_OVERRIDE;
+    void setProperty(int index, const QVariant &value) override;
+    QVariant property(int index) const override;
+    bool reset(int index) override;
+    bool isEnabled(int index) const override;
 
     // Check whether the property is to be saved. Returns false for the page
     // properties (as the property sheet has no concept of 'stored')
@@ -122,10 +92,10 @@ private:
         qdesigner_internal::PropertySheetStringValue tooltip;
         qdesigner_internal::PropertySheetIconValue icon;
         };
-    QMap<QWidget *, PageData> m_pageToData;
+    QHash<QWidget *, PageData> m_pageToData;
 };
 
-typedef QDesignerPropertySheetFactory<QToolBox, QToolBoxWidgetPropertySheet> QToolBoxWidgetPropertySheetFactory;
+using QToolBoxWidgetPropertySheetFactory = QDesignerPropertySheetFactory<QToolBox, QToolBoxWidgetPropertySheet>;
 
 QT_END_NAMESPACE
 

@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qdesigner_stackedbox_p.h"
 #include "qdesigner_command_p.h"
@@ -38,18 +8,23 @@
 #include "promotiontaskmenu_p.h"
 #include "widgetfactory_p.h"
 
-#include <QtDesigner/QDesignerFormWindowInterface>
+#include <QtDesigner/abstractformwindow.h>
 
-#include <QtWidgets/QToolButton>
-#include <QtWidgets/QAction>
+#include <QtWidgets/qtoolbutton.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qstackedwidget.h>
+
+#include <QtGui/qaction.h>
 #include <QtGui/qevent.h>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QStackedWidget>
-#include <QtCore/QDebug>
+
+#include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
 
-static QToolButton *createToolButton(QWidget *parent, Qt::ArrowType at, const QString &name) {
+using namespace Qt::StringLiterals;
+
+static QToolButton *createToolButton(QWidget *parent, Qt::ArrowType at, const QString &name)
+{
     QToolButton *rc =  new QToolButton();
     rc->setAttribute(Qt::WA_NoChildEventsForParent, true);
     rc->setParent(parent);
@@ -66,11 +41,11 @@ QStackedWidgetPreviewEventFilter::QStackedWidgetPreviewEventFilter(QStackedWidge
     QObject(parent),
     m_buttonToolTipEnabled(false), // Not on preview
     m_stackedWidget(parent),
-    m_prev(createToolButton(m_stackedWidget, Qt::LeftArrow,  QStringLiteral("__qt__passive_prev"))),
-    m_next(createToolButton(m_stackedWidget, Qt::RightArrow, QStringLiteral("__qt__passive_next")))
+    m_prev(createToolButton(m_stackedWidget, Qt::LeftArrow,  u"__qt__passive_prev"_s)),
+    m_next(createToolButton(m_stackedWidget, Qt::RightArrow, u"__qt__passive_next"_s))
 {
-    connect(m_prev, SIGNAL(clicked()), this, SLOT(prevPage()));
-    connect(m_next, SIGNAL(clicked()), this, SLOT(nextPage()));
+    connect(m_prev, &QAbstractButton::clicked, this, &QStackedWidgetPreviewEventFilter::prevPage);
+    connect(m_next, &QAbstractButton::clicked, this, &QStackedWidgetPreviewEventFilter::nextPage);
 
     updateButtons();
     m_stackedWidget->installEventFilter(this);
@@ -161,17 +136,23 @@ static inline QString stackedClassName(QStackedWidget *w)
 {
     if (const QDesignerFormWindowInterface *fw = QDesignerFormWindowInterface::findFormWindow(w))
         return qdesigner_internal::WidgetFactory::classNameOf(fw->core(), w);
-    return QStringLiteral("Stacked widget");
+    return u"Stacked widget"_s;
 }
 
 void QStackedWidgetPreviewEventFilter::updateButtonToolTip(QObject *o)
 {
     if (o == m_prev) {
-        const QString msg = tr("Go to previous page of %1 '%2' (%3/%4).").arg(stackedClassName(m_stackedWidget)).arg(m_stackedWidget->objectName()).arg(m_stackedWidget->currentIndex() + 1).arg(m_stackedWidget->count());
+        const QString msg = tr("Go to previous page of %1 '%2' (%3/%4).")
+                            .arg(stackedClassName(m_stackedWidget), m_stackedWidget->objectName())
+                            .arg(m_stackedWidget->currentIndex() + 1)
+                            .arg(m_stackedWidget->count());
         m_prev->setToolTip(msg);
     } else {
         if (o == m_next) {
-            const QString msg = tr("Go to next page of %1 '%2' (%3/%4).").arg(stackedClassName(m_stackedWidget)).arg(m_stackedWidget->objectName()).arg(m_stackedWidget->currentIndex() + 1).arg(m_stackedWidget->count());
+            const QString msg = tr("Go to next page of %1 '%2' (%3/%4).")
+                                .arg(stackedClassName(m_stackedWidget), m_stackedWidget->objectName())
+                                .arg(m_stackedWidget->currentIndex() + 1)
+                                .arg(m_stackedWidget->count());
             m_next->setToolTip(msg);
         }
     }
@@ -186,15 +167,15 @@ QStackedWidgetEventFilter::QStackedWidgetEventFilter(QStackedWidget *parent) :
     m_actionInsertPage(new QAction(tr("Before Current Page"), this)),
     m_actionInsertPageAfter(new QAction(tr("After Current Page"), this)),
     m_actionChangePageOrder(new QAction(tr("Change Page Order..."), this)),
-    m_pagePromotionTaskMenu(new qdesigner_internal::PromotionTaskMenu(0, qdesigner_internal::PromotionTaskMenu::ModeSingleWidget, this))
+    m_pagePromotionTaskMenu(new qdesigner_internal::PromotionTaskMenu(nullptr, qdesigner_internal::PromotionTaskMenu::ModeSingleWidget, this))
 {
     setButtonToolTipEnabled(true);
-    connect(m_actionPreviousPage, SIGNAL(triggered()), this, SLOT(prevPage()));
-    connect(m_actionNextPage, SIGNAL(triggered()), this, SLOT(nextPage()));
-    connect(m_actionDeletePage, SIGNAL(triggered()), this, SLOT(removeCurrentPage()));
-    connect(m_actionInsertPage, SIGNAL(triggered()), this, SLOT(addPage()));
-    connect(m_actionInsertPageAfter, SIGNAL(triggered()), this, SLOT(addPageAfter()));
-    connect(m_actionChangePageOrder, SIGNAL(triggered()), this, SLOT(changeOrder()));
+    connect(m_actionPreviousPage, &QAction::triggered, this, &QStackedWidgetEventFilter::prevPage);
+    connect(m_actionNextPage, &QAction::triggered, this, &QStackedWidgetEventFilter::nextPage);
+    connect(m_actionDeletePage, &QAction::triggered, this, &QStackedWidgetEventFilter::removeCurrentPage);
+    connect(m_actionInsertPage, &QAction::triggered, this, &QStackedWidgetEventFilter::addPage);
+    connect(m_actionInsertPageAfter, &QAction::triggered, this, &QStackedWidgetEventFilter::addPageAfter);
+    connect(m_actionChangePageOrder, &QAction::triggered, this, &QStackedWidgetEventFilter::changeOrder);
 }
 
 void QStackedWidgetEventFilter::install(QStackedWidget *stackedWidget)
@@ -205,22 +186,19 @@ void QStackedWidgetEventFilter::install(QStackedWidget *stackedWidget)
 QStackedWidgetEventFilter *QStackedWidgetEventFilter::eventFilterOf(const QStackedWidget *stackedWidget)
 {
     // Look for 1st order children only..otherwise, we might get filters of nested widgets
-    const QObjectList children = stackedWidget->children();
-    const QObjectList::const_iterator cend = children.constEnd();
-    for (QObjectList::const_iterator it = children.constBegin(); it != cend; ++it) {
-        QObject *o = *it;
+    for (QObject *o : stackedWidget->children()) {
         if (!o->isWidgetType())
             if (QStackedWidgetEventFilter *ef = qobject_cast<QStackedWidgetEventFilter *>(o))
                 return ef;
     }
-    return 0;
+    return nullptr;
 }
 
 QMenu *QStackedWidgetEventFilter::addStackedWidgetContextMenuActions(const QStackedWidget *stackedWidget, QMenu *popup)
 {
     QStackedWidgetEventFilter *filter = eventFilterOf(stackedWidget);
     if (!filter)
-        return 0;
+        return nullptr;
     return filter->addContextMenuActions(popup);
 }
 
@@ -290,7 +268,7 @@ void QStackedWidgetEventFilter::gotoPage(int page) {
     // Are we on a form or in a preview?
     if (QDesignerFormWindowInterface *fw = QDesignerFormWindowInterface::findFormWindow(stackedWidget())) {
         qdesigner_internal::SetPropertyCommand *cmd = new  qdesigner_internal::SetPropertyCommand(fw);
-        cmd->init(stackedWidget(), QStringLiteral("currentIndex"), page);
+        cmd->init(stackedWidget(), u"currentIndex"_s, page);
         fw->commandHistory()->push(cmd);
         fw->emitSelectionChanged(); // Magically prevent an endless loop triggered by auto-repeat.
         updateButtons();
@@ -301,7 +279,7 @@ void QStackedWidgetEventFilter::gotoPage(int page) {
 
 QMenu *QStackedWidgetEventFilter::addContextMenuActions(QMenu *popup)
 {
-    QMenu *pageMenu = 0;
+    QMenu *pageMenu = nullptr;
     const int count = stackedWidget()->count();
     const bool hasSeveralPages = count > 1;
     m_actionDeletePage->setEnabled(count);
@@ -321,7 +299,7 @@ QMenu *QStackedWidgetEventFilter::addContextMenuActions(QMenu *popup)
         insertPageMenu->addAction(m_actionInsertPage);
     } else {
         QAction *insertPageAction = popup->addAction(tr("Insert Page"));
-        connect(insertPageAction, SIGNAL(triggered()), this, SLOT(addPage()));
+        connect(insertPageAction, &QAction::triggered, this, &QStackedWidgetEventFilter::addPage);
     }
     popup->addAction(m_actionNextPage);
     m_actionNextPage->setEnabled(hasSeveralPages);
@@ -335,25 +313,25 @@ QMenu *QStackedWidgetEventFilter::addContextMenuActions(QMenu *popup)
 
 // --------  QStackedWidgetPropertySheet
 
-static const char *pagePropertyName = "currentPageName";
+static constexpr auto pagePropertyName = "currentPageName"_L1;
 
 QStackedWidgetPropertySheet::QStackedWidgetPropertySheet(QStackedWidget *object, QObject *parent) :
     QDesignerPropertySheet(object, parent),
     m_stackedWidget(object)
 {
-    createFakeProperty(QLatin1String(pagePropertyName), QString());
+    createFakeProperty(pagePropertyName, QString());
 }
 
 bool QStackedWidgetPropertySheet::isEnabled(int index) const
 {
-    if (propertyName(index) != QLatin1String(pagePropertyName))
+    if (propertyName(index) != pagePropertyName)
         return QDesignerPropertySheet::isEnabled(index);
-    return  m_stackedWidget->currentWidget() != 0;
+    return  m_stackedWidget->currentWidget() != nullptr;
 }
 
 void QStackedWidgetPropertySheet::setProperty(int index, const QVariant &value)
 {
-    if (propertyName(index) == QLatin1String(pagePropertyName)) {
+    if (propertyName(index) == pagePropertyName) {
         if (QWidget *w = m_stackedWidget->currentWidget())
             w->setObjectName(value.toString());
     } else {
@@ -363,7 +341,7 @@ void QStackedWidgetPropertySheet::setProperty(int index, const QVariant &value)
 
 QVariant QStackedWidgetPropertySheet::property(int index) const
 {
-    if (propertyName(index) == QLatin1String(pagePropertyName)) {
+    if (propertyName(index) == pagePropertyName) {
         if (const QWidget *w = m_stackedWidget->currentWidget())
             return w->objectName();
         return QString();
@@ -373,7 +351,7 @@ QVariant QStackedWidgetPropertySheet::property(int index) const
 
 bool QStackedWidgetPropertySheet::reset(int index)
 {
-    if (propertyName(index) == QLatin1String(pagePropertyName)) {
+    if (propertyName(index) == pagePropertyName) {
         setProperty(index, QString());
         return true;
     }
@@ -382,7 +360,7 @@ bool QStackedWidgetPropertySheet::reset(int index)
 
 bool QStackedWidgetPropertySheet::checkProperty(const QString &propertyName)
 {
-    return propertyName != QLatin1String(pagePropertyName);
+    return propertyName != pagePropertyName;
 }
 
 QT_END_NAMESPACE

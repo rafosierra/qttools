@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 /*  TRANSLATOR MainWindow
 
@@ -59,7 +29,6 @@
 #include <QBitmap>
 #include <QCloseEvent>
 #include <QDebug>
-#include <QDesktopWidget>
 #include <QDockWidget>
 #include <QFile>
 #include <QFileDialog>
@@ -74,10 +43,10 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMimeData>
-#include <QPrintDialog>
-#include <QPrinter>
 #include <QProcess>
-#include <QRegExp>
+#include <QRegularExpression>
+#include <QScreen>
+#include <QShortcut>
 #include <QSettings>
 #include <QSortFilterProxyModel>
 #include <QStackedWidget>
@@ -87,11 +56,15 @@
 #include <QUrl>
 #include <QWhatsThis>
 
+#if QT_CONFIG(printsupport)
+#include <QPrintDialog>
+#include <QPrinter>
+#endif
+
 #include <ctype.h>
 
-QT_BEGIN_NAMESPACE
-
-static const int MessageMS = 2500;
+using namespace Qt::Literals::StringLiterals;
+namespace {
 
 enum Ending {
     End_None,
@@ -101,10 +74,26 @@ enum Ending {
     End_Ellipsis
 };
 
-static bool hasFormPreview(const QString &fileName)
+static QString leadingWhitespace(const QString &str)
 {
-    return fileName.endsWith(QLatin1String(".ui"))
-      || fileName.endsWith(QLatin1String(".jui"));
+    int i = 0;
+    for (; i < str.size(); i++) {
+        if (!str[i].isSpace()) {
+            break;
+        }
+    }
+    return str.left(i);
+}
+
+static QString trailingWhitespace(const QString &str)
+{
+    int i = str.size();
+    while (--i >= 0) {
+        if (!str[i].isSpace()) {
+            break;
+        }
+    }
+    return str.mid(i + 1);
 }
 
 static Ending ending(QString str, QLocale::Language lang)
@@ -113,9 +102,9 @@ static Ending ending(QString str, QLocale::Language lang)
     if (str.isEmpty())
         return End_None;
 
-    switch (str.at(str.length() - 1).unicode()) {
+    switch (str.at(str.size() - 1).unicode()) {
     case 0x002e: // full stop
-        if (str.endsWith(QLatin1String("...")))
+        if (str.endsWith("..."_L1))
             return End_Ellipsis;
         else
             return End_FullStop;
@@ -150,6 +139,175 @@ static Ending ending(QString str, QLocale::Language lang)
     }
 }
 
+static bool haveMnemonic(const QString &str)
+{
+    for (const ushort *p = (ushort *)str.constData();;) { // Assume null-termination
+        ushort c = *p++;
+        if (!c)
+            break;
+        if (c == '&') {
+            c = *p++;
+            if (!c)
+                return false;
+            // Matches QKeySequence::mnemonic(), except for
+            // '&#' - most likely the start of an NCR
+            // '& ' - too many false positives
+            if (c != '&' && c != ' ' && c != '#' && QChar(c).isPrint()) {
+                const ushort *pp = p;
+                for (; *p < 256 && isalpha(*p); p++)
+                    ;
+                if (pp == p || *p != ';')
+                    return true;
+                // This looks like a HTML &entity;, so ignore it. As a HTML string
+                // won't contain accels anyway, we can stop scanning here.
+                break;
+            }
+        }
+    }
+    return false;
+}
+
+static QHash<int, int> countPlaceMarkers(const QString &str)
+{
+    QHash<int, int> counts;
+    const QChar *c = str.unicode();
+    const QChar *cend = c + str.size();
+    while (c < cend) {
+        if (c->unicode() == '%') {
+            const QChar *escape_start = ++c;
+            while (c->isDigit())
+                ++c;
+            const QChar *escape_end = c;
+            bool ok = true;
+            int markerIndex =
+                    QString::fromRawData(escape_start, escape_end - escape_start).toInt(&ok);
+            if (ok)
+                counts[markerIndex]++;
+        } else {
+            ++c;
+        }
+    }
+    return counts;
+}
+
+struct Validator
+{
+
+    static Validator fromSource(const QString &source, const Ui::MainWindow &ui,
+                                const QLocale::Language &locale,
+                                const QHash<QString, QList<Phrase *>> &phrases)
+    {
+        Validator v;
+        if (ui.actionAccelerators->isChecked())
+            v.m_haveMnemonic.emplace(haveMnemonic(source));
+        if (ui.actionEndingPunctuation->isChecked())
+            v.m_ending.emplace(ending(source, locale));
+        if (ui.actionPlaceMarkerMatches->isChecked())
+            v.m_placeMarkerCounts.emplace(countPlaceMarkers(source));
+        if (ui.actionSurroundingWhitespace->isChecked()) {
+            v.m_leadingWhiteSpace.emplace(leadingWhitespace(source));
+            v.m_trailingWhiteSpace.emplace(trailingWhitespace(source));
+        }
+        if (ui.actionPhraseMatches->isChecked()) {
+            v.m_matchingPhraseTargets.emplace();
+            QString fsource = MainWindow::friendlyString(source);
+            QStringList lookupWords = fsource.split(QLatin1Char(' '));
+
+            for (const QString &s : std::as_const(lookupWords))
+                if (auto wordPhrases = phrases.find(s); wordPhrases != phrases.constEnd())
+                    for (const Phrase *p : *wordPhrases)
+                        if (fsource == MainWindow::friendlyString(p->source()))
+                            v.m_matchingPhraseTargets.value()[s].append(
+                                    MainWindow::friendlyString(p->target()));
+        }
+
+        return v;
+    }
+
+    bool validate(const QString &translation, const QLocale::Language &locale, int modelId,
+                  bool needsRef, bool verbose, ErrorsView *errorsView)
+    {
+        bool danger = false;
+        if (m_haveMnemonic) {
+            if (*m_haveMnemonic != haveMnemonic(translation)) {
+                danger = true;
+                if (verbose)
+                    errorsView->addError(modelId,
+                                         *m_haveMnemonic ? ErrorsView::MissingAccelerator
+                                                         : ErrorsView::SuperfluousAccelerator);
+            }
+        }
+        if (m_placeMarkerCounts) {
+            if (*m_placeMarkerCounts != countPlaceMarkers(translation)) {
+                danger = true;
+                if (verbose)
+                    errorsView->addError(modelId, ErrorsView::PlaceMarkersDiffer);
+            }
+            if (needsRef && !translation.contains(QLatin1String("%n"))
+                && !translation.contains(QLatin1String("%Ln"))) {
+                danger = true;
+                if (verbose)
+                    errorsView->addError(modelId, ErrorsView::NumerusMarkerMissing);
+            }
+        }
+        if (m_ending) {
+            if (*m_ending != ending(translation, locale)) {
+                danger = true;
+                if (verbose)
+                    errorsView->addError(modelId, ErrorsView::PunctuationDiffers);
+            }
+        }
+        if (m_leadingWhiteSpace) {
+            Q_ASSERT(m_trailingWhiteSpace);
+            if (*m_leadingWhiteSpace != leadingWhitespace(translation)
+                || *m_trailingWhiteSpace != trailingWhitespace(translation)) {
+                danger = true;
+                if (verbose)
+                    errorsView->addError(modelId, ErrorsView::SurroundingWhitespaceDiffers);
+            }
+        }
+        if (m_matchingPhraseTargets) {
+            const QString ftranslation = MainWindow::friendlyString(translation);
+            for (auto itr = m_matchingPhraseTargets->cbegin();
+                 itr != m_matchingPhraseTargets->cend(); itr++) {
+                bool found = false;
+                for (const QString &target : itr.value()) {
+                    if (ftranslation.indexOf(target) >= 0) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    danger = true;
+                    if (verbose)
+                        errorsView->addError(modelId, ErrorsView::IgnoredPhrasebook, itr.key());
+                }
+            }
+        }
+
+        return danger;
+    }
+
+private:
+    Validator() = default;
+    std::optional<bool> m_haveMnemonic;
+    std::optional<QString> m_leadingWhiteSpace;
+    std::optional<QString> m_trailingWhiteSpace;
+    std::optional<Ending> m_ending;
+    std::optional<QHash<QString, QStringList>> m_matchingPhraseTargets;
+    std::optional<QHash<int, int>> m_placeMarkerCounts;
+};
+
+static const int MessageMS = 2500;
+
+static bool hasFormPreview(const QString &fileName)
+{
+    return fileName.endsWith(".ui"_L1) || fileName.endsWith(".jui"_L1);
+}
+
+} // namespace
+
+QT_BEGIN_NAMESPACE
 
 class ContextItemDelegate : public QItemDelegate
 {
@@ -157,7 +315,7 @@ public:
     ContextItemDelegate(QObject *parent, MultiDataModel *model) : QItemDelegate(parent), m_dataModel(model) {}
 
     void paint(QPainter *painter, const QStyleOptionViewItem &option,
-        const QModelIndex &index) const
+        const QModelIndex &index) const override
     {
         const QAbstractItemModel *model = index.model();
         Q_ASSERT(model);
@@ -179,8 +337,7 @@ private:
 
 static const QVariant &pxObsolete()
 {
-    static const QVariant v =
-        QVariant::fromValue(QPixmap(QLatin1String(":/images/s_check_obsolete.png")));
+    static const QVariant v = MarkIcon::create(MarkIcon::obsoleteMark);
     return v;
 }
 
@@ -190,7 +347,7 @@ class SortedMessagesModel : public QSortFilterProxyModel
 public:
     SortedMessagesModel(QObject *parent, MultiDataModel *model) : QSortFilterProxyModel(parent), m_dataModel(model) {}
 
-    QVariant headerData(int section, Qt::Orientation orientation, int role) const
+    QVariant headerData(int section, Qt::Orientation orientation, int role) const override
     {
         if (role == Qt::DisplayRole && orientation == Qt::Horizontal)
             switch (section - m_dataModel->modelCount()) {
@@ -214,7 +371,7 @@ class SortedContextsModel : public QSortFilterProxyModel
 public:
     SortedContextsModel(QObject *parent, MultiDataModel *model) : QSortFilterProxyModel(parent), m_dataModel(model) {}
 
-    QVariant headerData(int section, Qt::Orientation orientation, int role) const
+    QVariant headerData(int section, Qt::Orientation orientation, int role) const override
     {
         if (role == Qt::DisplayRole && orientation == Qt::Horizontal)
             switch (section - m_dataModel->modelCount()) {
@@ -240,7 +397,7 @@ public:
     FocusWatcher(MessageEditor *msgedit, QObject *parent) : QObject(parent), m_messageEditor(msgedit) {}
 
 protected:
-    bool eventFilter(QObject *object, QEvent *event);
+    bool eventFilter(QObject *object, QEvent *event) override;
 
 private:
     MessageEditor *m_messageEditor;
@@ -249,29 +406,26 @@ private:
 bool FocusWatcher::eventFilter(QObject *, QEvent *event)
 {
     if (event->type() == QEvent::FocusIn)
-        m_messageEditor->setEditorFocus(-1);
+        m_messageEditor->setEditorFocusForModel(-1);
     return false;
 }
 
 MainWindow::MainWindow()
     : QMainWindow(0, Qt::Window),
       m_assistantProcess(0),
-      m_printer(0),
-      m_findMatchCase(Qt::CaseInsensitive),
-      m_findIgnoreAccelerators(true),
-      m_findSkipObsolete(false),
       m_findWhere(DataModel::NoLocation),
       m_translationSettingsDialog(0),
       m_settingCurrentMessage(false),
       m_fileActiveModel(-1),
       m_editActiveModel(-1),
-      m_statistics(0)
+      m_statistics(0),
+      m_recentFiles(10)
 {
     setUnifiedTitleAndToolBarOnMac(true);
     m_ui.setupUi(this);
 
-#ifndef Q_OS_MAC
-    setWindowIcon(QPixmap(QLatin1String(":/images/appicon.png") ));
+#if !defined(Q_OS_MACOS) && !defined(Q_OS_WIN)
+    setWindowIcon(QPixmap(":/images/appicon.png"_L1));
 #endif
 
     m_dataModel = new MultiDataModel(this);
@@ -279,9 +433,8 @@ MainWindow::MainWindow()
 
     // Set up the context dock widget
     m_contextDock = new QDockWidget(this);
-    m_contextDock->setObjectName(QLatin1String("ContextDockWidget"));
+    m_contextDock->setObjectName("ContextDockWidget");
     m_contextDock->setAllowedAreas(Qt::AllDockWidgetAreas);
-    m_contextDock->setFeatures(QDockWidget::AllDockWidgetFeatures);
     m_contextDock->setWindowTitle(tr("Context"));
     m_contextDock->setAcceptDrops(true);
     m_contextDock->installEventFilter(this);
@@ -309,9 +462,8 @@ MainWindow::MainWindow()
 
     // Set up the messages dock widget
     m_messagesDock = new QDockWidget(this);
-    m_messagesDock->setObjectName(QLatin1String("StringsDockWidget"));
+    m_messagesDock->setObjectName("StringsDockWidget");
     m_messagesDock->setAllowedAreas(Qt::AllDockWidgetAreas);
-    m_messagesDock->setFeatures(QDockWidget::AllDockWidgetFeatures);
     m_messagesDock->setWindowTitle(tr("Strings"));
     m_messagesDock->setAcceptDrops(true);
     m_messagesDock->installEventFilter(this);
@@ -341,14 +493,13 @@ MainWindow::MainWindow()
     // We can't call setCentralWidget(m_messageEditor), since it is already called in m_ui.setupUi()
     QBoxLayout *lout = new QBoxLayout(QBoxLayout::TopToBottom, m_ui.centralwidget);
     lout->addWidget(m_messageEditor);
-    lout->setMargin(0);
+    lout->setContentsMargins(QMargins());
     m_ui.centralwidget->setLayout(lout);
 
     // Set up the phrases & guesses dock widget
     m_phrasesDock = new QDockWidget(this);
-    m_phrasesDock->setObjectName(QLatin1String("PhrasesDockwidget"));
+    m_phrasesDock->setObjectName("PhrasesDockwidget");
     m_phrasesDock->setAllowedAreas(Qt::AllDockWidgetAreas);
-    m_phrasesDock->setFeatures(QDockWidget::AllDockWidgetFeatures);
     m_phrasesDock->setWindowTitle(tr("Phrases and guesses"));
 
     m_phraseView = new PhraseView(m_dataModel, &m_phraseDict, this);
@@ -356,14 +507,11 @@ MainWindow::MainWindow()
 
     // Set up source code and form preview dock widget
     m_sourceAndFormDock = new QDockWidget(this);
-    m_sourceAndFormDock->setObjectName(QLatin1String("SourceAndFormDock"));
+    m_sourceAndFormDock->setObjectName("SourceAndFormDock");
     m_sourceAndFormDock->setAllowedAreas(Qt::AllDockWidgetAreas);
-    m_sourceAndFormDock->setFeatures(QDockWidget::AllDockWidgetFeatures);
     m_sourceAndFormDock->setWindowTitle(tr("Sources and Forms"));
     m_sourceAndFormView = new QStackedWidget(this);
     m_sourceAndFormDock->setWidget(m_sourceAndFormView);
-    //connect(m_sourceAndDock, SIGNAL(visibilityChanged(bool)),
-    //    m_sourceCodeView, SLOT(setActivated(bool)));
     m_formPreviewView = new FormPreviewView(0, m_dataModel);
     m_sourceCodeView = new SourceCodeView(0);
     m_sourceAndFormView->addWidget(m_sourceCodeView);
@@ -371,9 +519,8 @@ MainWindow::MainWindow()
 
     // Set up errors dock widget
     m_errorsDock = new QDockWidget(this);
-    m_errorsDock->setObjectName(QLatin1String("ErrorsDockWidget"));
+    m_errorsDock->setObjectName("ErrorsDockWidget");
     m_errorsDock->setAllowedAreas(Qt::AllDockWidgetAreas);
-    m_errorsDock->setFeatures(QDockWidget::AllDockWidgetFeatures);
     m_errorsDock->setWindowTitle(tr("Warnings"));
     m_errorsView = new ErrorsView(m_dataModel, this);
     m_errorsDock->setWidget(m_errorsView);
@@ -397,32 +544,36 @@ MainWindow::MainWindow()
 
     // Set up shortcuts for the dock widgets
     QShortcut *contextShortcut = new QShortcut(QKeySequence(Qt::Key_F6), this);
-    connect(contextShortcut, SIGNAL(activated()), this, SLOT(showContextDock()));
+    connect(contextShortcut, &QShortcut::activated,
+            this, &MainWindow::showContextDock);
     QShortcut *messagesShortcut = new QShortcut(QKeySequence(Qt::Key_F7), this);
-    connect(messagesShortcut, SIGNAL(activated()), this, SLOT(showMessagesDock()));
+    connect(messagesShortcut, &QShortcut::activated,
+            this, &MainWindow::showMessagesDock);
     QShortcut *errorsShortcut = new QShortcut(QKeySequence(Qt::Key_F8), this);
-    connect(errorsShortcut, SIGNAL(activated()), this, SLOT(showErrorDock()));
+    connect(errorsShortcut, &QShortcut::activated,
+            this, &MainWindow::showErrorDock);
     QShortcut *sourceCodeShortcut = new QShortcut(QKeySequence(Qt::Key_F9), this);
-    connect(sourceCodeShortcut, SIGNAL(activated()), this, SLOT(showSourceCodeDock()));
+    connect(sourceCodeShortcut, &QShortcut::activated,
+            this, &MainWindow::showSourceCodeDock);
     QShortcut *phrasesShortcut = new QShortcut(QKeySequence(Qt::Key_F10), this);
-    connect(phrasesShortcut, SIGNAL(activated()), this, SLOT(showPhrasesDock()));
+    connect(phrasesShortcut, &QShortcut::activated,
+            this, &MainWindow::showPhrasesDock);
 
-    connect(m_phraseView, SIGNAL(phraseSelected(int,QString)),
-            m_messageEditor, SLOT(setTranslation(int,QString)));
-    connect(m_contextView->selectionModel(),
-            SIGNAL(currentRowChanged(QModelIndex,QModelIndex)),
-            this, SLOT(selectedContextChanged(QModelIndex,QModelIndex)));
-    connect(m_messageView->selectionModel(),
-            SIGNAL(currentRowChanged(QModelIndex,QModelIndex)),
-            this, SLOT(selectedMessageChanged(QModelIndex,QModelIndex)));
-    connect(m_contextView->selectionModel(),
-            SIGNAL(currentColumnChanged(QModelIndex,QModelIndex)),
-            SLOT(updateLatestModel(QModelIndex)));
-    connect(m_messageView->selectionModel(),
-            SIGNAL(currentColumnChanged(QModelIndex,QModelIndex)),
-            SLOT(updateLatestModel(QModelIndex)));
+    connect(m_phraseView, &PhraseView::phraseSelected,
+            m_messageEditor, &MessageEditor::setTranslation);
+    connect(m_phraseView, &PhraseView::setCurrentMessageFromGuess,
+            this, &MainWindow::setCurrentMessageFromGuess);
+    connect(m_contextView->selectionModel(), &QItemSelectionModel::currentRowChanged,
+            this, &MainWindow::selectedContextChanged);
+    connect(m_messageView->selectionModel(), &QItemSelectionModel::currentRowChanged,
+            this, &MainWindow::selectedMessageChanged);
+    connect(m_contextView->selectionModel(), &QItemSelectionModel::currentColumnChanged,
+            this, &MainWindow::updateLatestModel);
+    connect(m_messageView->selectionModel(), &QItemSelectionModel::currentColumnChanged,
+            this, &MainWindow::updateLatestModel);
 
-    connect(m_messageEditor, SIGNAL(activeModelChanged(int)), SLOT(updateActiveModel(int)));
+    connect(m_messageEditor, &MessageEditor::activeModelChanged,
+            this, &MainWindow::updateActiveModel);
 
     m_translateDialog = new TranslateDialog(this);
     m_batchTranslateDialog = new BatchTranslationDialog(m_dataModel, this);
@@ -440,46 +591,48 @@ MainWindow::MainWindow()
     initViewHeaders();
     resetSorting();
 
-    connect(m_dataModel, SIGNAL(modifiedChanged(bool)),
-            this, SLOT(setWindowModified(bool)));
-    connect(m_dataModel, SIGNAL(modifiedChanged(bool)),
-            m_modifiedLabel, SLOT(setVisible(bool)));
-    connect(m_dataModel, SIGNAL(multiContextDataChanged(MultiDataIndex)),
-            SLOT(updateProgress()));
-    connect(m_dataModel, SIGNAL(messageDataChanged(MultiDataIndex)),
-            SLOT(maybeUpdateStatistics(MultiDataIndex)));
-    connect(m_dataModel, SIGNAL(translationChanged(MultiDataIndex)),
-            SLOT(translationChanged(MultiDataIndex)));
-    connect(m_dataModel, SIGNAL(languageChanged(int)),
-            SLOT(updatePhraseDict(int)));
+    connect(m_dataModel, &MultiDataModel::modifiedChanged,
+            this, &QWidget::setWindowModified);
+    connect(m_dataModel, &MultiDataModel::modifiedChanged,
+            m_modifiedLabel, &QWidget::setVisible);
+    connect(m_dataModel, &MultiDataModel::multiContextDataChanged,
+            this, &MainWindow::updateProgress);
+    connect(m_dataModel, &MultiDataModel::messageDataChanged,
+            this, &MainWindow::maybeUpdateStatistics);
+    connect(m_dataModel, &MultiDataModel::translationChanged,
+            this, &MainWindow::translationChanged);
+    connect(m_dataModel, &MultiDataModel::languageChanged,
+            this, &MainWindow::updatePhraseDict);
 
     setWindowModified(m_dataModel->isModified());
     m_modifiedLabel->setVisible(m_dataModel->isModified());
 
-    connect(m_messageView, SIGNAL(clicked(QModelIndex)),
-            this, SLOT(toggleFinished(QModelIndex)));
-    connect(m_messageView, SIGNAL(activated(QModelIndex)),
-            m_messageEditor, SLOT(setEditorFocus()));
-    connect(m_contextView, SIGNAL(activated(QModelIndex)),
-            m_messageView, SLOT(setFocus()));
-    connect(m_messageEditor, SIGNAL(translationChanged(QStringList)),
-            this, SLOT(updateTranslation(QStringList)));
-    connect(m_messageEditor, SIGNAL(translatorCommentChanged(QString)),
-            this, SLOT(updateTranslatorComment(QString)));
-    connect(m_findDialog, SIGNAL(findNext(QString,DataModel::FindLocation,bool,bool,bool)),
-            this, SLOT(findNext(QString,DataModel::FindLocation,bool,bool,bool)));
-    connect(m_translateDialog, SIGNAL(requestMatchUpdate(bool&)), SLOT(updateTranslateHit(bool&)));
-    connect(m_translateDialog, SIGNAL(activated(int)), SLOT(translate(int)));
+    connect(m_messageView, &QAbstractItemView::clicked,
+            this, &MainWindow::toggleFinished);
+    connect(m_messageView, &QAbstractItemView::activated,
+            m_messageEditor, &MessageEditor::setEditorFocus);
+    connect(m_contextView, &QAbstractItemView::activated,
+            m_messageView, qOverload<>(&QWidget::setFocus));
+    connect(m_messageEditor, &MessageEditor::translationChanged,
+            this, &MainWindow::updateTranslation);
+    connect(m_messageEditor, &MessageEditor::translatorCommentChanged,
+            this, &MainWindow::updateTranslatorComment);
+    connect(m_findDialog, &FindDialog::findNext,
+            this, &MainWindow::findNext);
+    connect(m_translateDialog, &TranslateDialog::requestMatchUpdate,
+            this, &MainWindow::updateTranslateHit);
+    connect(m_translateDialog, &TranslateDialog::activated,
+            this, &MainWindow::translate);
 
-    QSize as(qApp->desktop()->size());
+    QSize as(screen()->size());
     as -= QSize(30, 30);
     resize(QSize(1000, 800).boundedTo(as));
     show();
     readConfig();
     m_statistics = 0;
 
-    connect(m_ui.actionLengthVariants, SIGNAL(toggled(bool)),
-            m_messageEditor, SLOT(setLengthVariants(bool)));
+    connect(m_ui.actionLengthVariants, &QAction::toggled,
+            m_messageEditor, &MessageEditor::setLengthVariants);
     m_messageEditor->setLengthVariants(m_ui.actionLengthVariants->isChecked());
     m_messageEditor->setVisualizeWhitespace(m_ui.actionVisualizeWhitespace->isChecked());
 
@@ -502,7 +655,9 @@ MainWindow::~MainWindow()
     qDeleteAll(m_phraseBooks);
     delete m_dataModel;
     delete m_statistics;
+#if QT_CONFIG(printsupport)
     delete m_printer;
+#endif
 }
 
 void MainWindow::initViewHeaders()
@@ -527,7 +682,7 @@ void MainWindow::modelCountChanged()
 
     if (!mc) {
         selectedMessageChanged(QModelIndex(), QModelIndex());
-        updateLatestModel(-1);
+        doUpdateLatestModel(-1);
     } else {
         if (!m_contextView->currentIndex().isValid()) {
             // Ensure that something is selected
@@ -542,9 +697,9 @@ void MainWindow::modelCountChanged()
         // Field insertions/removals are automatic, but not the re-fill
         m_messageEditor->showMessage(m_currentIndex);
         if (mc == 1)
-            updateLatestModel(0);
+            doUpdateLatestModel(0);
         else if (m_currentIndex.model() >= mc)
-            updateLatestModel(mc - 1);
+            doUpdateLatestModel(mc - 1);
     }
 
     m_contextView->setUpdatesEnabled(true);
@@ -555,6 +710,7 @@ void MainWindow::modelCountChanged()
 
     m_ui.actionFind->setEnabled(m_dataModel->contextCount() > 0);
     m_ui.actionFindNext->setEnabled(false);
+    m_ui.actionFindPrev->setEnabled(false);
 
     m_formPreviewView->setSourceContext(-1, 0);
 }
@@ -578,14 +734,14 @@ bool MainWindow::openFiles(const QStringList &names, bool globalReadWrite)
 
     QList<OpenedFile> opened;
     bool closeOld = false;
-    foreach (QString name, names) {
+    for (QString name : names) {
         if (!waitCursor) {
             QApplication::setOverrideCursor(Qt::WaitCursor);
             waitCursor = true;
         }
 
         bool readWrite = globalReadWrite;
-        if (name.startsWith(QLatin1Char('='))) {
+        if (name.startsWith(u'=')) {
             name.remove(0, 1);
             readWrite = false;
         }
@@ -593,7 +749,7 @@ bool MainWindow::openFiles(const QStringList &names, bool globalReadWrite)
         if (fi.exists()) // Make the loader error out instead of reading stdin
             name = fi.canonicalFilePath();
         if (m_dataModel->isFileLoaded(name) >= 0)
-            continue;
+            closeOld = true;
 
         bool langGuessed;
         DataModel *dm = new DataModel(m_dataModel);
@@ -609,9 +765,7 @@ bool MainWindow::openFiles(const QStringList &names, bool globalReadWrite)
                     tr("The file '%1' does not seem to be related to the currently open file(s) '%2'.\n\n"
                        "Close the open file(s) first?")
                        .arg(DataModel::prettifyPlainFileName(name), m_dataModel->condensedSrcFileNames(true)),
-                    QMessageBox::Yes | QMessageBox::Default,
-                    QMessageBox::No,
-                    QMessageBox::Cancel | QMessageBox::Escape))
+                    QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel, QMessageBox::Yes))
                 {
                     case QMessageBox::Cancel:
                         delete dm;
@@ -619,7 +773,7 @@ bool MainWindow::openFiles(const QStringList &names, bool globalReadWrite)
                     case QMessageBox::Yes:
                         closeOld = true;
                         break;
-                    case QMessageBox::No:
+                    default:
                         break;
                 }
             }
@@ -632,19 +786,17 @@ bool MainWindow::openFiles(const QStringList &names, bool globalReadWrite)
                        " which is being loaded as well.\n\n"
                        "Skip loading the first named file?")
                        .arg(DataModel::prettifyPlainFileName(name), opened.first().dataModel->srcFileName(true)),
-                    QMessageBox::Yes | QMessageBox::Default,
-                    QMessageBox::No,
-                    QMessageBox::Cancel | QMessageBox::Escape))
+                    QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel, QMessageBox::Yes))
                 {
                     case QMessageBox::Cancel:
                         delete dm;
-                        foreach (const OpenedFile &op, opened)
+                        for (const OpenedFile &op : std::as_const(opened))
                             delete op.dataModel;
                         return false;
                     case QMessageBox::Yes:
                         delete dm;
                         continue;
-                    case QMessageBox::No:
+                    default:
                         break;
                 }
             }
@@ -658,13 +810,13 @@ bool MainWindow::openFiles(const QStringList &names, bool globalReadWrite)
             waitCursor = false;
         }
         if (!closeAll()) {
-            foreach (const OpenedFile &op, opened)
+            for (const OpenedFile &op : std::as_const(opened))
                 delete op.dataModel;
             return false;
         }
     }
 
-    foreach (const OpenedFile &op, opened) {
+    for (const OpenedFile &op : std::as_const(opened)) {
         if (op.langGuessed) {
             if (waitCursor) {
                 QApplication::restoreOverrideCursor();
@@ -682,7 +834,7 @@ bool MainWindow::openFiles(const QStringList &names, bool globalReadWrite)
     m_contextView->setUpdatesEnabled(false);
     m_messageView->setUpdatesEnabled(false);
     int totalCount = 0;
-    foreach (const OpenedFile &op, opened) {
+    for (const OpenedFile &op : std::as_const(opened)) {
         m_phraseDict.append(QHash<QString, QList<Phrase *> >());
         m_dataModel->append(op.dataModel, op.readWrite);
         if (op.readWrite)
@@ -691,17 +843,11 @@ bool MainWindow::openFiles(const QStringList &names, bool globalReadWrite)
     }
     statusBar()->showMessage(tr("%n translation unit(s) loaded.", 0, totalCount), MessageMS);
     modelCountChanged();
-    recentFiles().addFiles(m_dataModel->srcFileNames());
+    m_recentFiles.addFiles(m_dataModel->srcFileNames());
 
     revalidate();
     QApplication::restoreOverrideCursor();
     return true;
-}
-
-RecentFiles &MainWindow::recentFiles()
-{
-    static RecentFiles recentFiles(10);
-    return recentFiles;
 }
 
 void MainWindow::open()
@@ -735,7 +881,7 @@ bool MainWindow::closeAll()
         m_dataModel->closeAll();
         modelCountChanged();
         initViewHeaders();
-        recentFiles().closeGroup();
+        m_recentFiles.closeGroup();
         return true;
     }
     return false;
@@ -743,16 +889,16 @@ bool MainWindow::closeAll()
 
 static QString fileFilters(bool allFirst)
 {
-    static const QString pattern(QLatin1String("%1 (*.%2);;"));
+    static const QString pattern("%1 (*.%2);;"_L1);
     QStringList allExtensions;
     QString filter;
-    foreach (const Translator::FileFormat &format, Translator::registeredFileFormats()) {
+    for (const Translator::FileFormat &format : std::as_const(Translator::registeredFileFormats())) {
         if (format.fileType == Translator::FileFormat::TranslationSource && format.priority >= 0) {
-            filter.append(pattern.arg(format.description).arg(format.extension));
-            allExtensions.append(QLatin1String("*.") + format.extension);
+            filter.append(pattern.arg(format.description(), format.extension));
+            allExtensions.append("*."_L1 + format.extension);
         }
     }
-    QString allFilter = QObject::tr("Translation files (%1);;").arg(allExtensions.join(QLatin1String(" ")));
+    QString allFilter = QObject::tr("Translation files (%1);;").arg(allExtensions.join(u' '));
     if (allFirst)
         filter.prepend(allFilter);
     else
@@ -764,17 +910,17 @@ static QString fileFilters(bool allFirst)
 QStringList MainWindow::pickTranslationFiles()
 {
     QString dir;
-    if (!recentFiles().isEmpty())
-        dir = QFileInfo(recentFiles().lastOpenedFile()).path();
+    if (!m_recentFiles.isEmpty())
+        dir = QFileInfo(m_recentFiles.lastOpenedFile()).path();
 
     QString varFilt;
     if (m_dataModel->modelCount()) {
         QFileInfo mainFile(m_dataModel->srcFileName(0));
         QString mainFileBase = mainFile.baseName();
-        int pos = mainFileBase.indexOf(QLatin1Char('_'));
+        int pos = mainFileBase.indexOf(u'_');
         if (pos > 0)
             varFilt = tr("Related files (%1);;")
-                .arg(mainFileBase.left(pos) + QLatin1String("_*.") + mainFile.completeSuffix());
+                              .arg(mainFileBase.left(pos) + "_*."_L1 + mainFile.completeSuffix());
     }
 
     return QFileDialog::getOpenFileNames(this, tr("Open Translation Files"), dir,
@@ -797,7 +943,7 @@ void MainWindow::saveAll()
     for (int i = 0; i < m_dataModel->modelCount(); ++i)
         if (m_dataModel->isModelWritable(i))
             saveInternal(i);
-    recentFiles().closeGroup();
+    m_recentFiles.closeGroup();
 }
 
 void MainWindow::save()
@@ -819,7 +965,7 @@ void MainWindow::saveAs()
         if (m_dataModel->saveAs(m_currentIndex.model(), newFilename, this)) {
             updateCaption();
             statusBar()->showMessage(tr("File saved."), MessageMS);
-            recentFiles().addFiles(m_dataModel->srcFileNames());
+            m_recentFiles.addFiles(m_dataModel->srcFileNames());
         }
     }
 }
@@ -830,8 +976,7 @@ void MainWindow::releaseAs()
         return;
 
     QFileInfo oldFile(m_dataModel->srcFileName(m_currentIndex.model()));
-    QString newFilename = oldFile.path() + QLatin1String("/")
-                + oldFile.completeBaseName() + QLatin1String(".qm");
+    QString newFilename = oldFile.path() + "/"_L1 + oldFile.completeBaseName() + ".qm"_L1;
 
     newFilename = QFileDialog::getSaveFileName(this, tr("Release"), newFilename,
         tr("Qt message files for released applications (*.qm)\nAll files (*)"));
@@ -844,8 +989,7 @@ void MainWindow::releaseAs()
 void MainWindow::releaseInternal(int model)
 {
     QFileInfo oldFile(m_dataModel->srcFileName(model));
-    QString newFilename = oldFile.path() + QLatin1Char('/')
-                + oldFile.completeBaseName() + QLatin1String(".qm");
+    QString newFilename = oldFile.path() + u'/' + oldFile.completeBaseName() + ".qm"_L1;
 
     if (!newFilename.isEmpty()) {
         if (m_dataModel->release(model, newFilename, false, false, SaveEverything, this))
@@ -869,6 +1013,7 @@ void MainWindow::releaseAll()
             releaseInternal(i);
 }
 
+#if QT_CONFIG(printsupport)
 QPrinter *MainWindow::printer()
 {
     if (!m_printer)
@@ -915,7 +1060,7 @@ void MainWindow::print()
                         }
                         if (m->message().isPlural() && m_dataModel->language(k) != QLocale::C) {
                             QStringList transls = m->translations();
-                            pout.addBox(40, transls.join(QLatin1String("\n")));
+                            pout.addBox(40, transls.join(u'\n'));
                         } else {
                             pout.addBox(40, m->translation());
                         }
@@ -926,7 +1071,7 @@ void MainWindow::print()
                             type = tr("finished");
                             break;
                         case TranslatorMessage::Unfinished:
-                            type = m->danger() ? tr("unresolved") : QLatin1String("unfinished");
+                            type = m->danger() ? tr("unresolved") : "unfinished"_L1;
                             break;
                         case TranslatorMessage::Obsolete:
                         case TranslatorMessage::Vanished:
@@ -958,6 +1103,8 @@ void MainWindow::print()
     }
 }
 
+#endif // QT_CONFIG(printsupport)
+
 bool MainWindow::searchItem(DataModel::FindLocation where, const QString &searchWhat)
 {
     if ((m_findWhere & where) == 0)
@@ -965,21 +1112,26 @@ bool MainWindow::searchItem(DataModel::FindLocation where, const QString &search
 
     QString text = searchWhat;
 
-    if (m_findIgnoreAccelerators)
+    if (m_findOptions.testFlag(FindDialog::IgnoreAccelerators))
         // FIXME: This removes too much. The proper solution might be too slow, though.
-        text.remove(QLatin1Char('&'));
+        text.remove(u'&');
 
-    int foundOffset = text.indexOf(m_findText, 0, m_findMatchCase);
-    return foundOffset >= 0;
+    if (m_findOptions.testFlag(FindDialog::UseRegExp))
+        return m_findDialog->getRegExp().match(text).hasMatch();
+    else
+        return text.indexOf(m_findText, 0, m_findOptions.testFlag(FindDialog::MatchCase)
+                            ? Qt::CaseSensitive : Qt::CaseInsensitive) >= 0;
 }
 
-void MainWindow::findAgain()
+void MainWindow::findAgain(FindDirection direction)
 {
     if (m_dataModel->contextCount() == 0)
         return;
 
     const QModelIndex &startIndex = m_messageView->currentIndex();
-    QModelIndex index = nextMessage(startIndex);
+    QModelIndex index = (direction == FindNext
+            ? nextMessage(startIndex)
+            : prevMessage(startIndex));
 
     while (index.isValid()) {
         QModelIndex realIndex = m_sortedMessagesModel->mapToSource(index);
@@ -987,8 +1139,13 @@ void MainWindow::findAgain()
         bool hadMessage = false;
         for (int i = 0; i < m_dataModel->modelCount(); ++i) {
             if (MessageItem *m = m_dataModel->messageItem(dataIndex, i)) {
-                if (m_findSkipObsolete && m->isObsolete())
+                if (m_findStatusFilter != -1 && m_findStatusFilter != m->type())
                     continue;
+
+                if (m_findOptions.testFlag(FindDialog::SkipObsolete)
+                        && m->isObsolete())
+                    continue;
+
                 bool found = true;
                 do {
                     if (!hadMessage) {
@@ -1001,7 +1158,8 @@ void MainWindow::findAgain()
                         if (searchItem(DataModel::Comments, m->extraComment()))
                             break;
                     }
-                    foreach (const QString &trans, m->translations())
+                    const auto translations = m->translations();
+                    for (const QString &trans : translations)
                         if (searchItem(DataModel::Translations, trans))
                             goto didfind;
                     if (searchItem(DataModel::Comments, m->translatorComment()))
@@ -1033,7 +1191,9 @@ void MainWindow::findAgain()
         if (index == startIndex)
             break;
 
-        index = nextMessage(index);
+        index = (direction == FindNext
+                    ? nextMessage(index)
+                    : prevMessage(index));
     }
 
     qApp->beep();
@@ -1100,37 +1260,35 @@ void MainWindow::translate(int mode)
             m_dataModel->setFinished(m_currentIndex, markFinished);
         }
 
+        const QModelIndex firstIndex = firstMessage();
         if (findText != m_latestFindText || caseSensitivity != m_latestCaseSensitivity) {
             m_latestFindText = findText;
             m_latestCaseSensitivity = caseSensitivity;
-            m_remainingCount = m_dataModel->messageCount();
+            m_searchIndex = firstIndex;
             m_hitCount = 0;
         }
 
-        QModelIndex index = m_messageView->currentIndex();
-        int prevRemained = m_remainingCount;
         forever {
-            if (--m_remainingCount <= 0) {
-                if (!m_hitCount)
-                    break;
-                m_remainingCount = m_dataModel->messageCount() - 1;
-                if (QMessageBox::question(m_translateDialog, tr("Translate - Qt Linguist"),
-                        tr("No more occurrences of '%1'. Start over?").arg(findText),
-                        QMessageBox::Yes|QMessageBox::No) != QMessageBox::Yes)
-                    return;
-                m_remainingCount -= prevRemained;
-            }
-
-            index = nextMessage(index);
-
-            QModelIndex realIndex = m_sortedMessagesModel->mapToSource(index);
+            QModelIndex realIndex = m_sortedMessagesModel->mapToSource(m_searchIndex);
             MultiDataIndex dataIndex = m_messageModel->dataIndex(realIndex, m_currentIndex.model());
+            m_searchIndex = nextMessage(m_searchIndex);
             if (MessageItem *m = m_dataModel->messageItem(dataIndex)) {
                 if (!m->isObsolete() && m->compare(findText, false, caseSensitivity)) {
                     setCurrentMessage(realIndex, m_currentIndex.model());
                     ++translatedCount;
                     ++m_hitCount;
                     break;
+                }
+            }
+
+            if (m_searchIndex == firstIndex && m_hitCount) {
+                if (QMessageBox::question(
+                            m_translateDialog, tr("Translate - Qt Linguist"),
+                            tr("No more occurrences of '%1'. Start over?").arg(findText),
+                            QMessageBox::Yes | QMessageBox::No)
+                    != QMessageBox::Yes) {
+                    m_searchIndex = prevMessage(m_searchIndex);
+                    return;
                 }
             }
         }
@@ -1156,7 +1314,7 @@ void MainWindow::newPhraseBook()
             return;
         m_phraseBookDir = QFileInfo(name).absolutePath();
         if (savePhraseBook(&name, pb)) {
-            if (openPhraseBook(name))
+            if (doOpenPhraseBook(name))
                 statusBar()->showMessage(tr("Phrase book created."), MessageMS);
         }
     }
@@ -1164,7 +1322,7 @@ void MainWindow::newPhraseBook()
 
 bool MainWindow::isPhraseBookOpen(const QString &name)
 {
-    foreach(const PhraseBook *pb, m_phraseBooks) {
+    for (const PhraseBook *pb : std::as_const(m_phraseBooks)) {
         if (pb->fileName() == name)
             return true;
     }
@@ -1180,8 +1338,8 @@ void MainWindow::openPhraseBook()
     if (!name.isEmpty()) {
         m_phraseBookDir = QFileInfo(name).absolutePath();
         if (!isPhraseBookOpen(name)) {
-            if (PhraseBook *phraseBook = openPhraseBook(name)) {
-                int n = phraseBook->phrases().count();
+            if (PhraseBook *phraseBook = doOpenPhraseBook(name)) {
+                int n = phraseBook->phrases().size();
                 statusBar()->showMessage(tr("%n phrase(s) loaded.", 0, n), MessageMS);
             }
         }
@@ -1205,7 +1363,8 @@ void MainWindow::closePhraseBook(QAction *action)
     m_ui.menuPrintPhraseBook->removeAction(act);
 
     m_phraseBooks.removeOne(pb);
-    disconnect(pb, SIGNAL(listChanged()), this, SLOT(updatePhraseDicts()));
+    disconnect(pb, &PhraseBook::listChanged,
+               this, &MainWindow::updatePhraseDicts);
     updatePhraseDicts();
     delete pb;
     updatePhraseBookActions();
@@ -1220,6 +1379,8 @@ void MainWindow::editPhraseBook(QAction *action)
     updatePhraseDicts();
 }
 
+#if QT_CONFIG(printsupport)
+
 void MainWindow::printPhraseBook(QAction *action)
 {
     PhraseBook *phraseBook = m_phraseBookMenu[PhrasePrintMenu].value(action);
@@ -1232,7 +1393,8 @@ void MainWindow::printPhraseBook(QAction *action)
         statusBar()->showMessage(tr("Printing..."));
         PrintOut pout(printer());
         pout.setRule(PrintOut::ThinRule);
-        foreach (const Phrase *p, phraseBook->phrases()) {
+        const auto phrases = phraseBook->phrases();
+        for (const Phrase *p : phrases) {
             pout.setGuide(p->source());
             pout.addBox(29, p->source());
             pout.addBox(4);
@@ -1255,17 +1417,17 @@ void MainWindow::printPhraseBook(QAction *action)
     }
 }
 
+#endif // QT_CONFIG(printsupport)
+
 void MainWindow::addToPhraseBook()
 {
-    MessageItem *currentMessage = m_dataModel->messageItem(m_currentIndex);
-    Phrase *phrase = new Phrase(currentMessage->text(), currentMessage->translation(), QString());
     QStringList phraseBookList;
     QHash<QString, PhraseBook *> phraseBookHash;
-    foreach (PhraseBook *pb, m_phraseBooks) {
+    for (PhraseBook *pb : std::as_const(m_phraseBooks)) {
         if (pb->language() != QLocale::C && m_dataModel->language(m_currentIndex.model()) != QLocale::C) {
             if (pb->language() != m_dataModel->language(m_currentIndex.model()))
                 continue;
-            if (pb->country() == m_dataModel->model(m_currentIndex.model())->country())
+            if (pb->territory() == m_dataModel->model(m_currentIndex.model())->territory())
                 phraseBookList.prepend(pb->friendlyPhraseBookName());
             else
                 phraseBookList.append(pb->friendlyPhraseBookName());
@@ -1277,20 +1439,31 @@ void MainWindow::addToPhraseBook()
     if (phraseBookList.isEmpty()) {
         QMessageBox::warning(this, tr("Add to phrase book"),
               tr("No appropriate phrasebook found."));
-    } else if (phraseBookList.size() == 1) {
+        return;
+    }
+
+    QString selectedPhraseBook;
+    if (phraseBookList.size() == 1) {
+        selectedPhraseBook = phraseBookList.at(0);
         if (QMessageBox::information(this, tr("Add to phrase book"),
-              tr("Adding entry to phrasebook %1").arg(phraseBookList.at(0)),
+              tr("Adding entry to phrasebook %1").arg(selectedPhraseBook),
                QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Ok)
-                              == QMessageBox::Ok)
-            phraseBookHash.value(phraseBookList.at(0))->append(phrase);
+                              != QMessageBox::Ok)
+            return;
     } else {
         bool okPressed = false;
-        QString selection = QInputDialog::getItem(this, tr("Add to phrase book"),
-                                tr("Select phrase book to add to"),
-                                phraseBookList, 0, false, &okPressed);
-        if (okPressed)
-            phraseBookHash.value(selection)->append(phrase);
+        selectedPhraseBook = QInputDialog::getItem(this, tr("Add to phrase book"),
+                                                   tr("Select phrase book to add to"),
+                                                   phraseBookList, 0, false, &okPressed);
+        if (!okPressed)
+            return;
     }
+
+    MessageItem *currentMessage = m_dataModel->messageItem(m_currentIndex);
+    Phrase *phrase = new Phrase(currentMessage->text(), currentMessage->translation(),
+                                QString(), nullptr);
+
+    phraseBookHash.value(selectedPhraseBook)->append(phrase);
 }
 
 void MainWindow::resetSorting()
@@ -1305,14 +1478,14 @@ void MainWindow::manual()
         m_assistantProcess = new QProcess();
 
     if (m_assistantProcess->state() != QProcess::Running) {
-        QString app = QLibraryInfo::location(QLibraryInfo::BinariesPath) + QDir::separator();
+        QString app = QLibraryInfo::path(QLibraryInfo::BinariesPath) + QDir::separator();
 #if !defined(Q_OS_MAC)
-        app += QLatin1String("assistant");
+        app += "assistant"_L1;
 #else
-        app += QLatin1String("Assistant.app/Contents/MacOS/Assistant");
+        app += "Assistant.app/Contents/MacOS/Assistant"_L1;
 #endif
 
-        m_assistantProcess->start(app, QStringList() << QLatin1String("-enableRemoteControl"));
+        m_assistantProcess->start(app, { "-enableRemoteControl"_L1 });
         if (!m_assistantProcess->waitForStarted()) {
             QMessageBox::critical(this, tr("Qt Linguist"),
                 tr("Unable to launch Qt Assistant (%1)").arg(app));
@@ -1320,11 +1493,8 @@ void MainWindow::manual()
         }
     }
     QTextStream str(m_assistantProcess);
-    str << QLatin1String("SetSource qthelp://org.qt-project.linguist.")
-        << (QT_VERSION >> 16) << ((QT_VERSION >> 8) & 0xFF)
-        << (QT_VERSION & 0xFF)
-        << QLatin1String("/qtlinguist/qtlinguist-index.html")
-        << QLatin1Char('\n') << endl;
+    str << "SetSource qthelp://org.qt-project.linguist."_L1 << QT_VERSION_MAJOR << QT_VERSION_MINOR
+        << QT_VERSION_PATCH << "/qtlinguist/qtlinguist-index.html"_L1 << u'\n' << Qt::endl;
 }
 
 void MainWindow::about()
@@ -1334,11 +1504,11 @@ void MainWindow::about()
     QString version = tr("Version %1");
     version = version.arg(QLatin1String(QT_VERSION_STR));
 
-    box.setText(tr("<center><img src=\":/images/splash.png\"/></img><p>%1</p></center>"
-                    "<p>Qt Linguist is a tool for adding translations to Qt "
-                    "applications.</p>"
-                    "<p>Copyright (C) %2 The Qt Company Ltd."
-                   ).arg(version, QStringLiteral("2015")));
+    const QString description
+            = tr("Qt Linguist is a tool for adding translations to Qt applications.");
+    box.setText(QStringLiteral("<center><img src=\":/images/icons/linguist-128-32.png\"/></img><p>%1</p></center>"
+                               "<p>%2</p>"
+                               "<p>Copyright (C) The Qt Company Ltd.</p>").arg(version, description));
 
     box.setWindowTitle(QApplication::translate("AboutDialog", "Qt Linguist"));
     box.setIcon(QMessageBox::NoIcon);
@@ -1355,7 +1525,9 @@ void MainWindow::setupPhrase()
     bool enabled = !m_phraseBooks.isEmpty();
     m_ui.menuClosePhraseBook->setEnabled(enabled);
     m_ui.menuEditPhraseBook->setEnabled(enabled);
+#if QT_CONFIG(printsupport)
     m_ui.menuPrintPhraseBook->setEnabled(enabled);
+#endif
 }
 
 void MainWindow::closeEvent(QCloseEvent *e)
@@ -1373,16 +1545,14 @@ bool MainWindow::maybeSaveAll()
 
     switch (QMessageBox::information(this, tr("Qt Linguist"),
         tr("Do you want to save the modified files?"),
-        QMessageBox::Yes | QMessageBox::Default,
-        QMessageBox::No,
-        QMessageBox::Cancel | QMessageBox::Escape))
+        QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel, QMessageBox::Yes))
     {
         case QMessageBox::Cancel:
             return false;
         case QMessageBox::Yes:
             saveAll();
             return !m_dataModel->isModified();
-        case QMessageBox::No:
+        default:
             break;
     }
     return true;
@@ -1395,16 +1565,14 @@ bool MainWindow::maybeSave(int model)
 
     switch (QMessageBox::information(this, tr("Qt Linguist"),
         tr("Do you want to save '%1'?").arg(m_dataModel->srcFileName(model, true)),
-        QMessageBox::Yes | QMessageBox::Default,
-        QMessageBox::No,
-        QMessageBox::Cancel | QMessageBox::Escape))
+        QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel, QMessageBox::Yes))
     {
         case QMessageBox::Cancel:
             return false;
         case QMessageBox::Yes:
             saveInternal(model);
             return !m_dataModel->isModified(model);
-        case QMessageBox::No:
+        default:
             break;
     }
     return true;
@@ -1425,8 +1593,11 @@ void MainWindow::updateCaption()
     m_ui.actionSaveAll->setEnabled(enableRw);
     m_ui.actionReleaseAll->setEnabled(enableRw);
     m_ui.actionCloseAll->setEnabled(enable);
+#if QT_CONFIG(printsupport)
     m_ui.actionPrint->setEnabled(enable);
+#endif
     m_ui.actionAccelerators->setEnabled(enable);
+    m_ui.actionSurroundingWhitespace->setEnabled(enable);
     m_ui.actionEndingPunctuation->setEnabled(enable);
     m_ui.actionPhraseMatches->setEnabled(enable);
     m_ui.actionPlaceMarkerMatches->setEnabled(enable);
@@ -1474,7 +1645,7 @@ void MainWindow::selectedMessageChanged(const QModelIndex &sortedIndex, const QM
     }
 
     int model = -1;
-    MessageItem *m = 0;
+    MessageItem *m = nullptr;
     QModelIndex index = m_sortedMessagesModel->mapToSource(sortedIndex);
     if (index.isValid()) {
         model = (index.column() && (index.column() - 1 < m_dataModel->modelCount())) ?
@@ -1567,12 +1738,16 @@ void MainWindow::refreshItemViews()
     updateStatistics();
 }
 
-void MainWindow::doneAndNext()
+void MainWindow::done()
 {
     int model = m_messageEditor->activeModel();
     if (model >= 0 && m_dataModel->isModelWritable(model))
         m_dataModel->setFinished(m_currentIndex, true);
+}
 
+void MainWindow::doneAndNext()
+{
+    done();
     if (!m_messageEditor->focusNextUnfinished())
         nextUnfinished();
 }
@@ -1627,6 +1802,17 @@ QModelIndex MainWindow::prevContext(const QModelIndex &index) const
 
     return m_sortedMessagesModel->mapFromSource(
             m_sortedContextsModel->mapToSource(sortedContextIndex));
+}
+
+QModelIndex MainWindow::firstMessage() const
+{
+    QModelIndex id = m_sortedMessagesModel->index(0, 0);
+    QModelIndex firstId;
+    if (id.isValid() && m_sortedMessagesModel->hasChildren(id))
+        firstId = m_sortedMessagesModel->index(0, 0, id);
+    else if (id.isValid())
+        firstId = id;
+    return firstId;
 }
 
 QModelIndex MainWindow::nextMessage(const QModelIndex &currentIndex, bool checkUnfinished) const
@@ -1689,7 +1875,7 @@ QModelIndex MainWindow::prevMessage(const QModelIndex &currentIndex, bool checkU
 void MainWindow::nextUnfinished()
 {
     if (m_ui.actionNextUnfinished->isEnabled()) {
-        if (!next(true)) {
+        if (!doNext(true)) {
             // If no Unfinished message is left, the user has finished the job.  We
             // congratulate on a job well done with this ringing bell.
             statusBar()->showMessage(tr("No untranslated translation units left."), MessageMS);
@@ -1701,7 +1887,7 @@ void MainWindow::nextUnfinished()
 void MainWindow::prevUnfinished()
 {
     if (m_ui.actionNextUnfinished->isEnabled()) {
-        if (!prev(true)) {
+        if (!doPrev(true)) {
             // If no Unfinished message is left, the user has finished the job.  We
             // congratulate on a job well done with this ringing bell.
             statusBar()->showMessage(tr("No untranslated translation units left."), MessageMS);
@@ -1712,15 +1898,15 @@ void MainWindow::prevUnfinished()
 
 void MainWindow::prev()
 {
-    prev(false);
+    doPrev(false);
 }
 
 void MainWindow::next()
 {
-    next(false);
+    doNext(false);
 }
 
-bool MainWindow::prev(bool checkUnfinished)
+bool MainWindow::doPrev(bool checkUnfinished)
 {
     QModelIndex index = prevMessage(m_messageView->currentIndex(), checkUnfinished);
     if (index.isValid())
@@ -1732,7 +1918,7 @@ bool MainWindow::prev(bool checkUnfinished)
     return index.isValid();
 }
 
-bool MainWindow::next(bool checkUnfinished)
+bool MainWindow::doNext(bool checkUnfinished)
 {
     QModelIndex index = nextMessage(m_messageView->currentIndex(), checkUnfinished);
     if (index.isValid())
@@ -1745,16 +1931,21 @@ bool MainWindow::next(bool checkUnfinished)
 }
 
 void MainWindow::findNext(const QString &text, DataModel::FindLocation where,
-                          bool matchCase, bool ignoreAccelerators, bool skipObsolete)
+                          FindDialog::FindOptions options, int statusFilter)
 {
     if (text.isEmpty())
         return;
     m_findText = text;
     m_findWhere = where;
-    m_findMatchCase = matchCase ? Qt::CaseSensitive : Qt::CaseInsensitive;
-    m_findIgnoreAccelerators = ignoreAccelerators;
-    m_findSkipObsolete = skipObsolete;
+    m_findOptions = options;
+    m_findStatusFilter = statusFilter;
+    if (options.testFlag(FindDialog::UseRegExp)) {
+        m_findDialog->getRegExp().setPatternOptions(options.testFlag(FindDialog::MatchCase)
+                                                    ? QRegularExpression::NoPatternOption
+                                                    : QRegularExpression::CaseInsensitiveOption);
+    }
     m_ui.actionFindNext->setEnabled(true);
+    m_ui.actionFindPrev->setEnabled(true);
     findAgain();
 }
 
@@ -1770,56 +1961,45 @@ void MainWindow::revalidate()
 QString MainWindow::friendlyString(const QString& str)
 {
     QString f = str.toLower();
-    f.replace(QRegExp(QString(QLatin1String("[.,:;!?()-]"))), QString(QLatin1String(" ")));
-    f.remove(QLatin1Char('&'));
+    static QRegularExpression re("[.,:;!?()-]"_L1);
+    f.replace(re, " "_L1);
+    f.remove(u'&');
     return f.simplified();
 }
 
 void MainWindow::setupMenuBar()
 {
 
-    const bool hasThemeIcons = !QApplication::platformName().compare(QStringLiteral("xcb"), Qt::CaseInsensitive);
-    if (hasThemeIcons) {  // There are no fallback icons for these
-        m_ui.menuRecentlyOpenedFiles->setIcon(QIcon::fromTheme(QStringLiteral("document-open-recent")));
-        m_ui.actionCloseAll->setIcon(QIcon::fromTheme(QStringLiteral("window-close")));
-        m_ui.actionExit->setIcon(QIcon::fromTheme(QStringLiteral("application-exit")));
-        m_ui.actionSelectAll->setIcon(QIcon::fromTheme(QStringLiteral("edit-select-all")));
-    }
+    m_ui.menuRecentlyOpenedFiles->setIcon(QIcon::fromTheme(QIcon::ThemeIcon::DocumentOpenRecent));
+    m_ui.actionCloseAll->setIcon(QIcon::fromTheme(QIcon::ThemeIcon::WindowClose));
+    m_ui.actionExit->setIcon(QIcon::fromTheme(QIcon::ThemeIcon::ApplicationExit));
+    m_ui.actionSelectAll->setIcon(QIcon::fromTheme(QIcon::ThemeIcon::EditSelectAll));
 
     // Prefer theme icons when available for these actions
     const QString prefix = QApplication::platformName().compare(QStringLiteral("cocoa"), Qt::CaseInsensitive) ?
                            QStringLiteral(":/images/win") : QStringLiteral(":/images/mac");
 
-    m_ui.actionOpen->setIcon(QIcon::fromTheme(QStringLiteral("document-open"),
-                                              QIcon(prefix + QStringLiteral("/fileopen.png"))));
-    m_ui.actionOpenAux->setIcon(QIcon::fromTheme(QStringLiteral("document-open"),
-                                                 QIcon(prefix + QStringLiteral("/fileopen.png"))));
-    m_ui.actionSave->setIcon(QIcon::fromTheme(QStringLiteral("document-save"),
-                                              QIcon(prefix + QStringLiteral("/filesave.png"))));
-    m_ui.actionSaveAll->setIcon(QIcon::fromTheme(QStringLiteral("document-save"),
-                                                 QIcon(prefix + QStringLiteral("/filesave.png"))));
-    m_ui.actionPrint->setIcon(QIcon::fromTheme(QStringLiteral("document-print"),
-                                               QIcon(prefix + QStringLiteral("/print.png"))));
-    m_ui.actionRedo->setIcon(QIcon::fromTheme(QStringLiteral("edit-redo"),
-                                              QIcon(prefix + QStringLiteral("/redo.png"))));
-    m_ui.actionUndo->setIcon(QIcon::fromTheme(QStringLiteral("edit-undo"),
-                                              QIcon(prefix + QStringLiteral("/undo.png"))));
-    m_ui.actionCut->setIcon(QIcon::fromTheme(QStringLiteral("edit-cut"),
-                                             QIcon(prefix + QStringLiteral("/editcut.png"))));
-    m_ui.actionCopy->setIcon(QIcon::fromTheme(QStringLiteral("edit-copy"),
-                                              QIcon(prefix + QStringLiteral("/editcopy.png"))));
-    m_ui.actionPaste->setIcon(QIcon::fromTheme(QStringLiteral("edit-paste"),
-                                               QIcon(prefix + QStringLiteral("/editpaste.png"))));
-    m_ui.actionFind->setIcon(QIcon::fromTheme(QStringLiteral("edit-find"),
-                                              QIcon(prefix + QStringLiteral("/searchfind.png"))));
+    m_ui.actionOpen->setIcon(QIcon(prefix + QStringLiteral("/fileopen.png")));
+    m_ui.actionOpenAux->setIcon(QIcon(prefix + QStringLiteral("/fileopen.png")));
+    m_ui.actionSave->setIcon(QIcon(prefix + QStringLiteral("/filesave.png")));
+    m_ui.actionSaveAll->setIcon(QIcon(prefix + QStringLiteral("/filesave.png")));
+    m_ui.actionPrint->setIcon(QIcon(prefix + QStringLiteral("/print.png")));
+    m_ui.actionRedo->setIcon(QIcon(prefix + QStringLiteral("/redo.png")));
+    m_ui.actionUndo->setIcon(QIcon(prefix + QStringLiteral("/undo.png")));
+    m_ui.actionCut->setIcon(QIcon(prefix + QStringLiteral("/editcut.png")));
+    m_ui.actionCopy->setIcon(QIcon(prefix + QStringLiteral("/editcopy.png")));
+    m_ui.actionPaste->setIcon(QIcon(prefix + QStringLiteral("/editpaste.png")));
+    m_ui.actionFind->setIcon(QIcon(prefix + QStringLiteral("/searchfind.png")));
 
     // No well defined theme icons for these actions
     m_ui.actionAccelerators->setIcon(QIcon(prefix + QStringLiteral("/accelerator.png")));
     m_ui.actionOpenPhraseBook->setIcon(QIcon(prefix + QStringLiteral("/book.png")));
+    m_ui.actionDone->setIcon(QIcon(prefix + QStringLiteral("/done.png")));
     m_ui.actionDoneAndNext->setIcon(QIcon(prefix + QStringLiteral("/doneandnext.png")));
     m_ui.actionNext->setIcon(QIcon(prefix + QStringLiteral("/next.png")));
     m_ui.actionNextUnfinished->setIcon(QIcon(prefix + QStringLiteral("/nextunfinished.png")));
     m_ui.actionPhraseMatches->setIcon(QIcon(prefix + QStringLiteral("/phrase.png")));
+    m_ui.actionSurroundingWhitespace->setIcon(QIcon(prefix + QStringLiteral("/surroundingwhitespace.png")));
     m_ui.actionEndingPunctuation->setIcon(QIcon(prefix + QStringLiteral("/punctuation.png")));
     m_ui.actionPrev->setIcon(QIcon(prefix + QStringLiteral("/prev.png")));
     m_ui.actionPrevUnfinished->setIcon(QIcon(prefix + QStringLiteral("/prevunfinished.png")));
@@ -1827,83 +2007,118 @@ void MainWindow::setupMenuBar()
     m_ui.actionWhatsThis->setIcon(QIcon(prefix + QStringLiteral("/whatsthis.png")));
 
     // File menu
-    connect(m_ui.menuFile, SIGNAL(aboutToShow()), SLOT(fileAboutToShow()));
-    connect(m_ui.actionOpen, SIGNAL(triggered()), this, SLOT(open()));
-    connect(m_ui.actionOpenAux, SIGNAL(triggered()), this, SLOT(openAux()));
-    connect(m_ui.actionSaveAll, SIGNAL(triggered()), this, SLOT(saveAll()));
-    connect(m_ui.actionSave, SIGNAL(triggered()), this, SLOT(save()));
-    connect(m_ui.actionSaveAs, SIGNAL(triggered()), this, SLOT(saveAs()));
-    connect(m_ui.actionReleaseAll, SIGNAL(triggered()), this, SLOT(releaseAll()));
-    connect(m_ui.actionRelease, SIGNAL(triggered()), this, SLOT(release()));
-    connect(m_ui.actionReleaseAs, SIGNAL(triggered()), this, SLOT(releaseAs()));
-    connect(m_ui.actionPrint, SIGNAL(triggered()), this, SLOT(print()));
-    connect(m_ui.actionClose, SIGNAL(triggered()), this, SLOT(closeFile()));
-    connect(m_ui.actionCloseAll, SIGNAL(triggered()), this, SLOT(closeAll()));
-    connect(m_ui.actionExit, SIGNAL(triggered()), this, SLOT(close()));
+    connect(m_ui.menuFile, &QMenu::aboutToShow, this, &MainWindow::fileAboutToShow);
+    connect(m_ui.actionOpen, &QAction::triggered, this, &MainWindow::open);
+    connect(m_ui.actionOpenAux, &QAction::triggered, this, &MainWindow::openAux);
+    connect(m_ui.actionSaveAll, &QAction::triggered, this, &MainWindow::saveAll);
+    connect(m_ui.actionSave, &QAction::triggered, this, &MainWindow::save);
+    connect(m_ui.actionSaveAs, &QAction::triggered, this, &MainWindow::saveAs);
+    connect(m_ui.actionReleaseAll, &QAction::triggered, this, &MainWindow::releaseAll);
+    connect(m_ui.actionRelease, &QAction::triggered, this, &MainWindow::release);
+    connect(m_ui.actionReleaseAs, &QAction::triggered, this, &MainWindow::releaseAs);
+#if QT_CONFIG(printsupport)
+    connect(m_ui.actionPrint, &QAction::triggered, this, &MainWindow::print);
+#else
+    m_ui.actionPrint->setEnabled(false);
+#endif
+    connect(m_ui.actionClose, &QAction::triggered, this, &MainWindow::closeFile);
+    connect(m_ui.actionCloseAll, &QAction::triggered, this, &MainWindow::closeAll);
+    connect(m_ui.actionExit, &QAction::triggered, this, &MainWindow::close);
 
     // Edit menu
-    connect(m_ui.menuEdit, SIGNAL(aboutToShow()), SLOT(editAboutToShow()));
+    connect(m_ui.menuEdit, &QMenu::aboutToShow, this, &MainWindow::editAboutToShow);
 
-    connect(m_ui.actionUndo, SIGNAL(triggered()), m_messageEditor, SLOT(undo()));
-    connect(m_messageEditor, SIGNAL(undoAvailable(bool)), m_ui.actionUndo, SLOT(setEnabled(bool)));
+    connect(m_ui.actionUndo, &QAction::triggered, m_messageEditor, &MessageEditor::undo);
+    connect(m_messageEditor, &MessageEditor::undoAvailable, m_ui.actionUndo, &QAction::setEnabled);
 
-    connect(m_ui.actionRedo, SIGNAL(triggered()), m_messageEditor, SLOT(redo()));
-    connect(m_messageEditor, SIGNAL(redoAvailable(bool)), m_ui.actionRedo, SLOT(setEnabled(bool)));
+    connect(m_ui.actionRedo, &QAction::triggered, m_messageEditor, &MessageEditor::redo);
+    connect(m_messageEditor, &MessageEditor::redoAvailable, m_ui.actionRedo, &QAction::setEnabled);
 
-    connect(m_ui.actionCopy, SIGNAL(triggered()), m_messageEditor, SLOT(copy()));
-    connect(m_messageEditor, SIGNAL(copyAvailable(bool)), m_ui.actionCopy, SLOT(setEnabled(bool)));
+#ifndef QT_NO_CLIPBOARD
+    connect(m_ui.actionCut, &QAction::triggered, m_messageEditor, &MessageEditor::cut);
+    connect(m_messageEditor, &MessageEditor::cutAvailable, m_ui.actionCut, &QAction::setEnabled);
 
-    connect(m_messageEditor, SIGNAL(cutAvailable(bool)), m_ui.actionCut, SLOT(setEnabled(bool)));
-    connect(m_ui.actionCut, SIGNAL(triggered()), m_messageEditor, SLOT(cut()));
+    connect(m_ui.actionCopy, &QAction::triggered, m_messageEditor, &MessageEditor::copy);
+    connect(m_messageEditor, &MessageEditor::copyAvailable, m_ui.actionCopy, &QAction::setEnabled);
 
-    connect(m_messageEditor, SIGNAL(pasteAvailable(bool)), m_ui.actionPaste, SLOT(setEnabled(bool)));
-    connect(m_ui.actionPaste, SIGNAL(triggered()), m_messageEditor, SLOT(paste()));
+    connect(m_ui.actionPaste, &QAction::triggered, m_messageEditor, &MessageEditor::paste);
+    connect(m_messageEditor, &MessageEditor::pasteAvailable, m_ui.actionPaste, &QAction::setEnabled);
+#endif
 
-    connect(m_ui.actionSelectAll, SIGNAL(triggered()), m_messageEditor, SLOT(selectAll()));
-    connect(m_ui.actionFind, SIGNAL(triggered()), m_findDialog, SLOT(find()));
-    connect(m_ui.actionFindNext, SIGNAL(triggered()), this, SLOT(findAgain()));
-    connect(m_ui.actionSearchAndTranslate, SIGNAL(triggered()), this, SLOT(showTranslateDialog()));
-    connect(m_ui.actionBatchTranslation, SIGNAL(triggered()), this, SLOT(showBatchTranslateDialog()));
-    connect(m_ui.actionTranslationFileSettings, SIGNAL(triggered()), this, SLOT(showTranslationSettings()));
+    connect(m_ui.actionSelectAll, &QAction::triggered,
+            m_messageEditor, &MessageEditor::selectAll);
+    connect(m_ui.actionFind, &QAction::triggered,
+            m_findDialog, &FindDialog::find);
+    connect(m_ui.actionFindNext, &QAction::triggered,
+            this, [this] {findAgain(FindNext);});
+    connect(m_ui.actionFindPrev, &QAction::triggered,
+            this, [this] {findAgain(FindPrev);});
+    connect(m_ui.actionSearchAndTranslate, &QAction::triggered,
+            this, &MainWindow::showTranslateDialog);
+    connect(m_ui.actionBatchTranslation, &QAction::triggered,
+            this, &MainWindow::showBatchTranslateDialog);
+    connect(m_ui.actionTranslationFileSettings, &QAction::triggered,
+            this, &MainWindow::showTranslationSettings);
 
-    connect(m_batchTranslateDialog, SIGNAL(finished()), SLOT(refreshItemViews()));
+    connect(m_batchTranslateDialog, &BatchTranslationDialog::finished,
+            this, &MainWindow::refreshItemViews);
 
     // Translation menu
     // when updating the accelerators, remember the status bar
-    connect(m_ui.actionPrevUnfinished, SIGNAL(triggered()), this, SLOT(prevUnfinished()));
-    connect(m_ui.actionNextUnfinished, SIGNAL(triggered()), this, SLOT(nextUnfinished()));
-    connect(m_ui.actionNext, SIGNAL(triggered()), this, SLOT(next()));
-    connect(m_ui.actionPrev, SIGNAL(triggered()), this, SLOT(prev()));
-    connect(m_ui.actionDoneAndNext, SIGNAL(triggered()), this, SLOT(doneAndNext()));
-    connect(m_ui.actionBeginFromSource, SIGNAL(triggered()), m_messageEditor, SLOT(beginFromSource()));
-    connect(m_messageEditor, SIGNAL(beginFromSourceAvailable(bool)), m_ui.actionBeginFromSource, SLOT(setEnabled(bool)));
+    connect(m_ui.actionPrevUnfinished, &QAction::triggered, this, &MainWindow::prevUnfinished);
+    connect(m_ui.actionNextUnfinished, &QAction::triggered, this, &MainWindow::nextUnfinished);
+    connect(m_ui.actionNext, &QAction::triggered, this, &MainWindow::next);
+    connect(m_ui.actionPrev, &QAction::triggered, this, &MainWindow::prev);
+    connect(m_ui.actionDone, &QAction::triggered, this, &MainWindow::done);
+    connect(m_ui.actionDoneAndNext, &QAction::triggered, this, &MainWindow::doneAndNext);
+    connect(m_ui.actionBeginFromSource, &QAction::triggered, m_messageEditor,
+            &MessageEditor::beginFromSource);
 
     // Phrasebook menu
-    connect(m_ui.actionNewPhraseBook, SIGNAL(triggered()), this, SLOT(newPhraseBook()));
-    connect(m_ui.actionOpenPhraseBook, SIGNAL(triggered()), this, SLOT(openPhraseBook()));
-    connect(m_ui.menuClosePhraseBook, SIGNAL(triggered(QAction*)),
-        this, SLOT(closePhraseBook(QAction*)));
-    connect(m_ui.menuEditPhraseBook, SIGNAL(triggered(QAction*)),
-        this, SLOT(editPhraseBook(QAction*)));
-    connect(m_ui.menuPrintPhraseBook, SIGNAL(triggered(QAction*)),
-        this, SLOT(printPhraseBook(QAction*)));
-    connect(m_ui.actionAddToPhraseBook, SIGNAL(triggered()), this, SLOT(addToPhraseBook()));
+    connect(m_ui.actionNewPhraseBook, &QAction::triggered, this, &MainWindow::newPhraseBook);
+    connect(m_ui.actionOpenPhraseBook, &QAction::triggered, this, &MainWindow::openPhraseBook);
+    connect(m_ui.menuClosePhraseBook, &QMenu::triggered,
+            this, &MainWindow::closePhraseBook);
+    connect(m_ui.menuEditPhraseBook, &QMenu::triggered,
+            this, &MainWindow::editPhraseBook);
+#if QT_CONFIG(printsupport)
+    connect(m_ui.menuPrintPhraseBook, &QMenu::triggered,
+            this, &MainWindow::printPhraseBook);
+#else
+    m_ui.menuPrintPhraseBook->setEnabled(false);
+#endif
+    connect(m_ui.actionAddToPhraseBook, &QAction::triggered,
+            this, &MainWindow::addToPhraseBook);
 
     // Validation menu
-    connect(m_ui.actionAccelerators, SIGNAL(triggered()), this, SLOT(revalidate()));
-    connect(m_ui.actionEndingPunctuation, SIGNAL(triggered()), this, SLOT(revalidate()));
-    connect(m_ui.actionPhraseMatches, SIGNAL(triggered()), this, SLOT(revalidate()));
-    connect(m_ui.actionPlaceMarkerMatches, SIGNAL(triggered()), this, SLOT(revalidate()));
+    connect(m_ui.actionAccelerators, &QAction::triggered, this, &MainWindow::revalidate);
+    connect(m_ui.actionSurroundingWhitespace, &QAction::triggered, this, &MainWindow::revalidate);
+    connect(m_ui.actionEndingPunctuation, &QAction::triggered, this, &MainWindow::revalidate);
+    connect(m_ui.actionPhraseMatches, &QAction::triggered, this, &MainWindow::revalidate);
+    connect(m_ui.actionPlaceMarkerMatches, &QAction::triggered, this, &MainWindow::revalidate);
 
     // View menu
-    connect(m_ui.actionResetSorting, SIGNAL(triggered()), this, SLOT(resetSorting()));
-    connect(m_ui.actionDisplayGuesses, SIGNAL(triggered()), m_phraseView, SLOT(toggleGuessing()));
-    connect(m_ui.actionStatistics, SIGNAL(triggered()), this, SLOT(toggleStatistics()));
-    connect(m_ui.actionVisualizeWhitespace, SIGNAL(triggered()), this, SLOT(toggleVisualizeWhitespace()));
-    connect(m_ui.menuView, SIGNAL(aboutToShow()), this, SLOT(updateViewMenu()));
-    connect(m_ui.actionIncreaseZoom, SIGNAL(triggered()), m_messageEditor, SLOT(increaseFontSize()));
-    connect(m_ui.actionDecreaseZoom, SIGNAL(triggered()), m_messageEditor, SLOT(decreaseFontSize()));
-    connect(m_ui.actionResetZoomToDefault, SIGNAL(triggered()), m_messageEditor, SLOT(resetFontSize()));
+    connect(m_ui.actionResetSorting, &QAction::triggered,
+            this, &MainWindow::resetSorting);
+    connect(m_ui.actionDisplayGuesses, &QAction::triggered,
+            m_phraseView, &PhraseView::toggleGuessing);
+    connect(m_ui.actionStatistics, &QAction::triggered, this, &MainWindow::showStatistics);
+    connect(m_ui.actionVisualizeWhitespace, &QAction::triggered, this,
+            &MainWindow::toggleVisualizeWhitespace);
+    connect(m_ui.actionIncreaseZoom, &QAction::triggered,
+            m_messageEditor, &MessageEditor::increaseFontSize);
+    connect(m_ui.actionDecreaseZoom, &QAction::triggered,
+            m_messageEditor, &MessageEditor::decreaseFontSize);
+    connect(m_ui.actionResetZoomToDefault, &QAction::triggered,
+            m_messageEditor, &MessageEditor::resetFontSize);
+    connect(m_ui.actionShowMoreGuesses, &QAction::triggered,
+            m_phraseView, &PhraseView::moreGuesses);
+    connect(m_ui.actionShowFewerGuesses, &QAction::triggered,
+            m_phraseView, &PhraseView::fewerGuesses);
+    connect(m_phraseView, &PhraseView::showFewerGuessesAvailable,
+            m_ui.actionShowFewerGuesses, &QAction::setEnabled);
+    connect(m_ui.actionResetGuessesToDefault, &QAction::triggered,
+            m_phraseView, &PhraseView::resetNumGuesses);
     m_ui.menuViewViews->addAction(m_contextDock->toggleViewAction());
     m_ui.menuViewViews->addAction(m_messagesDock->toggleViewAction());
     m_ui.menuViewViews->addAction(m_phrasesDock->toggleViewAction());
@@ -1914,50 +2129,54 @@ void MainWindow::setupMenuBar()
     // Window menu
     QMenu *windowMenu = new QMenu(tr("&Window"), this);
     menuBar()->insertMenu(m_ui.menuHelp->menuAction(), windowMenu);
-    windowMenu->addAction(tr("Minimize"), this,
-        SLOT(showMinimized()), QKeySequence(tr("Ctrl+M")));
+    windowMenu->addAction(tr("Minimize"), QKeySequence(tr("Ctrl+M")),
+        this, &QWidget::showMinimized);
 #endif
 
     // Help
-    connect(m_ui.actionManual, SIGNAL(triggered()), this, SLOT(manual()));
-    connect(m_ui.actionAbout, SIGNAL(triggered()), this, SLOT(about()));
-    connect(m_ui.actionAboutQt, SIGNAL(triggered()), this, SLOT(aboutQt()));
-    connect(m_ui.actionWhatsThis, SIGNAL(triggered()), this, SLOT(onWhatsThis()));
+    connect(m_ui.actionManual, &QAction::triggered, this, &MainWindow::manual);
+    connect(m_ui.actionAbout, &QAction::triggered, this, &MainWindow::about);
+    connect(m_ui.actionAboutQt, &QAction::triggered, this, &MainWindow::aboutQt);
+    connect(m_ui.actionWhatsThis, &QAction::triggered, this, &MainWindow::onWhatsThis);
 
-    connect(m_ui.menuRecentlyOpenedFiles, SIGNAL(triggered(QAction*)), this,
-        SLOT(recentFileActivated(QAction*)));
+    connect(m_ui.menuRecentlyOpenedFiles, &QMenu::triggered,
+            this, &MainWindow::recentFileActivated);
 
     m_ui.actionManual->setWhatsThis(tr("Display the manual for %1.").arg(tr("Qt Linguist")));
     m_ui.actionAbout->setWhatsThis(tr("Display information about %1.").arg(tr("Qt Linguist")));
-    m_ui.actionDoneAndNext->setShortcuts(QList<QKeySequence>()
-                                            << QKeySequence(QLatin1String("Ctrl+Return"))
-                                            << QKeySequence(QLatin1String("Ctrl+Enter")));
+    m_ui.actionDone->setShortcuts(
+            { Qt::AltModifier | Qt::Key_Return, Qt::AltModifier | Qt::Key_Enter });
+    m_ui.actionDoneAndNext->setShortcuts({
+            Qt::ControlModifier | Qt::Key_Return,
+            Qt::ControlModifier | Qt::Key_Enter,
+    });
 
     // Disable the Close/Edit/Print phrasebook menuitems if they are not loaded
-    connect(m_ui.menuPhrases, SIGNAL(aboutToShow()), this, SLOT(setupPhrase()));
+    connect(m_ui.menuPhrases, &QMenu::aboutToShow, this, &MainWindow::setupPhrase);
 
-    connect(m_ui.menuRecentlyOpenedFiles, SIGNAL(aboutToShow()), SLOT(setupRecentFilesMenu()));
+    connect(m_ui.menuRecentlyOpenedFiles, &QMenu::aboutToShow,
+            this, &MainWindow::setupRecentFilesMenu);
 }
 
 void MainWindow::updateActiveModel(int model)
 {
     if (model >= 0)
-        updateLatestModel(model);
+        doUpdateLatestModel(model);
 }
 
 // Arriving here implies that the messageEditor does not have focus
 void MainWindow::updateLatestModel(const QModelIndex &index)
 {
     if (index.column() && (index.column() - 1 < m_dataModel->modelCount()))
-        updateLatestModel(index.column() - 1);
+        doUpdateLatestModel(index.column() - 1);
 }
 
-void MainWindow::updateLatestModel(int model)
+void MainWindow::doUpdateLatestModel(int model)
 {
     m_currentIndex = MultiDataIndex(model, m_currentIndex.context(), m_currentIndex.message());
     bool enable = false;
     bool enableRw = false;
-    MessageItem *item = 0;
+    MessageItem *item = nullptr;
     if (model >= 0) {
         enable = true;
         if (m_dataModel->isModelWritable(model))
@@ -2066,12 +2285,6 @@ void MainWindow::editAboutToShow()
     }
 }
 
-void MainWindow::updateViewMenu()
-{
-    bool check = m_statistics ? m_statistics->isVisible() : false;
-    m_ui.actionStatistics->setChecked(check);
-}
-
 void MainWindow::showContextDock()
 {
     m_contextDock->show();
@@ -2110,33 +2323,33 @@ void MainWindow::onWhatsThis()
 void MainWindow::setupToolBars()
 {
     QToolBar *filet = new QToolBar(this);
-    filet->setObjectName(QLatin1String("FileToolbar"));
+    filet->setObjectName("FileToolbar");
     filet->setWindowTitle(tr("File"));
     this->addToolBar(filet);
     m_ui.menuToolbars->addAction(filet->toggleViewAction());
 
     QToolBar *editt = new QToolBar(this);
     editt->setVisible(false);
-    editt->setObjectName(QLatin1String("EditToolbar"));
+    editt->setObjectName("EditToolbar");
     editt->setWindowTitle(tr("Edit"));
     this->addToolBar(editt);
     m_ui.menuToolbars->addAction(editt->toggleViewAction());
 
     QToolBar *translationst = new QToolBar(this);
-    translationst->setObjectName(QLatin1String("TranslationToolbar"));
+    translationst->setObjectName("TranslationToolbar");
     translationst->setWindowTitle(tr("Translation"));
     this->addToolBar(translationst);
     m_ui.menuToolbars->addAction(translationst->toggleViewAction());
 
     QToolBar *validationt = new QToolBar(this);
-    validationt->setObjectName(QLatin1String("ValidationToolbar"));
+    validationt->setObjectName("ValidationToolbar");
     validationt->setWindowTitle(tr("Validation"));
     this->addToolBar(validationt);
     m_ui.menuToolbars->addAction(validationt->toggleViewAction());
 
     QToolBar *helpt = new QToolBar(this);
     helpt->setVisible(false);
-    helpt->setObjectName(QLatin1String("HelpToolbar"));
+    helpt->setObjectName("HelpToolbar");
     helpt->setWindowTitle(tr("Help"));
     this->addToolBar(helpt);
     m_ui.menuToolbars->addAction(helpt->toggleViewAction());
@@ -2161,9 +2374,11 @@ void MainWindow::setupToolBars()
     translationst->addAction(m_ui.actionNext);
     translationst->addAction(m_ui.actionPrevUnfinished);
     translationst->addAction(m_ui.actionNextUnfinished);
+    translationst->addAction(m_ui.actionDone);
     translationst->addAction(m_ui.actionDoneAndNext);
 
     validationt->addAction(m_ui.actionAccelerators);
+    validationt->addAction(m_ui.actionSurroundingWhitespace);
     validationt->addAction(m_ui.actionEndingPunctuation);
     validationt->addAction(m_ui.actionPhraseMatches);
     validationt->addAction(m_ui.actionPlaceMarkerMatches);
@@ -2202,7 +2417,16 @@ void MainWindow::setCurrentMessage(const QModelIndex &index, int model)
 {
     const QModelIndex &theIndex = m_messageModel->index(index.row(), model + 1, index.parent());
     setCurrentMessage(theIndex);
-    m_messageEditor->setEditorFocus(model);
+    m_messageEditor->setEditorFocusForModel(model);
+}
+
+void MainWindow::setCurrentMessageFromGuess(int modelIndex, const Candidate &cand)
+{
+    int contextIndex = m_dataModel->findContextIndex(cand.context);
+    int messageIndex = m_dataModel->multiContextItem(contextIndex)->findMessage(cand.source,
+                                                                                cand.disambiguation);
+    setCurrentMessage(m_messageModel->modelIndex(MultiDataIndex(modelIndex, contextIndex,
+                                                                messageIndex)));
 }
 
 QModelIndex MainWindow::currentContextIndex() const
@@ -2215,7 +2439,7 @@ QModelIndex MainWindow::currentMessageIndex() const
     return m_sortedMessagesModel->mapToSource(m_messageView->currentIndex());
 }
 
-PhraseBook *MainWindow::openPhraseBook(const QString& name)
+PhraseBook *MainWindow::doOpenPhraseBook(const QString& name)
 {
     PhraseBook *pb = new PhraseBook();
     bool langGuessed;
@@ -2247,7 +2471,7 @@ PhraseBook *MainWindow::openPhraseBook(const QString& name)
     m_phraseBookMenu[PhrasePrintMenu].insert(a, pb);
     a->setWhatsThis(tr("Print the entries in this phrase book."));
 
-    connect(pb, SIGNAL(listChanged()), this, SLOT(updatePhraseDicts()));
+    connect(pb, &PhraseBook::listChanged, this, &MainWindow::updatePhraseDicts);
     updatePhraseDicts();
     updatePhraseBookActions();
 
@@ -2256,8 +2480,8 @@ PhraseBook *MainWindow::openPhraseBook(const QString& name)
 
 bool MainWindow::savePhraseBook(QString *name, PhraseBook &pb)
 {
-    if (!name->contains(QLatin1Char('.')))
-        *name += QLatin1String(".qph");
+    if (!name->contains(u'.'))
+        *name += ".qph"_L1;
 
     if (!pb.save(*name)) {
         QMessageBox::warning(this, tr("Qt Linguist"),
@@ -2272,9 +2496,7 @@ bool MainWindow::maybeSavePhraseBook(PhraseBook *pb)
     if (pb->isModified())
         switch (QMessageBox::information(this, tr("Qt Linguist"),
             tr("Do you want to save phrase book '%1'?").arg(pb->friendlyPhraseBookName()),
-            QMessageBox::Yes | QMessageBox::Default,
-            QMessageBox::No,
-            QMessageBox::Cancel | QMessageBox::Escape))
+            QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel, QMessageBox::Yes))
         {
             case QMessageBox::Cancel:
                 return false;
@@ -2282,7 +2504,7 @@ bool MainWindow::maybeSavePhraseBook(PhraseBook *pb)
                 if (!pb->save(pb->fileName()))
                     return false;
                 break;
-            case QMessageBox::No:
+            default:
                 break;
         }
     return true;
@@ -2290,7 +2512,7 @@ bool MainWindow::maybeSavePhraseBook(PhraseBook *pb)
 
 bool MainWindow::maybeSavePhraseBooks()
 {
-    foreach(PhraseBook *phraseBook, m_phraseBooks)
+    for (PhraseBook *phraseBook : std::as_const(m_phraseBooks))
         if (!maybeSavePhraseBook(phraseBook))
             return false;
     return true;
@@ -2300,14 +2522,18 @@ void MainWindow::updateProgress()
 {
     int numEditable = m_dataModel->getNumEditable();
     int numFinished = m_dataModel->getNumFinished();
-    if (!m_dataModel->modelCount())
-        m_progressLabel->setText(QString(QLatin1String("    ")));
-    else
-        m_progressLabel->setText(QString(QLatin1String(" %1/%2 "))
-                                 .arg(numFinished).arg(numEditable));
+    if (!m_dataModel->modelCount()) {
+        m_progressLabel->setText(QString("    "_L1));
+        m_progressLabel->setToolTip(QString());
+    } else {
+        m_progressLabel->setText(QStringLiteral(" %1/%2 ").arg(numFinished).arg(numEditable));
+        m_progressLabel->setToolTip(tr("%n unfinished message(s) left.", 0,
+                                       numEditable - numFinished));
+    }
     bool enable = numFinished != numEditable;
     m_ui.actionPrevUnfinished->setEnabled(enable);
     m_ui.actionNextUnfinished->setEnabled(enable);
+    m_ui.actionDone->setEnabled(enable);
     m_ui.actionDoneAndNext->setEnabled(enable);
 
     m_ui.actionPrev->setEnabled(m_dataModel->contextCount() > 0);
@@ -2327,19 +2553,20 @@ void MainWindow::updatePhraseDictInternal(int model)
     QHash<QString, QList<Phrase *> > &pd = m_phraseDict[model];
 
     pd.clear();
-    foreach (PhraseBook *pb, m_phraseBooks) {
+    for (PhraseBook *pb : std::as_const(m_phraseBooks)) {
         bool before;
         if (pb->language() != QLocale::C && m_dataModel->language(model) != QLocale::C) {
             if (pb->language() != m_dataModel->language(model))
                 continue;
-            before = (pb->country() == m_dataModel->model(model)->country());
+            before = (pb->territory() == m_dataModel->model(model)->territory());
         } else {
             before = false;
         }
-        foreach (Phrase *p, pb->phrases()) {
+        const auto phrases = pb->phrases();
+        for (Phrase *p : phrases) {
             QString f = friendlyString(p->source());
-            if (f.length() > 0) {
-                f = f.split(QLatin1Char(' ')).first();
+            if (f.size() > 0) {
+                f = f.split(u' ').first();
                 if (!pd.contains(f)) {
                     pd.insert(f, QList<Phrase *>());
                 }
@@ -2369,32 +2596,6 @@ void MainWindow::updatePhraseDicts()
     m_phraseView->update();
 }
 
-static bool haveMnemonic(const QString &str)
-{
-    for (const ushort *p = (ushort *)str.constData();; ) { // Assume null-termination
-        ushort c = *p++;
-        if (!c)
-            break;
-        if (c == '&') {
-            c = *p++;
-            if (!c)
-                return false;
-            // "Nobody" ever really uses these alt-space, and they are highly annoying
-            // because we get a lot of false positives.
-            if (c != '&' && c != ' ' && QChar(c).isPrint()) {
-                const ushort *pp = p;
-                for (; *p < 256 && isalpha(*p); p++) ;
-                if (pp == p || *p != ';')
-                    return true;
-                // This looks like a HTML &entity;, so ignore it. As a HTML string
-                // won't contain accels anyway, we can stop scanning here.
-                break;
-            }
-        }
-    }
-    return false;
-}
-
 void MainWindow::updateDanger(const MultiDataIndex &index, bool verbose)
 {
     MultiDataIndex curIdx = index;
@@ -2416,129 +2617,25 @@ void MainWindow::updateDanger(const MultiDataIndex &index, bool verbose)
                 if (source.isEmpty())
                     source = m->text();
             }
+
+            Validator validator = Validator::fromSource(
+                    source, m_ui, m_dataModel->sourceLanguage(mi), m_phraseDict[mi]);
             QStringList translations = m->translations();
 
-            // Truncated variants are permitted to be "denormalized"
-            for (int i = 0; i < translations.count(); ++i) {
-                int sep = translations.at(i).indexOf(QChar(Translator::BinaryVariantSeparator));
-                if (sep >= 0)
-                    translations[i].truncate(sep);
-            }
+            int i = 0;
+            for (QStringView translation : std::as_const(translations)) {
+                while (!translation.isEmpty()) {
+                    auto sep = translation.indexOf(Translator::BinaryVariantSeparator);
+                    if (sep < 0)
+                        sep = translation.size();
+                    const QString trans = translation.first(sep).toString();
 
-            if (m_ui.actionAccelerators->isChecked()) {
-                bool sk = haveMnemonic(source);
-                bool tk = true;
-                for (int i = 0; i < translations.count() && tk; ++i) {
-                    tk &= haveMnemonic(translations[i]);
-                }
+                    const bool needsRef = m->message().isPlural()
+                            && m_dataModel->model(mi)->countRefNeeds().at(i++);
+                    danger |= validator.validate(trans, m_dataModel->language(mi), mi, needsRef,
+                                                 verbose, m_errorsView);
 
-                if (!sk && tk) {
-                    if (verbose)
-                        m_errorsView->addError(mi, ErrorsView::SuperfluousAccelerator);
-                    danger = true;
-                } else if (sk && !tk) {
-                    if (verbose)
-                        m_errorsView->addError(mi, ErrorsView::MissingAccelerator);
-                    danger = true;
-                }
-            }
-            if (m_ui.actionEndingPunctuation->isChecked()) {
-                bool endingok = true;
-                for (int i = 0; i < translations.count() && endingok; ++i) {
-                    endingok &= (ending(source, m_dataModel->sourceLanguage(mi)) ==
-                                ending(translations[i], m_dataModel->language(mi)));
-                }
-
-                if (!endingok) {
-                    if (verbose)
-                        m_errorsView->addError(mi, ErrorsView::PunctuationDiffer);
-                    danger = true;
-                }
-            }
-            if (m_ui.actionPhraseMatches->isChecked()) {
-                QString fsource = friendlyString(source);
-                QString ftranslation = friendlyString(translations.first());
-                QStringList lookupWords = fsource.split(QLatin1Char(' '));
-
-                bool phraseFound;
-                foreach (const QString &s, lookupWords) {
-                    if (m_phraseDict[mi].contains(s)) {
-                        phraseFound = true;
-                        foreach (const Phrase *p, m_phraseDict[mi].value(s)) {
-                            if (fsource == friendlyString(p->source())) {
-                                if (ftranslation.indexOf(friendlyString(p->target())) >= 0) {
-                                    phraseFound = true;
-                                    break;
-                                } else {
-                                    phraseFound = false;
-                                }
-                            }
-                        }
-                        if (!phraseFound) {
-                            if (verbose)
-                                m_errorsView->addError(mi, ErrorsView::IgnoredPhrasebook, s);
-                            danger = true;
-                        }
-                    }
-                }
-            }
-
-            if (m_ui.actionPlaceMarkerMatches->isChecked()) {
-                // Stores the occurrence count of the place markers in the map placeMarkerIndexes.
-                // i.e. the occurrence count of %1 is stored at placeMarkerIndexes[1],
-                // count of %2 is stored at placeMarkerIndexes[2] etc.
-                // In the first pass, it counts all place markers in the sourcetext.
-                // In the second pass it (de)counts all place markers in the translation.
-                // When finished, all elements should have returned to a count of 0,
-                // if not there is a mismatch
-                // between place markers in the source text and the translation text.
-                QHash<int, int> placeMarkerIndexes;
-                QString translation;
-                int numTranslations = translations.count();
-                for (int pass = 0; pass < numTranslations + 1; ++pass) {
-                    const QChar *uc_begin = source.unicode();
-                    const QChar *uc_end = uc_begin + source.length();
-                    if (pass >= 1) {
-                        translation = translations[pass - 1];
-                        uc_begin = translation.unicode();
-                        uc_end = uc_begin + translation.length();
-                    }
-                    const QChar *c = uc_begin;
-                    while (c < uc_end) {
-                        if (c->unicode() == '%') {
-                            const QChar *escape_start = ++c;
-                            while (c->isDigit())
-                                ++c;
-                            const QChar *escape_end = c;
-                            bool ok = true;
-                            int markerIndex = QString::fromRawData(
-                                    escape_start, escape_end - escape_start).toInt(&ok);
-                            if (ok)
-                                placeMarkerIndexes[markerIndex] += (pass == 0 ? numTranslations : -1);
-                        }
-                        ++c;
-                    }
-                }
-
-                foreach (int i, placeMarkerIndexes) {
-                    if (i != 0) {
-                        if (verbose)
-                            m_errorsView->addError(mi, ErrorsView::PlaceMarkersDiffer);
-                        danger = true;
-                        break;
-                    }
-                }
-
-                // Piggy-backed on the general place markers, we check the plural count marker.
-                if (m->message().isPlural()) {
-                    for (int i = 0; i < numTranslations; ++i)
-                        if (m_dataModel->model(mi)->countRefNeeds().at(i)
-                            && !translations[i].contains(QLatin1String("%n"))) {
-                            if (verbose)
-                                m_errorsView->addError(mi, ErrorsView::NumerusMarkerMissing);
-                            danger = true;
-                            break;
-                        }
+                    translation.slice(std::min(sep + 1, translation.size()));
                 }
             }
         }
@@ -2555,12 +2652,13 @@ void MainWindow::readConfig()
 {
     QSettings config;
 
-    QRect r(pos(), size());
     restoreGeometry(config.value(settingPath("Geometry/WindowGeometry")).toByteArray());
     restoreState(config.value(settingPath("MainWindowState")).toByteArray());
 
     m_ui.actionAccelerators->setChecked(
         config.value(settingPath("Validators/Accelerator"), true).toBool());
+    m_ui.actionSurroundingWhitespace->setChecked(
+        config.value(settingPath("Validators/SurroundingWhitespace"), true).toBool());
     m_ui.actionEndingPunctuation->setChecked(
         config.value(settingPath("Validators/EndingPunctuation"), true).toBool());
     m_ui.actionPhraseMatches->setChecked(
@@ -2574,13 +2672,15 @@ void MainWindow::readConfig()
 
     m_messageEditor->setFontSize(
                 config.value(settingPath("Options/EditorFontsize"), font().pointSize()).toReal());
+    m_phraseView->setMaxCandidates(config.value(settingPath("Options/NumberOfGuesses"),
+                                                PhraseView::getDefaultMaxCandidates()).toInt());
 
-    recentFiles().readConfig();
+    m_recentFiles.readConfig();
 
     int size = config.beginReadArray(settingPath("OpenedPhraseBooks"));
     for (int i = 0; i < size; ++i) {
         config.setArrayIndex(i);
-        openPhraseBook(config.value(QLatin1String("FileName")).toString());
+        doOpenPhraseBook(config.value("FileName"_L1).toString());
     }
     config.endArray();
 }
@@ -2592,6 +2692,8 @@ void MainWindow::writeConfig()
         saveGeometry());
     config.setValue(settingPath("Validators/Accelerator"),
         m_ui.actionAccelerators->isChecked());
+    config.setValue(settingPath("Validators/SurroundingWhitespace"),
+        m_ui.actionSurroundingWhitespace->isChecked());
     config.setValue(settingPath("Validators/EndingPunctuation"),
         m_ui.actionEndingPunctuation->isChecked());
     config.setValue(settingPath("Validators/PhraseMatch"),
@@ -2604,15 +2706,16 @@ void MainWindow::writeConfig()
         m_ui.actionVisualizeWhitespace->isChecked());
     config.setValue(settingPath("MainWindowState"),
         saveState());
-    recentFiles().writeConfig();
+    m_recentFiles.writeConfig();
 
     config.setValue(settingPath("Options/EditorFontsize"), m_messageEditor->fontSize());
+    config.setValue(settingPath("Options/NumberOfGuesses"), m_phraseView->getMaxCandidates());
 
     config.beginWriteArray(settingPath("OpenedPhraseBooks"),
         m_phraseBooks.size());
     for (int i = 0; i < m_phraseBooks.size(); ++i) {
         config.setArrayIndex(i);
-        config.setValue(QLatin1String("FileName"), m_phraseBooks.at(i)->fileName());
+        config.setValue("FileName"_L1, m_phraseBooks.at(i)->fileName());
     }
     config.endArray();
 }
@@ -2620,7 +2723,7 @@ void MainWindow::writeConfig()
 void MainWindow::setupRecentFilesMenu()
 {
     m_ui.menuRecentlyOpenedFiles->clear();
-    foreach (const QStringList &strList, recentFiles().filesLists())
+    for (const QStringList &strList : m_recentFiles.filesLists())
         if (strList.size() == 1) {
             const QString &str = strList.first();
             m_ui.menuRecentlyOpenedFiles->addAction(
@@ -2630,7 +2733,7 @@ void MainWindow::setupRecentFilesMenu()
                            MultiDataModel::condenseFileNames(
                                 MultiDataModel::prettifyFileNames(strList)));
             menu->addAction(tr("All"))->setData(strList);
-            foreach (const QString &str, strList)
+            for (const QString &str : strList)
                 menu->addAction(DataModel::prettifyFileName(str))->setData(str);
         }
 }
@@ -2640,20 +2743,14 @@ void MainWindow::recentFileActivated(QAction *action)
     openFiles(action->data().toStringList());
 }
 
-void MainWindow::toggleStatistics()
+void MainWindow::showStatistics()
 {
-    if (m_ui.actionStatistics->isChecked()) {
-        if (!m_statistics) {
-            m_statistics = new Statistics(this);
-            connect(m_dataModel, SIGNAL(statsChanged(int,int,int,int,int,int)),
-                m_statistics, SLOT(updateStats(int,int,int,int,int,int)));
-        }
-        m_statistics->show();
-        updateStatistics();
+    if (!m_statistics) {
+        m_statistics = new Statistics(this);
+        connect(m_dataModel, &MultiDataModel::statsChanged, m_statistics, &Statistics::updateStats);
     }
-    else if (m_statistics) {
-        m_statistics->close();
-    }
+    m_statistics->show();
+    updateStatistics();
 }
 
 void MainWindow::toggleVisualizeWhitespace()
@@ -2677,7 +2774,7 @@ void MainWindow::updateStatistics()
     m_dataModel->model(m_currentIndex.model())->updateStatistics();
 }
 
-void MainWindow::showTranslationSettings(int model)
+void MainWindow::doShowTranslationSettings(int model)
 {
     if (!m_translationSettingsDialog)
         m_translationSettingsDialog = new TranslationSettingsDialog(this);
@@ -2687,23 +2784,23 @@ void MainWindow::showTranslationSettings(int model)
 
 void MainWindow::showTranslationSettings()
 {
-    showTranslationSettings(m_currentIndex.model());
+    doShowTranslationSettings(m_currentIndex.model());
 }
 
 bool MainWindow::eventFilter(QObject *object, QEvent *event)
 {
     if (event->type() == QEvent::DragEnter) {
         QDragEnterEvent *e = static_cast<QDragEnterEvent*>(event);
-        if (e->mimeData()->hasFormat(QLatin1String("text/uri-list"))) {
+        if (e->mimeData()->hasFormat("text/uri-list"_L1)) {
             e->acceptProposedAction();
             return true;
         }
     } else if (event->type() == QEvent::Drop) {
         QDropEvent *e = static_cast<QDropEvent*>(event);
-        if (!e->mimeData()->hasFormat(QLatin1String("text/uri-list")))
+        if (!e->mimeData()->hasFormat("text/uri-list"_L1))
             return false;
         QStringList urls;
-        foreach (QUrl url, e->mimeData()->urls())
+        for (const QUrl &url : e->mimeData()->urls())
             if (!url.toLocalFile().isEmpty())
                 urls << url.toLocalFile();
         if (!urls.isEmpty())
@@ -2727,13 +2824,15 @@ bool MainWindow::eventFilter(QObject *object, QEvent *event)
     } else if (event->type() == QEvent::Wheel) {
         QWheelEvent *we = static_cast<QWheelEvent *>(event);
         if (we->modifiers() & Qt::ControlModifier) {
-            if (we->delta() > 0)
+            if (we->angleDelta().y() > 0)
                 m_messageEditor->increaseFontSize();
             else
                 m_messageEditor->decreaseFontSize();
         }
+    } else if (event->type() == QEvent::ApplicationPaletteChange) {
+        m_dataModel->updateColors();
     }
-    return false;
+    return QMainWindow::eventFilter(object, event);
 }
 
 QT_END_NAMESPACE

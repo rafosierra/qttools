@@ -1,42 +1,13 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
-#include <QtWidgets/QMainWindow>
-#include <QtCore/QList>
-#include <QtWidgets/QMdiArea>
+#include <QtCore/qlist.h>
+
+#include <QtWidgets/qmainwindow.h>
+#include <QtWidgets/qmdiarea.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -60,10 +31,10 @@ class QMimeData;
 
 class MainWindowBase: public QMainWindow
 {
-    Q_DISABLE_COPY(MainWindowBase)
+    Q_DISABLE_COPY_MOVE(MainWindowBase)
     Q_OBJECT
 protected:
-    explicit MainWindowBase(QWidget *parent = 0, Qt::WindowFlags flags = Qt::Window);
+    explicit MainWindowBase(QWidget *parent = nullptr, Qt::WindowFlags flags = Qt::Window);
 
 public:
     enum CloseEventPolicy {
@@ -85,25 +56,25 @@ signals:
     void closeEventReceived(QCloseEvent *e);
 
 protected:
-    void closeEvent(QCloseEvent *e) Q_DECL_OVERRIDE;
+    void closeEvent(QCloseEvent *e) override;
 private:
-    CloseEventPolicy m_policy;
+    CloseEventPolicy m_policy = AcceptCloseEvents;
 };
 
 /* An MdiArea that listens for desktop file manager file drop events and emits
  * a signal to open a dropped file. */
 class DockedMdiArea : public QMdiArea
 {
-    Q_DISABLE_COPY(DockedMdiArea)
+    Q_DISABLE_COPY_MOVE(DockedMdiArea)
     Q_OBJECT
 public:
-    explicit DockedMdiArea(const QString &extension, QWidget *parent = 0);
+    explicit DockedMdiArea(const QString &extension, QWidget *parent = nullptr);
 
 signals:
     void fileDropped(const QString &);
 
 protected:
-    bool event (QEvent *event);
+    bool event (QEvent *event) override;
 
 private:
     QStringList uiFiles(const QMimeData *d) const;
@@ -116,14 +87,14 @@ private:
 class ToolBarManager : public QObject
 {
     Q_OBJECT
-    Q_DISABLE_COPY(ToolBarManager)
+    Q_DISABLE_COPY_MOVE(ToolBarManager)
 public:
     explicit ToolBarManager(QMainWindow *configureableMainWindow,
                             QWidget *parent,
                             QMenu *toolBarMenu,
                             const QDesignerActions *actions,
                             const QList<QToolBar *> &toolbars,
-                            const QList<QDesignerToolWindow*> &toolWindows);
+                            const QList<QDesignerToolWindow *> &toolWindows);
 
     QByteArray saveState(int version = 0) const;
     bool restoreState(const QByteArray &state, int version = 0);
@@ -144,10 +115,10 @@ private:
 /* Main window to be used for docked mode */
 class DockedMainWindow : public MainWindowBase {
     Q_OBJECT
-    Q_DISABLE_COPY(DockedMainWindow)
+    Q_DISABLE_COPY_MOVE(DockedMainWindow)
 public:
-    typedef QList<QDesignerToolWindow*> DesignerToolWindowList;
-    typedef QList<QDockWidget *> DockWidgetList;
+    using DesignerToolWindowList = QList<QDesignerToolWindow *>;
+    using DockWidgetList = QList<QDockWidget *>;
 
     explicit DockedMainWindow(QDesignerWorkbench *wb,
                               QMenu *toolBarMenu,
@@ -171,7 +142,7 @@ private slots:
     void slotSubWindowActivated(QMdiSubWindow*);
 
 private:
-    ToolBarManager *m_toolBarManager;
+    ToolBarManager *m_toolBarManager = nullptr;
 };
 
 QT_END_NAMESPACE

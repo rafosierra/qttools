@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Assistant of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 #include "tracer.h"
 
 #include "mainwindow.h"
@@ -43,7 +13,7 @@
 #include <QtWidgets/QMenu>
 #include <QtWidgets/QLayout>
 #include <QtGui/QKeyEvent>
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
 #include <QtGui/QClipboard>
 #endif
 #include <QtWidgets/QApplication>
@@ -54,6 +24,8 @@
 #include <QtHelp/QHelpSearchResultWidget>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 SearchWidget::SearchWidget(QHelpSearchEngine *engine, QWidget *parent)
     : QWidget(parent)
@@ -71,17 +43,18 @@ SearchWidget::SearchWidget(QHelpSearchEngine *engine, QWidget *parent)
 
     setFocusProxy(queryWidget);
 
-    connect(queryWidget, SIGNAL(search()), this, SLOT(search()));
-    connect(resultWidget, SIGNAL(requestShowLink(QUrl)), this,
-        SIGNAL(requestShowLink(QUrl)));
+    connect(queryWidget, &QHelpSearchQueryWidget::search,
+            this, &SearchWidget::search);
+    connect(resultWidget, &QHelpSearchResultWidget::requestShowLink,
+            this, &SearchWidget::requestShowLink);
 
-    connect(searchEngine, SIGNAL(searchingStarted()), this,
-        SLOT(searchingStarted()));
-    connect(searchEngine, SIGNAL(searchingFinished(int)), this,
-        SLOT(searchingFinished(int)));
+    connect(searchEngine, &QHelpSearchEngine::searchingStarted,
+            this, &SearchWidget::searchingStarted);
+    connect(searchEngine, &QHelpSearchEngine::searchingFinished,
+            this, &SearchWidget::searchingFinished);
 
     QTextBrowser* browser = resultWidget->findChild<QTextBrowser*>();
-    if (browser) // Will be null if lib was configured not to use CLucene.
+    if (browser)
         browser->viewport()->installEventFilter(this);
 }
 
@@ -127,8 +100,7 @@ void SearchWidget::resetZoom()
 void SearchWidget::search() const
 {
     TRACE_OBJ
-    QList<QHelpSearchQuery> query = searchEngine->queryWidget()->query();
-    searchEngine->search(query);
+    searchEngine->search(searchEngine->queryWidget()->searchInput());
 }
 
 void SearchWidget::searchingStarted()
@@ -137,10 +109,10 @@ void SearchWidget::searchingStarted()
     qApp->setOverrideCursor(QCursor(Qt::WaitCursor));
 }
 
-void SearchWidget::searchingFinished(int hits)
+void SearchWidget::searchingFinished(int searchResultCount)
 {
     TRACE_OBJ
-    Q_UNUSED(hits)
+    Q_UNUSED(searchResultCount);
     qApp->restoreOverrideCursor();
 }
 
@@ -154,8 +126,8 @@ bool SearchWidget::eventFilter(QObject* o, QEvent *e)
         QUrl link = resultWidget->linkAt(me->pos());
         if (!link.isEmpty() || link.isValid()) {
             bool controlPressed = me->modifiers() & Qt::ControlModifier;
-            if((me->button() == Qt::LeftButton && controlPressed)
-                || (me->button() == Qt::MidButton)) {
+            if ((me->button() == Qt::LeftButton && controlPressed)
+                || (me->button() == Qt::MiddleButton)) {
                     emit requestShowLinkInNewTab(link);
             }
         }
@@ -189,30 +161,29 @@ void SearchWidget::contextMenuEvent(QContextMenuEvent *contextMenuEvent)
     QUrl link = browser->anchorAt(point);
 
     QKeySequence keySeq;
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     keySeq = QKeySequence::Copy;
-    QAction *copyAction = menu.addAction(tr("&Copy") + QLatin1String("\t") +
+    QAction *copyAction = menu.addAction(tr("&Copy") + u'\t' +
         keySeq.toString(QKeySequence::NativeText));
     copyAction->setEnabled(QTextCursor(browser->textCursor()).hasSelection());
-#endif
 
     QAction *copyAnchorAction = menu.addAction(tr("Copy &Link Location"));
     copyAnchorAction->setEnabled(!link.isEmpty() && link.isValid());
+#endif
 
     keySeq = QKeySequence(Qt::CTRL);
-    QAction *newTabAction = menu.addAction(tr("Open Link in New Tab") +
-        QLatin1String("\t") + keySeq.toString(QKeySequence::NativeText) +
-        QLatin1String("LMB"));
+    QAction *newTabAction = menu.addAction(tr("Open Link in New Tab") + u'\t'
+                                           + keySeq.toString(QKeySequence::NativeText) + "LMB"_L1);
     newTabAction->setEnabled(!link.isEmpty() && link.isValid());
 
     menu.addSeparator();
 
     keySeq = QKeySequence::SelectAll;
-    QAction *selectAllAction = menu.addAction(tr("Select All") +
-        QLatin1String("\t") + keySeq.toString(QKeySequence::NativeText));
+    QAction *selectAllAction =
+            menu.addAction(tr("Select All") + u'\t' + keySeq.toString(QKeySequence::NativeText));
 
     QAction *usedAction = menu.exec(mapToGlobal(contextMenuEvent->pos()));
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     if (usedAction == copyAction) {
         QTextCursor cursor = browser->textCursor();
         if (!cursor.isNull() && cursor.hasSelection()) {

@@ -1,38 +1,9 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Assistant of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 #include "bookmarkmodel.h"
 #include "bookmarkitem.h"
 
+#include <QtCore/QIODevice>
 #include <QtCore/QMimeData>
 #include <QtCore/QStack>
 
@@ -40,14 +11,16 @@
 #include <QtWidgets/QStyle>
 #include <QtWidgets/QTreeView>
 
+using namespace Qt::StringLiterals;
+
 const quint32 VERSION = 0xe53798;
-const QLatin1String MIMETYPE("application/bookmarks.assistant");
+const QLatin1StringView MIMETYPE("application/bookmarks.assistant");
 
 BookmarkModel::BookmarkModel()
     : QAbstractItemModel()
     , m_folder(false)
     , m_editable(false)
-    , rootItem(0)
+    , rootItem(nullptr)
 {
 }
 
@@ -77,7 +50,7 @@ BookmarkModel::setBookmarks(const QByteArray &bookmarks)
 
     delete rootItem;
     folderIcon = QApplication::style()->standardIcon(QStyle::SP_DirClosedIcon);
-    bookmarkIcon = QIcon(QLatin1String(":/qt-project.org/assistant/images/bookmark.png"));
+    bookmarkIcon = QIcon(":/qt-project.org/assistant/images/bookmark.png"_L1);
 
     rootItem = new BookmarkItem(DataVector() << tr("Name") << tr("Address")
         << true);
@@ -89,12 +62,12 @@ BookmarkModel::setBookmarks(const QByteArray &bookmarks)
     stream >> version;
     if (version < VERSION) {
         stream.device()->seek(0);
-        BookmarkItem* toolbar = new BookmarkItem(DataVector() << tr("Bookmarks Toolbar")
-            << QLatin1String("Folder") << true);
+        BookmarkItem *toolbar =
+                new BookmarkItem(DataVector() << tr("Bookmarks Toolbar") << "Folder"_L1 << true);
         rootItem->addChild(toolbar);
 
-        BookmarkItem* menu = new BookmarkItem(DataVector() << tr("Bookmarks Menu")
-            << QLatin1String("Folder") << true);
+        BookmarkItem *menu =
+                new BookmarkItem(DataVector() << tr("Bookmarks Menu") << "Folder"_L1 << true);
         rootItem->addChild(menu);
         parents.push(menu);
     } else {
@@ -106,11 +79,11 @@ BookmarkModel::setBookmarks(const QByteArray &bookmarks)
     QString name, url;
     while (!stream.atEnd()) {
         stream >> depth >> name >> url >> expanded;
-        while ((parents.count() - 1) != depth)
+        while ((parents.size() - 1) != depth)
             parents.pop();
 
         BookmarkItem *item = new BookmarkItem(DataVector() << name << url << expanded);
-        if (url == QLatin1String("Folder")) {
+        if (url == "Folder"_L1) {
             parents.top()->addChild(item);
             parents.push(item);
         } else {
@@ -132,7 +105,7 @@ BookmarkModel::setItemsEditable(bool editable)
 void
 BookmarkModel::expandFoldersIfNeeeded(QTreeView *treeView)
 {
-    foreach (const QModelIndex &index, cache)
+    for (QModelIndex index : std::as_const(cache))
         treeView->setExpanded(index, index.data(UserRoleExpanded).toBool());
 }
 
@@ -159,7 +132,7 @@ BookmarkModel::removeItem(const QModelIndex &index)
         indexes = collectItems(index);
     indexes.append(index);
 
-    foreach (const QModelIndex &itemToRemove, indexes) {
+    for (const QModelIndex &itemToRemove : std::as_const(indexes)) {
         if (!removeRow(itemToRemove.row(), itemToRemove.parent()))
             return false;
         cache.remove(itemFromIndex(itemToRemove));
@@ -241,20 +214,19 @@ BookmarkModel::data(const QModelIndex &index, int role) const
     if (index.isValid()) {
         if (BookmarkItem *item = itemFromIndex(index)) {
             switch (role) {
-                case Qt::EditRole: {
+                case Qt::EditRole:
                 case Qt::DisplayRole:
                     if (index.data(UserRoleFolder).toBool() && index.column() == 1)
-                        return QLatin1String("");
+                        return QString();
                     return item->data(index.column());
-                }   break;
 
-                case Qt::DecorationRole: {
+                case Qt::DecorationRole:
                     if (index.column() == 0)
                         return index.data(UserRoleFolder).toBool()
                             ? folderIcon : bookmarkIcon;
-                }   break;
+                    break;
 
-                default:;
+                default:
                     return item->data(role);
             }
         }
@@ -280,7 +252,7 @@ BookmarkModel::setData(const QModelIndex &index, const QVariant &value, int role
     if (BookmarkItem *item = itemFromIndex(index)) {
         if (role == Qt::EditRole) {
             const bool isFolder = index.data(UserRoleFolder).toBool();
-            if (!isFolder || (isFolder && index.column() == 0))
+            if (!isFolder || index.column() == 0)
                 result = item->setData(index.column(), value);
         } else if (role == UserRoleExpanded) {
             result = item->setData(UserRoleExpanded, value);
@@ -320,7 +292,7 @@ BookmarkModel::indexListFor(const QString &label) const
 {
     QList<QPersistentModelIndex> hits;
     const QModelIndexList &list = collectItems(QModelIndex());
-    foreach(const QModelIndex &index, list) {
+    for (const QModelIndex &index : list) {
         if (index.data().toString().contains(label, Qt::CaseInsensitive))
             hits.prepend(index);    // list is reverse sorted
     }
@@ -368,12 +340,12 @@ QMimeData*
 BookmarkModel::mimeData(const QModelIndexList &indexes) const
 {
     if (indexes.isEmpty())
-        return 0;
+        return nullptr;
 
     QByteArray data;
     QDataStream stream(&data, QIODevice::WriteOnly);
 
-    foreach (const QModelIndex &index, indexes) {
+    for (const QModelIndex &index : indexes) {
         if (index.column() == 0)
             collectItems(index, 0, &stream);
     }
@@ -418,7 +390,7 @@ void
 BookmarkModel::setupCache(const QModelIndex &parent)
 {
     const QModelIndexList &list = collectItems(parent);
-    foreach (const QModelIndex &index, list)
+    for (const QModelIndex &index : list)
         cache.insert(itemFromIndex(index), index);
 }
 

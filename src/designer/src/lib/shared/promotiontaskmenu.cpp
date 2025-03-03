@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "promotiontaskmenu_p.h"
 #include "qdesigner_promotiondialog_p.h"
@@ -41,16 +11,17 @@
 #include "qdesigner_objectinspector_p.h"
 #include "abstractintrospection_p.h"
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormWindowCursorInterface>
-#include <QtDesigner/QDesignerLanguageExtension>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformwindowcursor.h>
+#include <QtDesigner/abstractlanguage.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/qextensionmanager.h>
 
-#include <QtWidgets/QAction>
-#include <QtWidgets/QWidget>
-#include <QtWidgets/QMenu>
-#include <QtCore/QSignalMapper>
+#include <QtWidgets/qwidget.h>
+#include <QtWidgets/qmenu.h>
+
+#include <QtGui/qaction.h>
+
 #include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
@@ -73,16 +44,15 @@ PromotionTaskMenu::PromotionTaskMenu(QWidget *widget,Mode mode, QObject *parent)
     QObject(parent),
     m_mode(mode),
     m_widget(widget),
-    m_promotionMapper(0),
     m_globalEditAction(new QAction(tr("Promoted widgets..."), this)),
     m_EditPromoteToAction(new QAction(tr("Promote to ..."), this)),
     m_EditSignalsSlotsAction(new QAction(tr("Change signals/slots..."), this)),
     m_promoteLabel(tr("Promote to")),
     m_demoteLabel(tr("Demote to %1"))
 {
-    connect(m_globalEditAction, SIGNAL(triggered()), this, SLOT(slotEditPromotedWidgets()));
-    connect(m_EditPromoteToAction, SIGNAL(triggered()), this, SLOT(slotEditPromoteTo()));
-    connect(m_EditSignalsSlotsAction, SIGNAL(triggered()), this, SLOT(slotEditSignalsSlots()));
+    connect(m_globalEditAction, &QAction::triggered, this, &PromotionTaskMenu::slotEditPromotedWidgets);
+    connect(m_EditPromoteToAction, &QAction::triggered, this, &PromotionTaskMenu::slotEditPromoteTo);
+    connect(m_EditSignalsSlotsAction, &QAction::triggered, this, &PromotionTaskMenu::slotEditSignalsSlots);
 }
 
 PromotionTaskMenu::Mode PromotionTaskMenu::mode() const
@@ -118,7 +88,7 @@ void PromotionTaskMenu::setDemoteLabel(const QString &demoteLabel)
 PromotionTaskMenu::PromotionState  PromotionTaskMenu::createPromotionActions(QDesignerFormWindowInterface *formWindow)
 {
     // clear out old
-    if (!m_promotionActions.empty()) {
+    if (!m_promotionActions.isEmpty()) {
         qDeleteAll(m_promotionActions);
         m_promotionActions.clear();
     }
@@ -129,7 +99,7 @@ PromotionTaskMenu::PromotionState  PromotionTaskMenu::createPromotionActions(QDe
     // Check for a homogenous selection
     const PromotionSelectionList promotionSelection = promotionSelectionList(formWindow);
 
-    if (promotionSelection.empty())
+    if (promotionSelection.isEmpty())
         return NoHomogenousSelection;
 
     QDesignerFormEditorInterface *core = formWindow->core();
@@ -137,33 +107,25 @@ PromotionTaskMenu::PromotionState  PromotionTaskMenu::createPromotionActions(QDe
     if (isPromoted(formWindow->core(), m_widget)) {
         const QString label = m_demoteLabel.arg( promotedExtends(core , m_widget));
         QAction *demoteAction = new QAction(label, this);
-        connect(demoteAction, SIGNAL(triggered()), this, SLOT(slotDemoteFromCustomWidget()));
+        connect(demoteAction, &QAction::triggered, this, &PromotionTaskMenu::slotDemoteFromCustomWidget);
         m_promotionActions.push_back(demoteAction);
         return CanDemote;
     }
     // figure out candidates
     const QString baseClassName = WidgetFactory::classNameOf(core,  m_widget);
     const WidgetDataBaseItemList candidates = promotionCandidates(core->widgetDataBase(), baseClassName );
-    if (candidates.empty()) {
+    if (candidates.isEmpty()) {
         // Is this thing promotable at all?
         return QDesignerPromotionDialog::baseClassNames(core->promotion()).contains(baseClassName) ?  CanPromote : NotApplicable;
-    }
-    // Set up a signal mapper to associate class names
-    if (!m_promotionMapper) {
-        m_promotionMapper = new QSignalMapper(this);
-        connect(m_promotionMapper, SIGNAL(mapped(QString)), this, SLOT(slotPromoteToCustomWidget(QString)));
     }
 
     QMenu *candidatesMenu = new QMenu();
     // Create a sub menu
-    const WidgetDataBaseItemList::const_iterator cend = candidates.constEnd();
     // Set up actions and map class names
-    for (WidgetDataBaseItemList::const_iterator it = candidates.constBegin(); it != cend; ++it) {
-        const QString customClassName = (*it)->name();
-        QAction *action = new QAction((*it)->name(), this);
-        connect(action, SIGNAL(triggered()), m_promotionMapper, SLOT(map()));
-        m_promotionMapper->setMapping(action, customClassName);
-        candidatesMenu->addAction(action);
+    for (auto *item : candidates) {
+        const QString customClassName = item->name();
+        candidatesMenu->addAction(customClassName,
+                                  this, [this, customClassName] { this->slotPromoteToCustomWidget(customClassName); });
     }
     // Sub menu action
     QAction *subMenuAction = new QAction(m_promoteLabel, this);
@@ -181,7 +143,7 @@ void PromotionTaskMenu::addActions(QDesignerFormWindowInterface *fw, unsigned fl
                                    ActionList &actionList)
 {
     Q_ASSERT(m_widget);
-    const int previousSize = actionList.size();
+    const auto previousSize = actionList.size();
     const PromotionState promotionState = createPromotionActions(fw);
 
     // Promotion candidates/demote
@@ -244,7 +206,7 @@ void PromotionTaskMenu::slotDemoteFromCustomWidget()
 {
     QDesignerFormWindowInterface *fw = formWindow();
     const PromotionSelectionList promotedWidgets = promotionSelectionList(fw);
-    Q_ASSERT(!promotedWidgets.empty() && isPromoted(fw->core(), promotedWidgets.front()));
+    Q_ASSERT(!promotedWidgets.isEmpty() && isPromoted(fw->core(), promotedWidgets.constFirst()));
 
     // ### use the undo stack
     DemoteFromCustomWidgetCommand *cmd = new DemoteFromCustomWidgetCommand(fw);
@@ -262,7 +224,7 @@ void PromotionTaskMenu::slotEditPromoteTo()
     Q_ASSERT(QDesignerPromotionDialog::baseClassNames(core->promotion()).contains(base_class_name));
     // Show over promotable widget
     QString promoteToClassName;
-    QDialog *promotionEditor = 0;
+    QDialog *promotionEditor = nullptr;
     if (QDesignerLanguageExtension *lang = languageExtension(core))
         promotionEditor = lang->createPromotionDialog(core, base_class_name, &promoteToClassName, fw);
     if (!promotionEditor)
@@ -302,9 +264,7 @@ PromotionTaskMenu::PromotionSelectionList PromotionTaskMenu::promotionSelectionL
             designerObjectInspector->getSelection(s);
             // Find objects of similar state
             const QWidgetList &source = m_mode == ModeManagedMultiSelection ? s.managed : s.unmanaged;
-            const QWidgetList::const_iterator cend = source.constEnd();
-            for (QWidgetList::const_iterator it = source.constBegin(); it != cend; ++it) {
-                QWidget *w = *it;
+            for (auto *w : source) {
                 if (w != m_widget) {
                     // Selection state mismatch
                     if (intro->metaObject(w)->className() != className || isPromoted(core, w) !=  promoted)
@@ -325,14 +285,14 @@ QDesignerFormWindowInterface *PromotionTaskMenu::formWindow() const
     // for QDesignerMenus also.
     QObject *o = m_widget;
     QDesignerFormWindowInterface *result = QDesignerFormWindowInterface::findFormWindow(o);
-    Q_ASSERT(result != 0);
+    Q_ASSERT(result != nullptr);
     return result;
 }
 
 void PromotionTaskMenu::editPromotedWidgets(QDesignerFormEditorInterface *core, QWidget* parent) {
     QDesignerLanguageExtension *lang = languageExtension(core);
     // Show over non-promotable widget
-    QDialog *promotionEditor =  0;
+    QDialog *promotionEditor =  nullptr;
     if (lang)
         lang->createPromotionDialog(core, parent);
     if (!promotionEditor)

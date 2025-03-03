@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Assistant of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "mainwindow.h"
 
@@ -63,12 +33,14 @@
 #include <QtCore/QFileInfo>
 #include <QtCore/QDir>
 
-#include <QtWidgets/QAction>
-#include <QtWidgets/QComboBox>
-#include <QtWidgets/QDesktopWidget>
-#include <QtWidgets/QDockWidget>
+#include <QtGui/QAction>
 #include <QtGui/QFontDatabase>
 #include <QtGui/QImageReader>
+#include <QtGui/QScreen>
+#include <QtGui/QShortcut>
+
+#include <QtWidgets/QComboBox>
+#include <QtWidgets/QDockWidget>
 #include <QtWidgets/QFileDialog>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QLayout>
@@ -76,7 +48,6 @@
 #include <QtWidgets/QMenuBar>
 #include <QtWidgets/QMessageBox>
 #include <QtWidgets/QProgressBar>
-#include <QtWidgets/QShortcut>
 #include <QtWidgets/QStatusBar>
 #include <QtWidgets/QToolBar>
 #include <QtWidgets/QToolButton>
@@ -85,22 +56,19 @@
 #include <QtHelp/QHelpEngineCore>
 #include <QtHelp/QHelpIndexModel>
 #include <QtHelp/QHelpSearchEngine>
+#include <QtHelp/QHelpFilterEngine>
 
 #include <cstdlib>
 
 QT_BEGIN_NAMESPACE
 
+using namespace Qt::StringLiterals;
+
 enum { warnAboutMissingModules = 0 };
 
 MainWindow::MainWindow(CmdLineParser *cmdLine, QWidget *parent)
     : QMainWindow(parent)
-    , m_bookmarkWidget(0)
-    , m_filterCombo(0)
-    , m_toolBarMenu(0)
     , m_cmdLine(cmdLine)
-    , m_progressWidget(0)
-    , m_qtDocInstaller(0)
-    , m_connectedInitSignals(false)
 {
     TRACE_OBJ
 
@@ -130,13 +98,13 @@ MainWindow::MainWindow(CmdLineParser *cmdLine, QWidget *parent)
 
     m_indexWindow = new IndexWindow(this);
     QDockWidget *indexDock = new QDockWidget(tr("Index"), this);
-    indexDock->setObjectName(QLatin1String("IndexWindow"));
+    indexDock->setObjectName("IndexWindow"_L1);
     indexDock->setWidget(m_indexWindow);
     addDockWidget(Qt::LeftDockWidgetArea, indexDock);
 
     m_contentWindow = new ContentWindow;
     QDockWidget *contentDock = new QDockWidget(tr("Contents"), this);
-    contentDock->setObjectName(QLatin1String("ContentWindow"));
+    contentDock->setObjectName("ContentWindow"_L1);
     contentDock->setWidget(m_contentWindow);
     addDockWidget(Qt::LeftDockWidgetArea, contentDock);
 
@@ -144,35 +112,37 @@ MainWindow::MainWindow(CmdLineParser *cmdLine, QWidget *parent)
     m_searchWindow->setFont(!helpEngineWrapper.usesBrowserFont() ? qApp->font()
         : helpEngineWrapper.browserFont());
     QDockWidget *searchDock = new QDockWidget(tr("Search"), this);
-    searchDock->setObjectName(QLatin1String("SearchWindow"));
+    searchDock->setObjectName("SearchWindow"_L1);
     searchDock->setWidget(m_searchWindow);
     addDockWidget(Qt::LeftDockWidgetArea, searchDock);
 
     QDockWidget *bookmarkDock = new QDockWidget(tr("Bookmarks"), this);
-    bookmarkDock->setObjectName(QLatin1String("BookmarkWindow"));
+    bookmarkDock->setObjectName("BookmarkWindow"_L1);
     bookmarkDock->setWidget(m_bookmarkWidget
         = bookMarkManager->bookmarkDockWidget());
     addDockWidget(Qt::LeftDockWidgetArea, bookmarkDock);
 
     QDockWidget *openPagesDock = new QDockWidget(tr("Open Pages"), this);
-    openPagesDock->setObjectName(QLatin1String("Open Pages"));
+    openPagesDock->setObjectName("Open Pages"_L1);
     OpenPagesManager *openPagesManager
         = OpenPagesManager::createInstance(this, usesDefaultCollection(), m_cmdLine->url());
     openPagesDock->setWidget(openPagesManager->openPagesWidget());
     addDockWidget(Qt::LeftDockWidgetArea, openPagesDock);
 
-    connect(m_centralWidget, SIGNAL(addBookmark(QString,QString)),
-        bookMarkManager, SLOT(addBookmark(QString,QString)));
-    connect(bookMarkManager, SIGNAL(escapePressed()), this,
-            SLOT(activateCurrentCentralWidgetTab()));
-    connect(bookMarkManager, SIGNAL(setSource(QUrl)), m_centralWidget,
-            SLOT(setSource(QUrl)));
-    connect(bookMarkManager, SIGNAL(setSourceInNewTab(QUrl)),
-        openPagesManager, SLOT(createPage(QUrl)));
+    connect(m_centralWidget, &CentralWidget::addBookmark,
+            bookMarkManager, &BookmarkManager::addBookmark);
+    connect(bookMarkManager, &BookmarkManager::escapePressed,
+            this, &MainWindow::activateCurrentCentralWidgetTab);
+    connect(bookMarkManager, &BookmarkManager::setSource,
+            m_centralWidget, &CentralWidget::setSource);
+    connect(bookMarkManager, &BookmarkManager::setSourceInNewTab,
+            openPagesManager, [openPagesManager](const QUrl &url){ openPagesManager->createPage(url); });
 
     QHelpSearchEngine *searchEngine = helpEngineWrapper.searchEngine();
-    connect(searchEngine, SIGNAL(indexingStarted()), this, SLOT(indexingStarted()));
-    connect(searchEngine, SIGNAL(indexingFinished()), this, SLOT(indexingFinished()));
+    connect(searchEngine, &QHelpSearchEngine::indexingStarted,
+            this, &MainWindow::indexingStarted);
+    connect(searchEngine, &QHelpSearchEngine::indexingFinished,
+            this, &MainWindow::indexingFinished);
 
     QString defWindowTitle = tr("Qt Assistant");
     setWindowTitle(defWindowTitle);
@@ -197,13 +167,16 @@ MainWindow::MainWindow(CmdLineParser *cmdLine, QWidget *parent)
             appIcon.addPixmap(pix);
         } while (reader.jumpToNextImage());
         qApp->setWindowIcon(appIcon);
-    } else {
-        QIcon appIcon(QLatin1String(":/qt-project.org/assistant/images/assistant-128.png"));
+    }
+#if !defined(Q_OS_MACOS) && !defined(Q_OS_WIN)
+    else {
+        QIcon appIcon(":/qt-project.org/assistant/images/assistant-128.png"_L1);
         qApp->setWindowIcon(appIcon);
     }
+#endif
 
     QToolBar *toolBar = addToolBar(tr("Bookmark Toolbar"));
-    toolBar->setObjectName(QLatin1String("Bookmark Toolbar"));
+    toolBar->setObjectName("Bookmark Toolbar"_L1);
     bookMarkManager->setBookmarksToolbar(toolBar);
 
     toolBar->hide();
@@ -221,10 +194,10 @@ MainWindow::MainWindow(CmdLineParser *cmdLine, QWidget *parent)
         tabifyDockWidget(indexDock, bookmarkDock);
         tabifyDockWidget(bookmarkDock, searchDock);
         contentDock->raise();
-        const QRect screen = QApplication::desktop()->screenGeometry();
-        resize(4*screen.width()/5, 4*screen.height()/5);
-
+        const QRect screen = QGuiApplication::primaryScreen()->geometry();
         adjustSize();   // make sure we won't start outside of the screen
+        resize(4 * screen.width() / 5, 4 * screen.height() / 5);
+
         move(screen.center() - rect().center());
     }
 
@@ -241,7 +214,7 @@ MainWindow::MainWindow(CmdLineParser *cmdLine, QWidget *parent)
 
     updateAboutMenuText();
 
-    QTimer::singleShot(0, this, SLOT(insertLastPages()));
+    QTimer::singleShot(0, this, &MainWindow::insertLastPages);
     if (m_cmdLine->enableRemoteControl())
         (void)new RemoteControl(this);
 
@@ -274,19 +247,19 @@ MainWindow::MainWindow(CmdLineParser *cmdLine, QWidget *parent)
 
     if (!m_cmdLine->currentFilter().isEmpty()) {
         const QString &curFilter = m_cmdLine->currentFilter();
-        if (helpEngineWrapper.customFilters().contains(curFilter))
-            helpEngineWrapper.setCurrentFilter(curFilter);
+        if (helpEngineWrapper.filterEngine()->filters().contains(curFilter))
+            helpEngineWrapper.filterEngine()->setActiveFilter(curFilter);
     }
 
     if (usesDefaultCollection())
-        QTimer::singleShot(0, this, SLOT(lookForNewQtDocumentation()));
+        QTimer::singleShot(0, this, &MainWindow::lookForNewQtDocumentation);
     else
         checkInitState();
 
-    connect(&helpEngineWrapper, SIGNAL(documentationRemoved(QString)),
-            this, SLOT(documentationRemoved(QString)));
-    connect(&helpEngineWrapper, SIGNAL(documentationUpdated(QString)),
-            this, SLOT(documentationUpdated(QString)));
+    connect(&helpEngineWrapper, &HelpEngineWrapper::documentationRemoved,
+            this, &MainWindow::documentationRemoved);
+    connect(&helpEngineWrapper, &HelpEngineWrapper::documentationUpdated,
+            this, &MainWindow::documentationUpdated);
 
     setTabPosition(Qt::AllDockWidgetAreas, QTabWidget::North);
     GlobalActions::instance()->updateActions();
@@ -297,8 +270,7 @@ MainWindow::MainWindow(CmdLineParser *cmdLine, QWidget *parent)
 MainWindow::~MainWindow()
 {
     TRACE_OBJ
-    if (m_qtDocInstaller)
-        delete m_qtDocInstaller;
+    delete m_qtDocInstaller;
 }
 
 bool MainWindow::usesDefaultCollection() const
@@ -323,45 +295,9 @@ bool MainWindow::initHelpDB(bool registerInternalDoc)
     if (!helpEngineWrapper.setupData())
         return false;
 
-    if (!registerInternalDoc) {
-        if (helpEngineWrapper.defaultHomePage() == QLatin1String("help"))
-            helpEngineWrapper.setDefaultHomePage(QLatin1String("about:blank"));
-        return true;
-    }
-    bool assistantInternalDocRegistered = false;
-    QString intern(QLatin1String("org.qt-project.assistantinternal-"));
-    foreach (const QString &ns, helpEngineWrapper.registeredDocumentations()) {
-        if (ns.startsWith(intern)) {
-            intern = ns;
-            assistantInternalDocRegistered = true;
-            break;
-        }
-    }
+    if (!registerInternalDoc && helpEngineWrapper.defaultHomePage() == "help"_L1)
+        helpEngineWrapper.setDefaultHomePage("about:blank"_L1);
 
-    const QString &collectionFile = helpEngineWrapper.collectionFile();
-    QFileInfo fi(collectionFile);
-    QString helpFile;
-    QTextStream(&helpFile) << fi.absolutePath() << QDir::separator()
-        << QLatin1String("assistant.qch.") << (QT_VERSION >> 16)
-        << QLatin1Char('.') << ((QT_VERSION >> 8) & 0xFF);
-
-    bool needsSetup = false;
-    if (!assistantInternalDocRegistered || !QFile::exists(helpFile)) {
-        QFile file(helpFile);
-        if (file.open(QIODevice::WriteOnly)) {
-            QResource res(QLatin1String(":/qt-project.org/assistant/assistant.qch"));
-            if (file.write((const char*)res.data(), res.size()) != res.size())
-                qDebug() << QLatin1String("could not write assistant.qch...");
-
-            file.close();
-        }
-        helpEngineWrapper.unregisterDocumentation(intern);
-        helpEngineWrapper.registerDocumentation(helpFile);
-        needsSetup = true;
-    }
-
-    if (needsSetup)
-        helpEngineWrapper.setupData();
     return true;
 }
 
@@ -423,12 +359,12 @@ static const char *docs[] = {
 static QStringList newQtDocumentation()
 {
     QStringList result;
-    const QDir docDirectory(QLibraryInfo::location(QLibraryInfo::DocumentationPath));
+    const QDir docDirectory(QLibraryInfo::path(QLibraryInfo::DocumentationPath));
     const QFileInfoList entries = docDirectory.entryInfoList(QStringList(QStringLiteral("*.qch")),
                                                              QDir::Files, QDir::Name);
     if (!entries.isEmpty()) {
         result.reserve(entries.size());
-        foreach (const QFileInfo &fi, entries)
+        for (const QFileInfo &fi : entries)
             result.append(fi.baseName());
         return result;
     }
@@ -437,7 +373,7 @@ static QStringList newQtDocumentation()
     const int docCount = int(sizeof(docs) / sizeof(docs[0]));
     result.reserve(docCount);
     for (int d = 0; d < docCount; ++d)
-        result.append(QLatin1String(docs[d]));
+        result.append(QLatin1StringView(docs[d]));
     return result;
 }
 
@@ -446,12 +382,11 @@ void MainWindow::lookForNewQtDocumentation()
     TRACE_OBJ
     HelpEngineWrapper &helpEngine = HelpEngineWrapper::instance();
 
-    const QStringList docs = newQtDocumentation();
+    const QStringList &docs = newQtDocumentation();
     const int docCount = docs.size();
     QList<QtDocInstaller::DocInfo> qtDocInfos;
     qtDocInfos.reserve(docCount);
-    for (int d = 0; d < docCount; ++d) {
-        const QString &doc = docs.at(d);
+    for (const QString &doc : docs) {
         const QtDocInstaller::DocInfo docInfo(doc, helpEngine.qtDocInfo(doc));
         qtDocInfos.append(docInfo);
         if (warnAboutMissingModules && (docInfo.second.isEmpty() || docInfo.second.first().isEmpty()))
@@ -459,13 +394,13 @@ void MainWindow::lookForNewQtDocumentation()
     }
 
     m_qtDocInstaller = new QtDocInstaller(qtDocInfos);
-    connect(m_qtDocInstaller, SIGNAL(docsInstalled(bool)), this,
-        SLOT(qtDocumentationInstalled()));
-    connect(m_qtDocInstaller, SIGNAL(qchFileNotFound(QString)), this,
-            SLOT(resetQtDocInfo(QString)));
-    connect(m_qtDocInstaller, SIGNAL(registerDocumentation(QString,QString)),
-            this, SLOT(registerDocumentation(QString,QString)));
-    if (helpEngine.qtDocInfo(QLatin1String("qt")).count() != 2)
+    connect(m_qtDocInstaller, &QtDocInstaller::docsInstalled,
+            this, &MainWindow::qtDocumentationInstalled);
+    connect(m_qtDocInstaller, &QtDocInstaller::qchFileNotFound,
+            this, &MainWindow::resetQtDocInfo);
+    connect(m_qtDocInstaller, &QtDocInstaller::registerDocumentation,
+            this, &MainWindow::registerDocumentation);
+    if (helpEngine.qtDocInfo("qt"_L1).size() != 2)
         statusBar()->showMessage(tr("Looking for Qt Documentation..."));
     m_qtDocInstaller->installDocs();
 }
@@ -473,6 +408,7 @@ void MainWindow::lookForNewQtDocumentation()
 void MainWindow::qtDocumentationInstalled()
 {
     TRACE_OBJ
+    OpenPagesManager::instance()->resetHelpPage();
     statusBar()->clearMessage();
     checkInitState();
 }
@@ -489,16 +425,16 @@ void MainWindow::checkInitState()
     if (helpEngine.contentModel()->isCreatingContents()
         || helpEngine.indexModel()->isCreatingIndex()) {
         if (!m_connectedInitSignals) {
-            connect(helpEngine.contentModel(), SIGNAL(contentsCreated()),
-                this, SLOT(checkInitState()));
-            connect(helpEngine.indexModel(), SIGNAL(indexCreated()), this,
-                SLOT(checkInitState()));
+            connect(helpEngine.contentModel(), &QHelpContentModel::contentsCreated,
+                    this, &MainWindow::checkInitState);
+            connect(helpEngine.indexModel(), &QHelpIndexModel::indexCreated,
+                    this, &MainWindow::checkInitState);
             m_connectedInitSignals = true;
         }
     } else {
         if (m_connectedInitSignals) {
-            disconnect(helpEngine.contentModel(), 0, this, 0);
-            disconnect(helpEngine.indexModel(), 0, this, 0);
+            disconnect(helpEngine.contentModel(), nullptr, this, nullptr);
+            disconnect(helpEngine.indexModel(), nullptr, this, nullptr);
         }
         HelpEngineWrapper::instance().initialDocSetupDone();
         emit initDone();
@@ -515,137 +451,153 @@ void MainWindow::insertLastPages()
 void MainWindow::setupActions()
 {
     TRACE_OBJ
-    QString resourcePath = QLatin1String(":/qt-project.org/assistant/images/");
+    QString resourcePath = ":/qt-project.org/assistant/images/"_L1;
 #ifdef Q_OS_MAC
     setUnifiedTitleAndToolBarOnMac(true);
-    resourcePath.append(QLatin1String("mac"));
+    resourcePath.append("mac"_L1);
 #else
-    resourcePath.append(QLatin1String("win"));
+    resourcePath.append("win"_L1);
 #endif
 
     QMenu *menu = menuBar()->addMenu(tr("&File"));
-    OpenPagesManager * const openPages = OpenPagesManager::instance();
-    m_newTabAction = menu->addAction(tr("New &Tab"), openPages, SLOT(createPage()));
+    OpenPagesManager *const openPages = OpenPagesManager::instance();
+    m_newTabAction = menu->addAction(tr("New &Tab"),
+            openPages, &OpenPagesManager::createBlankPage);
     m_newTabAction->setShortcut(QKeySequence::AddTab);
     m_closeTabAction = menu->addAction(tr("&Close Tab"),
-                                          openPages, SLOT(closeCurrentPage()));
+            openPages, &OpenPagesManager::closeCurrentPage);
     m_closeTabAction->setShortcuts(QKeySequence::Close);
     m_closeTabAction->setEnabled(openPages->pageCount() > 1);
-    connect(openPages, SIGNAL(pageClosed()), this, SLOT(handlePageCountChanged()));
-    connect(openPages, SIGNAL(pageAdded(int)), this, SLOT(handlePageCountChanged()));
+    connect(openPages, &OpenPagesManager::pageClosed,
+            this, &MainWindow::handlePageCountChanged);
+    connect(openPages, &OpenPagesManager::pageAdded,
+            this, &MainWindow::handlePageCountChanged);
 
     menu->addSeparator();
 
-    m_pageSetupAction = menu->addAction(tr("Page Set&up..."), m_centralWidget,
-        SLOT(pageSetup()));
-    m_printPreviewAction = menu->addAction(tr("Print Preview..."), m_centralWidget,
-        SLOT(printPreview()));
+    m_pageSetupAction = menu->addAction(tr("Page Set&up..."),
+            m_centralWidget, &CentralWidget::pageSetup);
+    m_printPreviewAction = menu->addAction(tr("Print Preview..."),
+            m_centralWidget, &CentralWidget::printPreview);
 
     GlobalActions *globalActions = GlobalActions::instance(this);
     menu->addAction(globalActions->printAction());
     menu->addSeparator();
 
-    QIcon appExitIcon = QIcon::fromTheme("application-exit");
+    QIcon appExitIcon = QIcon::fromTheme(QIcon::ThemeIcon::ApplicationExit);
     QAction *tmp;
 #ifdef Q_OS_WIN
-    tmp = menu->addAction(appExitIcon, tr("E&xit"), this, SLOT(close()));
+    tmp = menu->addAction(appExitIcon, tr("E&xit"),
+            this, &QWidget::close);
     tmp->setShortcut(QKeySequence(tr("CTRL+Q")));
 #else
-    tmp = menu->addAction(appExitIcon, tr("&Quit"), this, SLOT(close()));
+    tmp = menu->addAction(appExitIcon, tr("&Quit"),
+            this, &QWidget::close);
     tmp->setShortcut(QKeySequence::Quit);
 #endif
     tmp->setMenuRole(QAction::QuitRole);
 
     menu = menuBar()->addMenu(tr("&Edit"));
+#if QT_CONFIG(clipboard)
     menu->addAction(globalActions->copyAction());
+#endif
     menu->addAction(globalActions->findAction());
 
-    QAction *findNextAction = menu->addAction(tr("Find &Next"), m_centralWidget,
-        SLOT(findNext()));
+    QAction *findNextAction = menu->addAction(tr("Find &Next"),
+            m_centralWidget, &CentralWidget::findNext);
     findNextAction->setShortcuts(QKeySequence::FindNext);
 
     QAction *findPreviousAction = menu->addAction(tr("Find &Previous"),
-        m_centralWidget, SLOT(findPrevious()));
+            m_centralWidget, &CentralWidget::findPrevious);
     findPreviousAction->setShortcuts(QKeySequence::FindPrevious);
 
     menu->addSeparator();
-    tmp = menu->addAction(tr("Preferences..."), this, SLOT(showPreferences()));
+    tmp = menu->addAction(tr("Preferences..."),
+            this, &MainWindow::showPreferences);
     tmp->setMenuRole(QAction::PreferencesRole);
 
     m_viewMenu = menuBar()->addMenu(tr("&View"));
     m_viewMenu->addAction(globalActions->zoomInAction());
     m_viewMenu->addAction(globalActions->zoomOutAction());
 
-    m_resetZoomAction = m_viewMenu->addAction(tr("Normal &Size"), m_centralWidget,
-        SLOT(resetZoom()));
+    m_resetZoomAction = m_viewMenu->addAction(tr("Normal &Size"),
+            m_centralWidget, &CentralWidget::resetZoom);
     m_resetZoomAction->setPriority(QAction::LowPriority);
-    m_resetZoomAction->setIcon(QIcon(resourcePath + QLatin1String("/resetzoom.png")));
+    m_resetZoomAction->setIcon(QIcon(resourcePath + "/resetzoom.png"_L1));
     m_resetZoomAction->setShortcut(tr("Ctrl+0"));
 
     m_viewMenu->addSeparator();
 
-    m_viewMenu->addAction(tr("Contents"), this, SLOT(showContents()),
-        QKeySequence(tr("ALT+C")));
-    m_viewMenu->addAction(tr("Index"), this, SLOT(showIndex()),
-        QKeySequence(tr("ALT+I")));
-    m_viewMenu->addAction(tr("Bookmarks"), this, SLOT(showBookmarksDockWidget()),
-        QKeySequence(tr("ALT+O")));
-    m_viewMenu->addAction(tr("Search"), this, SLOT(showSearch()),
-        QKeySequence(tr("ALT+S")));
-    m_viewMenu->addAction(tr("Open Pages"), this, SLOT(showOpenPages()),
-        QKeySequence(tr("ALT+P")));
+    m_viewMenu->addAction(tr("Contents"), QKeySequence(tr("ALT+C")),
+                          this, &MainWindow::showContents);
+    m_viewMenu->addAction(tr("Index"), QKeySequence(tr("ALT+I")),
+                          this, &MainWindow::showIndex);
+    m_viewMenu->addAction(tr("Bookmarks"), QKeySequence(tr("ALT+O")),
+                          this, &MainWindow::showBookmarksDockWidget);
+    m_viewMenu->addAction(tr("Search"), QKeySequence(tr("ALT+S")),
+                          this, &MainWindow::showSearch);
+    m_viewMenu->addAction(tr("Open Pages"), QKeySequence(tr("ALT+P")),
+                          this, &MainWindow::showOpenPages);
 
     menu = menuBar()->addMenu(tr("&Go"));
     menu->addAction(globalActions->homeAction());
     menu->addAction(globalActions->backAction());
     menu->addAction(globalActions->nextAction());
 
-    m_syncAction = menu->addAction(tr("Sync with Table of Contents"), this,
-        SLOT(syncContents()));
+    m_syncAction = menu->addAction(tr("Sync with Table of Contents"),
+            this, &MainWindow::syncContents);
     m_syncAction->setIconText(tr("Sync"));
-    m_syncAction->setIcon(QIcon(resourcePath + QLatin1String("/synctoc.png")));
+    m_syncAction->setIcon(QIcon(resourcePath + "/synctoc.png"_L1));
 
     menu->addSeparator();
 
-    tmp = menu->addAction(tr("Next Page"), openPages, SLOT(nextPage()));
+    tmp = menu->addAction(tr("Next Page"),
+            openPages, &OpenPagesManager::nextPage);
     tmp->setShortcuts(QList<QKeySequence>() << QKeySequence(tr("Ctrl+Alt+Right"))
-        << QKeySequence(Qt::CTRL + Qt::Key_PageDown));
+        << QKeySequence(Qt::CTRL | Qt::Key_PageDown));
 
-    tmp = menu->addAction(tr("Previous Page"), openPages, SLOT(previousPage()));
+    tmp = menu->addAction(tr("Previous Page"),
+            openPages, &OpenPagesManager::previousPage);
     tmp->setShortcuts(QList<QKeySequence>() << QKeySequence(tr("Ctrl+Alt+Left"))
-        << QKeySequence(Qt::CTRL + Qt::Key_PageUp));
+        << QKeySequence(Qt::CTRL | Qt::Key_PageUp));
 
+    const Qt::Modifier modifier =
 #ifdef Q_OS_MAC
-    QShortcut *sct = new QShortcut(QKeySequence(Qt::ALT + Qt::Key_Tab), this);
-    connect(sct, SIGNAL(activated()), openPages, SLOT(nextPageWithSwitcher()));
-    sct = new QShortcut(QKeySequence(Qt::ALT + Qt::SHIFT + Qt::Key_Tab), this);
-    connect(sct, SIGNAL(activated()), openPages, SLOT(previousPageWithSwitcher()));
+            Qt::ALT;
 #else
-    QShortcut *sct = new QShortcut(QKeySequence(Qt::CTRL + Qt::Key_Tab), this);
-    connect(sct, SIGNAL(activated()), openPages, SLOT(nextPageWithSwitcher()));
-    sct = new QShortcut(QKeySequence(Qt::CTRL + Qt::SHIFT + Qt::Key_Tab), this);
-    connect(sct, SIGNAL(activated()), openPages, SLOT(previousPageWithSwitcher()));
+            Qt::CTRL;
 #endif
+
+    QShortcut *sct = new QShortcut(QKeySequence(modifier | Qt::Key_Tab), this);
+    connect(sct, &QShortcut::activated,
+            openPages, &OpenPagesManager::nextPageWithSwitcher);
+    sct = new QShortcut(QKeySequence(modifier | Qt::SHIFT | Qt::Key_Tab), this);
+    connect(sct, &QShortcut::activated,
+            openPages, &OpenPagesManager::previousPageWithSwitcher);
 
     BookmarkManager::instance()->setBookmarksMenu(menuBar()->addMenu(tr("&Bookmarks")));
 
     menu = menuBar()->addMenu(tr("&Help"));
-    m_aboutAction = menu->addAction(tr("About..."), this, SLOT(showAboutDialog()));
+    m_aboutAction = menu->addAction(tr("About..."),
+            this, &MainWindow::showAboutDialog);
     m_aboutAction->setMenuRole(QAction::AboutRole);
 
 #if defined(Q_OS_UNIX) && !defined(Q_OS_MAC)
-    m_resetZoomAction->setIcon(QIcon::fromTheme("zoom-original" , m_resetZoomAction->icon()));
-    m_syncAction->setIcon(QIcon::fromTheme("view-refresh" , m_syncAction->icon()));
+    m_resetZoomAction->setIcon(QIcon::fromTheme("zoom-original"_L1, m_resetZoomAction->icon()));
+    m_syncAction->setIcon(QIcon::fromTheme(QIcon::ThemeIcon::ViewRefresh,
+                          m_syncAction->icon()));
 #endif
 
     QToolBar *navigationBar = addToolBar(tr("Navigation Toolbar"));
-    navigationBar->setObjectName(QLatin1String("NavigationToolBar"));
+    navigationBar->setObjectName("NavigationToolBar"_L1);
     navigationBar->addAction(globalActions->backAction());
     navigationBar->addAction(globalActions->nextAction());
     navigationBar->addAction(globalActions->homeAction());
     navigationBar->addAction(m_syncAction);
     navigationBar->addSeparator();
+#if QT_CONFIG(clipboard)
     navigationBar->addAction(globalActions->copyAction());
+#endif
     navigationBar->addAction(globalActions->printAction());
     navigationBar->addAction(globalActions->findAction());
     navigationBar->addSeparator();
@@ -656,42 +608,45 @@ void MainWindow::setupActions()
 #if defined(Q_OS_MAC)
     QMenu *windowMenu = new QMenu(tr("&Window"), this);
     menuBar()->insertMenu(menu->menuAction(), windowMenu);
-    windowMenu->addAction(tr("Zoom"), this, SLOT(showMaximized()));
-    windowMenu->addAction(tr("Minimize"), this, SLOT(showMinimized()),
-        QKeySequence(tr("Ctrl+M")));
+    windowMenu->addAction(tr("Zoom"),
+            this, &QWidget::showMaximized);
+    windowMenu->addAction(tr("Minimize"), QKeySequence(tr("Ctrl+M")),
+            this, &QWidget::showMinimized);
 #endif
 
     // content viewer connections
-    connect(m_centralWidget, SIGNAL(copyAvailable(bool)), globalActions,
-        SLOT(setCopyAvailable(bool)));
-    connect(m_centralWidget, SIGNAL(currentViewerChanged()), globalActions,
-        SLOT(updateActions()));
-    connect(m_centralWidget, SIGNAL(forwardAvailable(bool)), globalActions,
-        SLOT(updateActions()));
-    connect(m_centralWidget, SIGNAL(backwardAvailable(bool)), globalActions,
-        SLOT(updateActions()));
-    connect(m_centralWidget, SIGNAL(highlighted(QString)), statusBar(),
-        SLOT(showMessage(QString)));
+#if QT_CONFIG(clipboard)
+    connect(m_centralWidget, &CentralWidget::copyAvailable,
+            globalActions, &GlobalActions::setCopyAvailable);
+#endif
+    connect(m_centralWidget, &CentralWidget::currentViewerChanged,
+            globalActions, &GlobalActions::updateActions);
+    connect(m_centralWidget, &CentralWidget::forwardAvailable,
+            globalActions, &GlobalActions::updateActions);
+    connect(m_centralWidget, &CentralWidget::backwardAvailable,
+            globalActions, &GlobalActions::updateActions);
+    connect(m_centralWidget, &CentralWidget::highlighted,
+            this, [this](const QUrl &link) { statusBar()->showMessage(link.toString());} );
 
     // index window
-    connect(m_indexWindow, SIGNAL(linkActivated(QUrl)), m_centralWidget,
-        SLOT(setSource(QUrl)));
-    connect(m_indexWindow, SIGNAL(linksActivated(QMap<QString,QUrl>,QString)),
-        this, SLOT(showTopicChooser(QMap<QString,QUrl>,QString)));
-    connect(m_indexWindow, SIGNAL(escapePressed()), this,
-        SLOT(activateCurrentCentralWidgetTab()));
+    connect(m_indexWindow, &IndexWindow::linkActivated,
+            m_centralWidget, &CentralWidget::setSource);
+    connect(m_indexWindow, &IndexWindow::documentsActivated,
+            this, &MainWindow::showTopicChooser);
+    connect(m_indexWindow, &IndexWindow::escapePressed,
+            this, &MainWindow::activateCurrentCentralWidgetTab);
 
     // content window
-    connect(m_contentWindow, SIGNAL(linkActivated(QUrl)), m_centralWidget,
-        SLOT(setSource(QUrl)));
-    connect(m_contentWindow, SIGNAL(escapePressed()), this,
-        SLOT(activateCurrentCentralWidgetTab()));
+    connect(m_contentWindow, &ContentWindow::linkActivated,
+            m_centralWidget, &CentralWidget::setSource);
+    connect(m_contentWindow, &ContentWindow::escapePressed,
+            this, &MainWindow::activateCurrentCentralWidgetTab);
 
     // search window
-    connect(m_searchWindow, SIGNAL(requestShowLink(QUrl)),
-        CentralWidget::instance(), SLOT(setSourceFromSearch(QUrl)));
-    connect(m_searchWindow, SIGNAL(requestShowLinkInNewTab(QUrl)),
-        OpenPagesManager::instance(), SLOT(createNewPageFromSearch(QUrl)));
+    connect(m_searchWindow, &SearchWidget::requestShowLink,
+            CentralWidget::instance(), &CentralWidget::setSourceFromSearch);
+    connect(m_searchWindow, &SearchWidget::requestShowLinkInNewTab,
+            OpenPagesManager::instance(), &OpenPagesManager::createNewPageFromSearch);
 
 #if defined(QT_NO_PRINTER)
         m_pageSetupAction->setVisible(false);
@@ -718,12 +673,12 @@ void MainWindow::setupFilterToolbar()
         return;
 
     m_filterCombo = new QComboBox(this);
-    m_filterCombo->setMinimumWidth(QFontMetrics(QFont()).
-        width(QLatin1String("MakeTheComboBoxWidthEnough")));
+    m_filterCombo->setMinimumWidth(QFontMetrics({}).
+        horizontalAdvance("MakeTheComboBoxWidthEnough"_L1));
 
     QToolBar *filterToolBar = addToolBar(tr("Filter Toolbar"));
-    filterToolBar->setObjectName(QLatin1String("FilterToolBar"));
-    filterToolBar->addWidget(new QLabel(tr("Filtered by:").append(QLatin1Char(' ')),
+    filterToolBar->setObjectName("FilterToolBar"_L1);
+    filterToolBar->addWidget(new QLabel(tr("Filtered by:").append(u' '),
         this));
     filterToolBar->addWidget(m_filterCombo);
 
@@ -731,12 +686,12 @@ void MainWindow::setupFilterToolbar()
         filterToolBar->hide();
     toolBarMenu()->addAction(filterToolBar->toggleViewAction());
 
-    connect(&helpEngine, SIGNAL(setupFinished()), this,
-        SLOT(setupFilterCombo()), Qt::QueuedConnection);
-    connect(m_filterCombo, SIGNAL(activated(QString)), this,
-        SLOT(filterDocumentation(QString)));
-    connect(&helpEngine, SIGNAL(currentFilterChanged(QString)), this,
-        SLOT(currentFilterChanged(QString)));
+    connect(&helpEngine, &HelpEngineWrapper::setupFinished,
+            this, &MainWindow::setupFilterCombo, Qt::QueuedConnection);
+    connect(m_filterCombo, &QComboBox::activated,
+            this, &MainWindow::filterDocumentation);
+    connect(helpEngine.filterEngine(), &QHelpFilterEngine::filterActivated,
+            this, &MainWindow::currentFilterChanged);
 
     setupFilterCombo();
 }
@@ -750,10 +705,10 @@ void MainWindow::setupAddressToolbar()
 
     m_addressLineEdit = new QLineEdit(this);
     QToolBar *addressToolBar = addToolBar(tr("Address Toolbar"));
-    addressToolBar->setObjectName(QLatin1String("AddressToolBar"));
+    addressToolBar->setObjectName("AddressToolBar"_L1);
     insertToolBarBreak(addressToolBar);
 
-    addressToolBar->addWidget(new QLabel(tr("Address:").append(QLatin1String(" ")),
+    addressToolBar->addWidget(new QLabel(tr("Address:").append(QChar::Space),
         this));
     addressToolBar->addWidget(m_addressLineEdit);
 
@@ -762,12 +717,11 @@ void MainWindow::setupAddressToolbar()
     toolBarMenu()->addAction(addressToolBar->toggleViewAction());
 
     // address lineedit
-    connect(m_addressLineEdit, SIGNAL(returnPressed()), this,
-        SLOT(gotoAddress()));
-    connect(m_centralWidget, SIGNAL(currentViewerChanged()), this,
-        SLOT(showNewAddress()));
-    connect(m_centralWidget, SIGNAL(sourceChanged(QUrl)), this,
-        SLOT(showNewAddress(QUrl)));
+    connect(m_addressLineEdit, &QLineEdit::returnPressed, this, &MainWindow::gotoAddress);
+    connect(m_centralWidget, &CentralWidget::currentViewerChanged,
+            this, QOverload<>::of(&MainWindow::showNewAddress));
+    connect(m_centralWidget, &CentralWidget::sourceChanged,
+            this, QOverload<>::of(&MainWindow::showNewAddress));
 }
 
 void MainWindow::updateAboutMenuText()
@@ -779,14 +733,14 @@ void MainWindow::updateAboutMenuText()
         QString str;
         QString trStr;
         QString currentLang = QLocale::system().name();
-        int i = currentLang.indexOf(QLatin1Char('_'));
+        int i = currentLang.indexOf(u'_');
         if (i > -1)
             currentLang = currentLang.left(i);
         QDataStream s(&ba, QIODevice::ReadOnly);
         while (!s.atEnd()) {
             s >> lang;
             s >> str;
-            if (lang == QLatin1String("default") && trStr.isEmpty()) {
+            if (lang == "default"_L1 && trStr.isEmpty()) {
                 trStr = str;
             } else if (lang == currentLang) {
                 trStr = str;
@@ -816,11 +770,11 @@ void MainWindow::gotoAddress()
     m_centralWidget->setSource(m_addressLineEdit->text());
 }
 
-void MainWindow::showTopicChooser(const QMap<QString, QUrl> &links,
+void MainWindow::showTopicChooser(const QList<QHelpLink> &documents,
                                   const QString &keyword)
 {
     TRACE_OBJ
-    TopicChooser tc(this, keyword, links);
+    TopicChooser tc(this, keyword, documents);
     if (tc.exec() == QDialog::Accepted) {
         m_centralWidget->setSource(tc.link());
     }
@@ -830,13 +784,13 @@ void MainWindow::showPreferences()
 {
     TRACE_OBJ
     PreferencesDialog dia(this);
-    connect(&dia, SIGNAL(updateApplicationFont()), this,
-        SLOT(updateApplicationFont()));
-    connect(&dia, SIGNAL(updateBrowserFont()), m_centralWidget,
-        SLOT(updateBrowserFont()));
-    connect(&dia, SIGNAL(updateUserInterface()), m_centralWidget,
-        SLOT(updateUserInterface()));
-    dia.showDialog();
+    connect(&dia, &PreferencesDialog::updateApplicationFont,
+            this, &MainWindow::updateApplicationFont);
+    connect(&dia, &PreferencesDialog::updateBrowserFont,
+            m_centralWidget, &CentralWidget::updateBrowserFont);
+    connect(&dia, &PreferencesDialog::updateUserInterface,
+            m_centralWidget, &CentralWidget::updateUserInterface);
+    dia.exec();
 }
 
 void MainWindow::syncContents()
@@ -861,14 +815,14 @@ void MainWindow::showAboutDialog()
         QString lang;
         QByteArray cba;
         QString currentLang = QLocale::system().name();
-        int i = currentLang.indexOf(QLatin1Char('_'));
+        int i = currentLang.indexOf(u'_');
         if (i > -1)
             currentLang = currentLang.left(i);
         QDataStream s(&ba, QIODevice::ReadOnly);
         while (!s.atEnd()) {
             s >> lang;
             s >> cba;
-            if (lang == QLatin1String("default") && contents.isEmpty()) {
+            if (lang == "default"_L1 && contents.isEmpty()) {
                 contents = cba;
             } else if (lang == currentLang) {
                 contents = cba;
@@ -892,19 +846,20 @@ void MainWindow::showAboutDialog()
     } else {
         QByteArray resources;
 #if defined(BROWSER_QTWEBKIT)
-        const QString browser = QStringLiteral("Qt WebKit");
+        QString browser = QStringLiteral("Qt WebKit");
 #else
-        const QString browser = QStringLiteral("QTextBrowser");
+        QString browser = QStringLiteral("QTextBrowser");
 #endif
+        if (m_centralWidget->currentHelpViewer())
+            browser = QStringLiteral("QLiteHtmlWidget");
         aboutDia.setText(tr("<center>"
             "<h3>%1</h3>"
             "<p>Version %2</p>"
             "<p>Browser: %3</p></center>"
-            "<p>Copyright (C) %4 The Qt Company Ltd.</p>")
-            .arg(tr("Qt Assistant"), QLatin1String(QT_VERSION_STR), browser, QStringLiteral("2015")),
+            "<p>Copyright (C) The Qt Company Ltd. and other contributors.</p>")
+            .arg(tr("Qt Assistant"), QLatin1String(QT_VERSION_STR), browser),
             resources);
-        QLatin1String path(":/qt-project.org/assistant/images/assistant-128.png");
-        aboutDia.setPixmap(QString(path));
+        aboutDia.setPixmap(QString(":/qt-project.org/assistant/images/assistant-128.png"_L1));
     }
     if (aboutDia.windowTitle().isEmpty())
         aboutDia.setWindowTitle(tr("About %1").arg(windowTitle()));
@@ -1035,8 +990,8 @@ void MainWindow::updateApplicationFont()
     if (helpEngine.usesAppFont())
         font = helpEngine.appFont();
 
-    QWidgetList widgets = qApp->allWidgets();
-    foreach (QWidget* widget, widgets)
+    const QWidgetList &widgets = QApplication::allWidgets();
+    for (QWidget *widget : widgets)
         widget->setFont(font);
 }
 
@@ -1044,21 +999,27 @@ void MainWindow::setupFilterCombo()
 {
     TRACE_OBJ
     HelpEngineWrapper &helpEngine = HelpEngineWrapper::instance();
-    QString curFilter = m_filterCombo->currentText();
-    if (curFilter.isEmpty())
-        curFilter = helpEngine.currentFilter();
+    const QString currentFilter = helpEngine.filterEngine()->activeFilter();
     m_filterCombo->clear();
-    m_filterCombo->addItems(helpEngine.customFilters());
-    int idx = m_filterCombo->findText(curFilter);
+    m_filterCombo->addItem(tr("Unfiltered"));
+    const QStringList allFilters = helpEngine.filterEngine()->filters();
+    if (!allFilters.isEmpty())
+        m_filterCombo->insertSeparator(1);
+    for (const QString &filter : allFilters)
+        m_filterCombo->addItem(filter, filter);
+
+    int idx = m_filterCombo->findData(currentFilter);
     if (idx < 0)
         idx = 0;
     m_filterCombo->setCurrentIndex(idx);
 }
 
-void MainWindow::filterDocumentation(const QString &customFilter)
+void MainWindow::filterDocumentation(int filterIndex)
 {
     TRACE_OBJ
-    HelpEngineWrapper::instance().setCurrentFilter(customFilter);
+
+    const QString filter = m_filterCombo->itemData(filterIndex).toString();
+    HelpEngineWrapper::instance().filterEngine()->setActiveFilter(filter);
 }
 
 void MainWindow::expandTOC(int depth)
@@ -1087,7 +1048,7 @@ void MainWindow::indexingStarted()
         progressBar->setSizePolicy(sizePolicy);
 
         hlayout->setSpacing(6);
-        hlayout->setMargin(0);
+        hlayout->setContentsMargins(QMargins());
         hlayout->addWidget(progressBar);
 
         statusBar()->addPermanentWidget(m_progressWidget);
@@ -1099,7 +1060,7 @@ void MainWindow::indexingFinished()
     TRACE_OBJ
     statusBar()->removeWidget(m_progressWidget);
     delete m_progressWidget;
-    m_progressWidget = 0;
+    m_progressWidget = nullptr;
 }
 
 QString MainWindow::collectionFileDirectory(bool createDir, const QString &cacheDir)
@@ -1109,13 +1070,12 @@ QString MainWindow::collectionFileDirectory(bool createDir, const QString &cache
         QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
     if (collectionPath.isEmpty()) {
         if (cacheDir.isEmpty())
-            collectionPath = QDir::homePath() + QDir::separator()
-                + QLatin1String(".assistant");
+            collectionPath = QDir::homePath() + QDir::separator() + ".assistant"_L1;
         else
-            collectionPath = QDir::homePath() + QLatin1String("/.") + cacheDir;
+            collectionPath = QDir::homePath() + "/."_L1 + cacheDir;
     } else {
         if (cacheDir.isEmpty())
-            collectionPath = collectionPath + QLatin1String("/QtProject/Assistant");
+            collectionPath = collectionPath + "/QtProject/Assistant"_L1;
         else
             collectionPath = collectionPath + QDir::separator() + cacheDir;
     }
@@ -1131,16 +1091,16 @@ QString MainWindow::defaultHelpCollectionFileName()
 {
     TRACE_OBJ
     // forces creation of the default collection file path
-    return collectionFileDirectory(true) + QDir::separator() +
-        QString(QLatin1String("qthelpcollection_%1.qhc")).
-        arg(QLatin1String(QT_VERSION_STR));
+    return collectionFileDirectory(true) + QDir::separator()
+            + QString("qthelpcollection_%1.qhc"_L1).arg(QLatin1StringView(QT_VERSION_STR));
 }
 
 void MainWindow::currentFilterChanged(const QString &filter)
 {
     TRACE_OBJ
-    const int index = m_filterCombo->findText(filter);
-    Q_ASSERT(index != -1);
+    int index = m_filterCombo->findData(filter);
+    if (index < 0)
+        index = 0;
     m_filterCombo->setCurrentIndex(index);
 }
 

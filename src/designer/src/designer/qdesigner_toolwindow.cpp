@@ -1,70 +1,30 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qdesigner.h"
 #include "qdesigner_toolwindow.h"
 #include "qdesigner_settings.h"
 #include "qdesigner_workbench.h"
 
-#include <QtDesigner/QDesignerPropertyEditorInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerActionEditorInterface>
-#include <QtDesigner/QDesignerObjectInspectorInterface>
-#include <QtDesigner/QDesignerWidgetBoxInterface>
+#include <QtDesigner/abstractpropertyeditor.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractactioneditor.h>
+#include <QtDesigner/abstractobjectinspector.h>
+#include <QtDesigner/abstractwidgetbox.h>
 #include <QtDesigner/QDesignerComponents>
 
-#include <QtCore/QEvent>
-#include <QtCore/QDebug>
-#include <QtWidgets/QAction>
-#include <QtGui/QCloseEvent>
+#include <QtGui/qaction.h>
+#include <QtGui/qevent.h>
 
-enum { debugToolWindow = 0 };
+#include <QtCore/qdebug.h>
+
+static constexpr bool debugToolWindow = false;
 
 QT_BEGIN_NAMESPACE
 
-// ---------------- QDesignerToolWindowFontSettings
-ToolWindowFontSettings::ToolWindowFontSettings() :
-    m_writingSystem(QFontDatabase::Any),
-    m_useFont(false)
-{
-}
+using namespace Qt::StringLiterals;
 
-bool ToolWindowFontSettings::equals(const ToolWindowFontSettings &rhs) const
-{
-    return m_useFont == rhs.m_useFont &&
-           m_writingSystem == rhs.m_writingSystem &&
-           m_font == rhs.m_font;
-}
+static constexpr int margin = 20;
 
 // ---------------- QDesignerToolWindow
 QDesignerToolWindow::QDesignerToolWindow(QDesignerWorkbench *workbench,
@@ -89,7 +49,7 @@ QDesignerToolWindow::QDesignerToolWindow(QDesignerWorkbench *workbench,
     m_action->setShortcutContext(Qt::ApplicationShortcut);
     m_action->setText(title);
     m_action->setCheckable(true);
-    connect(m_action, SIGNAL(triggered(bool)), this, SLOT(showMe(bool)));
+    connect(m_action, &QAction::triggered, this, &QDesignerToolWindow::showMe);
 }
 
 void QDesignerToolWindow::showMe(bool v)
@@ -145,19 +105,9 @@ QDesignerWorkbench *QDesignerToolWindow::workbench() const
     return m_workbench;
 }
 
-QRect QDesignerToolWindow::geometryHint() const
-{
-    return QRect();
-}
-
-QRect QDesignerToolWindow::availableToolWindowGeometry() const
-{
-    return m_workbench->availableGeometry();
-}
-
 //  ---------------------- PropertyEditorToolWindow
 
-static inline QWidget *createPropertyEditor(QDesignerFormEditorInterface *core, QWidget *parent = 0)
+static inline QWidget *createPropertyEditor(QDesignerFormEditorInterface *core, QWidget *parent = nullptr)
 {
     QDesignerPropertyEditorInterface *widget = QDesignerComponents::createPropertyEditor(core, parent);
     core->setPropertyEditor(widget);
@@ -169,28 +119,26 @@ class PropertyEditorToolWindow : public QDesignerToolWindow
 public:
     explicit PropertyEditorToolWindow(QDesignerWorkbench *workbench);
 
-    QRect geometryHint() const Q_DECL_OVERRIDE;
+    QRect geometryHint(const QRect &) const override;
 
 protected:
-    void showEvent(QShowEvent *event) Q_DECL_OVERRIDE;
+    void showEvent(QShowEvent *event) override;
 };
 
 PropertyEditorToolWindow::PropertyEditorToolWindow(QDesignerWorkbench *workbench) :
     QDesignerToolWindow(workbench,
                         createPropertyEditor(workbench->core()),
-                        QStringLiteral("qt_designer_propertyeditor"),
+                        u"qt_designer_propertyeditor"_s,
                         QDesignerToolWindow::tr("Property Editor"),
-                        QStringLiteral("__qt_property_editor_action"),
+                        u"__qt_property_editor_action"_s,
                         Qt::RightDockWidgetArea)
 {
-    action()->setShortcut(Qt::CTRL + Qt::Key_I);
+    action()->setShortcut(Qt::CTRL | Qt::Key_I);
 
 }
 
-QRect PropertyEditorToolWindow::geometryHint() const
+QRect PropertyEditorToolWindow::geometryHint(const QRect &g) const
 {
-    const QRect g = availableToolWindowGeometry();
-    const int margin = workbench()->marginHint();
     const int spacing = 40;
     const QSize sz(g.width() * 1/4, g.height() * 4/6);
 
@@ -214,7 +162,7 @@ void PropertyEditorToolWindow::showEvent(QShowEvent *event)
 
 //  ---------------------- ActionEditorToolWindow
 
-static inline QWidget *createActionEditor(QDesignerFormEditorInterface *core, QWidget *parent = 0)
+static inline QWidget *createActionEditor(QDesignerFormEditorInterface *core, QWidget *parent = nullptr)
 {
     QDesignerActionEditorInterface *widget = QDesignerComponents::createActionEditor(core, parent);
     core->setActionEditor(widget);
@@ -226,24 +174,21 @@ class ActionEditorToolWindow: public QDesignerToolWindow
 public:
     explicit ActionEditorToolWindow(QDesignerWorkbench *workbench);
 
-    QRect geometryHint() const Q_DECL_OVERRIDE;
+    QRect geometryHint(const QRect &g) const override;
 };
 
 ActionEditorToolWindow::ActionEditorToolWindow(QDesignerWorkbench *workbench) :
     QDesignerToolWindow(workbench,
                         createActionEditor(workbench->core()),
-                        QStringLiteral("qt_designer_actioneditor"),
+                        u"qt_designer_actioneditor"_s,
                         QDesignerToolWindow::tr("Action Editor"),
-                        QStringLiteral("__qt_action_editor_tool_action"),
+                        u"__qt_action_editor_tool_action"_s,
                         Qt::RightDockWidgetArea)
 {
 }
 
-QRect ActionEditorToolWindow::geometryHint() const
+QRect ActionEditorToolWindow::geometryHint(const QRect &g) const
 {
-    const QRect g = availableToolWindowGeometry();
-    const int margin = workbench()->marginHint();
-
     const QSize sz(g.width() * 1/4, g.height() * 1/6);
 
     const QRect rc = QRect((g.right() + 1 - sz.width() - margin),
@@ -256,7 +201,7 @@ QRect ActionEditorToolWindow::geometryHint() const
 
 //  ---------------------- ObjectInspectorToolWindow
 
-static inline QWidget *createObjectInspector(QDesignerFormEditorInterface *core, QWidget *parent = 0)
+static inline QWidget *createObjectInspector(QDesignerFormEditorInterface *core, QWidget *parent = nullptr)
 {
     QDesignerObjectInspectorInterface *widget = QDesignerComponents::createObjectInspector(core, parent);
     core->setObjectInspector(widget);
@@ -268,24 +213,21 @@ class ObjectInspectorToolWindow: public QDesignerToolWindow
 public:
     explicit ObjectInspectorToolWindow(QDesignerWorkbench *workbench);
 
-    QRect geometryHint() const Q_DECL_OVERRIDE;
+    QRect geometryHint(const QRect &g) const override;
 };
 
 ObjectInspectorToolWindow::ObjectInspectorToolWindow(QDesignerWorkbench *workbench) :
     QDesignerToolWindow(workbench,
                         createObjectInspector(workbench->core()),
-                        QStringLiteral("qt_designer_objectinspector"),
+                        u"qt_designer_objectinspector"_s,
                         QDesignerToolWindow::tr("Object Inspector"),
-                        QStringLiteral("__qt_object_inspector_tool_action"),
+                        u"__qt_object_inspector_tool_action"_s,
                         Qt::RightDockWidgetArea)
 {
 }
 
-QRect ObjectInspectorToolWindow::geometryHint() const
+QRect ObjectInspectorToolWindow::geometryHint(const QRect &g) const
 {
-    const QRect g = availableToolWindowGeometry();
-    const int margin = workbench()->marginHint();
-
     const QSize sz(g.width() * 1/4, g.height() * 1/6);
 
     const QRect rc = QRect((g.right() + 1 - sz.width() - margin),
@@ -303,24 +245,21 @@ class ResourceEditorToolWindow: public QDesignerToolWindow
 public:
     explicit ResourceEditorToolWindow(QDesignerWorkbench *workbench);
 
-    QRect geometryHint() const Q_DECL_OVERRIDE;
+    QRect geometryHint(const QRect &g) const override;
 };
 
 ResourceEditorToolWindow::ResourceEditorToolWindow(QDesignerWorkbench *workbench)  :
     QDesignerToolWindow(workbench,
-                        QDesignerComponents::createResourceEditor(workbench->core(), 0),
-                        QStringLiteral("qt_designer_resourceeditor"),
+                        QDesignerComponents::createResourceEditor(workbench->core(), nullptr),
+                        u"qt_designer_resourceeditor"_s,
                         QDesignerToolWindow::tr("Resource Browser"),
-                        QStringLiteral("__qt_resource_editor_tool_action"),
+                        u"__qt_resource_editor_tool_action"_s,
                         Qt::RightDockWidgetArea)
 {
 }
 
-QRect ResourceEditorToolWindow::geometryHint() const
+QRect ResourceEditorToolWindow::geometryHint(const QRect &g) const
 {
-    const QRect g = availableToolWindowGeometry();
-    const int margin = workbench()->marginHint();
-
     const QSize sz(g.width() * 1/3, g.height() * 1/6);
     QRect r(QPoint(0, 0), sz);
     r.moveCenter(g.center());
@@ -337,24 +276,21 @@ class SignalSlotEditorToolWindow: public QDesignerToolWindow
 public:
     explicit SignalSlotEditorToolWindow(QDesignerWorkbench *workbench);
 
-    QRect geometryHint() const Q_DECL_OVERRIDE;
+    QRect geometryHint(const QRect &g) const override;
 };
 
 SignalSlotEditorToolWindow::SignalSlotEditorToolWindow(QDesignerWorkbench *workbench) :
     QDesignerToolWindow(workbench,
-                        QDesignerComponents::createSignalSlotEditor(workbench->core(), 0),
-                        QStringLiteral("qt_designer_signalsloteditor"),
+                        QDesignerComponents::createSignalSlotEditor(workbench->core(), nullptr),
+                        u"qt_designer_signalsloteditor"_s,
                         QDesignerToolWindow::tr("Signal/Slot Editor"),
-                        QStringLiteral("__qt_signal_slot_editor_tool_action"),
+                        u"__qt_signal_slot_editor_tool_action"_s,
                         Qt::RightDockWidgetArea)
 {
 }
 
-QRect SignalSlotEditorToolWindow::geometryHint() const
+QRect SignalSlotEditorToolWindow::geometryHint(const QRect &g) const
 {
-    const QRect g = availableToolWindowGeometry();
-    const int margin = workbench()->marginHint();
-
     const QSize sz(g.width() * 1/3, g.height() * 1/6);
     QRect r(QPoint(0, 0), sz);
     r.moveCenter(g.center());
@@ -366,7 +302,7 @@ QRect SignalSlotEditorToolWindow::geometryHint() const
 
 //  ---------------------- WidgetBoxToolWindow
 
-static inline QWidget *createWidgetBox(QDesignerFormEditorInterface *core, QWidget *parent = 0)
+static inline QWidget *createWidgetBox(QDesignerFormEditorInterface *core, QWidget *parent = nullptr)
 {
     QDesignerWidgetBoxInterface *widget = QDesignerComponents::createWidgetBox(core, parent);
     core->setWidgetBox(widget);
@@ -378,23 +314,21 @@ class WidgetBoxToolWindow: public QDesignerToolWindow
 public:
     explicit WidgetBoxToolWindow(QDesignerWorkbench *workbench);
 
-    QRect geometryHint() const Q_DECL_OVERRIDE;
+    QRect geometryHint(const QRect &g) const override;
 };
 
 WidgetBoxToolWindow::WidgetBoxToolWindow(QDesignerWorkbench *workbench) :
     QDesignerToolWindow(workbench,
                         createWidgetBox(workbench->core()),
-                        QStringLiteral("qt_designer_widgetbox"),
+                        u"qt_designer_widgetbox"_s,
                         QDesignerToolWindow::tr("Widget Box"),
-                        QStringLiteral("__qt_widget_box_tool_action"),
+                        u"__qt_widget_box_tool_action"_s,
                         Qt::LeftDockWidgetArea)
 {
 }
 
-QRect WidgetBoxToolWindow::geometryHint() const
+QRect WidgetBoxToolWindow::geometryHint(const QRect &g) const
 {
-    const QRect g = availableToolWindowGeometry();
-    const int margin = workbench()->marginHint();
     const  QRect rc = QRect(g.left() + margin,
                             g.top() + margin,
                             g.width() * 1/4, g.height() * 5/6);
@@ -423,7 +357,7 @@ QDesignerToolWindow *QDesignerToolWindow::createStandardToolWindow(StandardToolW
     default:
         break;
     }
-    return 0;
+    return nullptr;
 }
 
 

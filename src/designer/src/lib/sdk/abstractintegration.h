@@ -1,45 +1,16 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #ifndef ABSTRACTINTEGRATION_H
 #define ABSTRACTINTEGRATION_H
 
 #include <QtDesigner/sdk_global.h>
 
-#include <QtCore/QObject>
-#include <QtCore/QScopedPointer>
-#include <QtCore/QStringList>
-#include <QtCore/QFlags>
+#include <QtCore/qobject.h>
+#include <QtCore/qscopedpointer.h>
+#include <QtCore/qstringlist.h>
+#include <QtCore/qflags.h>
+#include <QtCore/qversionnumber.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -59,6 +30,7 @@ class QDESIGNER_SDK_EXPORT QDesignerIntegrationInterface: public QObject
     Q_OBJECT
     Q_PROPERTY(QString headerSuffix READ headerSuffix WRITE setHeaderSuffix)
     Q_PROPERTY(bool headerLowercase READ isHeaderLowercase WRITE setHeaderLowercase)
+    Q_PROPERTY(QVersionNumber qtVersion READ qtVersion WRITE setQtVersion)
 
 public:
     enum ResourceFileWatcherBehaviour
@@ -67,6 +39,7 @@ public:
         ReloadResourceFileSilently,
         PromptToReloadResourceFile // Default
     };
+    Q_ENUM(ResourceFileWatcherBehaviour)
 
     enum FeatureFlag
     {
@@ -77,7 +50,7 @@ public:
     };
     Q_DECLARE_FLAGS(Feature, FeatureFlag)
 
-    QDesignerIntegrationInterface(QDesignerFormEditorInterface *core, QObject *parent = 0);
+    explicit QDesignerIntegrationInterface(QDesignerFormEditorInterface *core, QObject *parent = nullptr);
     virtual ~QDesignerIntegrationInterface();
 
     QDesignerFormEditorInterface *core() const;
@@ -85,12 +58,15 @@ public:
     virtual QWidget *containerWindow(QWidget *widget) const = 0;
 
     // Create a resource browser specific to integration. Language integration takes precedence
-    virtual QDesignerResourceBrowserInterface *createResourceBrowser(QWidget *parent = 0) = 0;
+    virtual QDesignerResourceBrowserInterface *createResourceBrowser(QWidget *parent = nullptr) = 0;
     virtual QString headerSuffix() const = 0;
     virtual void setHeaderSuffix(const QString &headerSuffix) = 0;
 
     virtual bool isHeaderLowercase() const = 0;
     virtual void setHeaderLowercase(bool headerLowerCase) = 0;
+
+    QVersionNumber qtVersion() const;
+    void setQtVersion(const QVersionNumber &qtVersion);
 
     virtual Feature features() const = 0;
     bool hasFeature(Feature f) const;
@@ -136,42 +112,42 @@ class QDESIGNER_SDK_EXPORT QDesignerIntegration: public QDesignerIntegrationInte
 {
     Q_OBJECT
 public:
-    explicit QDesignerIntegration(QDesignerFormEditorInterface *core, QObject *parent = 0);
+    explicit QDesignerIntegration(QDesignerFormEditorInterface *core, QObject *parent = nullptr);
     virtual ~QDesignerIntegration();
 
-    QString headerSuffix() const;
-    void setHeaderSuffix(const QString &headerSuffix);
+    QString headerSuffix() const override;
+    void setHeaderSuffix(const QString &headerSuffix) override;
 
-    bool isHeaderLowercase() const;
-    void setHeaderLowercase(bool headerLowerCase);
+    bool isHeaderLowercase() const override;
+    void setHeaderLowercase(bool headerLowerCase) override;
 
-    Feature features() const;
-    virtual void setFeatures(Feature f);
+    Feature features() const override;
+    virtual void setFeatures(Feature f) override;
 
-    ResourceFileWatcherBehaviour resourceFileWatcherBehaviour() const;
-    void setResourceFileWatcherBehaviour(ResourceFileWatcherBehaviour behaviour);
+    ResourceFileWatcherBehaviour resourceFileWatcherBehaviour() const override;
+    void setResourceFileWatcherBehaviour(ResourceFileWatcherBehaviour behaviour) override;
 
-    virtual QWidget *containerWindow(QWidget *widget) const;
+    virtual QWidget *containerWindow(QWidget *widget) const override;
 
     // Load plugins into widget database and factory.
     static void initializePlugins(QDesignerFormEditorInterface *formEditor);
 
     // Create a resource browser specific to integration. Language integration takes precedence
-    virtual QDesignerResourceBrowserInterface *createResourceBrowser(QWidget *parent = 0);
+    QDesignerResourceBrowserInterface *createResourceBrowser(QWidget *parent = nullptr) override;
 
-    virtual QString contextHelpId() const;
+    QString contextHelpId() const override;
 
-    virtual void updateProperty(const QString &name, const QVariant &value, bool enableSubPropertyHandling);
-    virtual void updateProperty(const QString &name, const QVariant &value);
+    void updateProperty(const QString &name, const QVariant &value, bool enableSubPropertyHandling) override;
+    void updateProperty(const QString &name, const QVariant &value) override;
     // Additional signals of designer property editor
-    virtual void resetProperty(const QString &name);
-    virtual void addDynamicProperty(const QString &name, const QVariant &value);
-    virtual void removeDynamicProperty(const QString &name);
+    void resetProperty(const QString &name) override;
+    void addDynamicProperty(const QString &name, const QVariant &value) override;
+    void removeDynamicProperty(const QString &name) override;
 
-    virtual void updateActiveFormWindow(QDesignerFormWindowInterface *formWindow);
-    virtual void setupFormWindow(QDesignerFormWindowInterface *formWindow);
-    virtual void updateSelection();
-    virtual void updateCustomWidgetPlugins();
+    void updateActiveFormWindow(QDesignerFormWindowInterface *formWindow) override;
+    void setupFormWindow(QDesignerFormWindowInterface *formWindow) override;
+    void updateSelection() override;
+    void updateCustomWidgetPlugins() override;
 
 private:
     QScopedPointer<qdesigner_internal::QDesignerIntegrationPrivate> d;

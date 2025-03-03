@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Assistant of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
@@ -42,7 +12,6 @@ QT_BEGIN_NAMESPACE
 
 class QAction;
 class QComboBox;
-class QFileSystemWatcher;
 class QLineEdit;
 class QMenu;
 
@@ -50,19 +19,18 @@ class CentralWidget;
 class CmdLineParser;
 class ContentWindow;
 class IndexWindow;
-class OpenPagesWindow;
 class QtDocInstaller;
-class QHelpEngineCore;
-class QHelpEngine;
 class SearchWidget;
+struct QHelpLink;
 
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
+    Q_MOC_INCLUDE(<QtHelp/qhelplink.h>)
 
 public:
-    explicit MainWindow(CmdLineParser *cmdLine, QWidget *parent = 0);
-    ~MainWindow();
+    explicit MainWindow(CmdLineParser *cmdLine, QWidget *parent = nullptr);
+    ~MainWindow() override;
 
     static void activateCurrentBrowser();
     static QString collectionFileDirectory(bool createDir = false,
@@ -97,9 +65,9 @@ private slots:
     void showNewAddress();
     void showAboutDialog();
     void showNewAddress(const QUrl &url);
-    void showTopicChooser(const QMap<QString, QUrl> &links, const QString &keyword);
+    void showTopicChooser(const QList<QHelpLink> &documents, const QString &keyword);
     void updateApplicationFont();
-    void filterDocumentation(const QString &customFilter);
+    void filterDocumentation(int filterIndex);
     void setupFilterCombo();
     void lookForNewQtDocumentation();
     void indexingStarted();
@@ -115,7 +83,7 @@ private slots:
 private:
     bool initHelpDB(bool registerInternalDoc);
     void setupActions();
-    void closeEvent(QCloseEvent *e);
+    void closeEvent(QCloseEvent *e) override;
     void activateDockWidget(QWidget *w);
     void updateAboutMenuText();
     void setupFilterToolbar();
@@ -131,15 +99,13 @@ private slots:
     void handlePageCountChanged();
 
 private:
-    QWidget *m_bookmarkWidget;
-
-private:
+    QWidget *m_bookmarkWidget = nullptr;
     CentralWidget *m_centralWidget;
     IndexWindow *m_indexWindow;
     ContentWindow *m_contentWindow;
     SearchWidget *m_searchWindow;
     QLineEdit *m_addressLineEdit;
-    QComboBox *m_filterCombo;
+    QComboBox *m_filterCombo = nullptr;
 
     QAction *m_syncAction;
     QAction *m_printPreviewAction;
@@ -150,14 +116,14 @@ private:
     QAction *m_newTabAction;
 
     QMenu *m_viewMenu;
-    QMenu *m_toolBarMenu;
+    QMenu *m_toolBarMenu = nullptr;
 
     CmdLineParser *m_cmdLine;
 
-    QWidget *m_progressWidget;
-    QtDocInstaller *m_qtDocInstaller;
+    QWidget *m_progressWidget = nullptr;
+    QtDocInstaller *m_qtDocInstaller = nullptr;
 
-    bool m_connectedInitSignals;
+    bool m_connectedInitSignals = false;
 };
 
 QT_END_NAMESPACE

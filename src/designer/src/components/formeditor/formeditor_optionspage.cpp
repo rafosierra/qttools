@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "formeditor_optionspage.h"
 
@@ -40,29 +10,28 @@
 #include "previewconfigurationwidget_p.h"
 #include "shared_settings_p.h"
 #include "zoomwidget_p.h"
+#include <private/actioneditor_p.h>
 
 // SDK
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerFormWindowManagerInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractformwindowmanager.h>
 
-#include <QtCore/QString>
-#include <QtCore/QCoreApplication>
-#include <QtWidgets/QGroupBox>
-#include <QtWidgets/QVBoxLayout>
-#include <QtWidgets/QFormLayout>
-#include <QtWidgets/QComboBox>
+#include <QtCore/qstring.h>
+#include <QtCore/qcoreapplication.h>
+#include <QtWidgets/qgroupbox.h>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qformlayout.h>
+#include <QtWidgets/qcombobox.h>
 
 QT_BEGIN_NAMESPACE
-
-typedef QList<int> IntList;
 
 namespace qdesigner_internal {
 
 // Zoom, currently for preview only
 class ZoomSettingsWidget : public QGroupBox {
-    Q_DISABLE_COPY(ZoomSettingsWidget)
+    Q_DISABLE_COPY_MOVE(ZoomSettingsWidget)
 public:
-    explicit ZoomSettingsWidget(QWidget *parent = 0);
+    explicit ZoomSettingsWidget(QWidget *parent = nullptr);
 
     void fromSettings(const QDesignerSharedSettings &s);
     void toSettings(QDesignerSharedSettings &s) const;
@@ -76,12 +45,10 @@ ZoomSettingsWidget::ZoomSettingsWidget(QWidget *parent) :
     m_zoomCombo(new QComboBox)
 {
     m_zoomCombo->setEditable(false);
-    const IntList zoomValues = ZoomMenu::zoomValues();
-    const IntList::const_iterator cend = zoomValues.constEnd();
-
-    for (IntList::const_iterator it = zoomValues.constBegin(); it != cend; ++it) {
+    const QList<int> &zoomValues = ZoomMenu::zoomValues();
+    for (int z : zoomValues) {
         //: Zoom percentage
-        m_zoomCombo->addItem(QCoreApplication::translate("FormEditorOptionsPage", "%1 %").arg(*it), QVariant(*it));
+        m_zoomCombo->addItem(QCoreApplication::translate("FormEditorOptionsPage", "%1 %").arg(z), QVariant(z));
     }
 
     // Layout
@@ -133,10 +100,28 @@ QWidget *FormEditorOptionsPage::createPage(QWidget *parent)
     m_defaultGridConf->setTitle(QCoreApplication::translate("FormEditorOptionsPage", "Default Grid"));
     m_defaultGridConf->setGrid(settings.defaultGrid());
 
+    const QString namingTitle =
+        QCoreApplication::translate("FormEditorOptionsPage", "Object Naming Convention");
+    QGroupBox *namingGroupBox = new QGroupBox(namingTitle);
+    const QString namingToolTip =
+        QCoreApplication::translate("FormEditorOptionsPage",
+                                    "Naming convention used for generating action object names from their text");
+    namingGroupBox->setToolTip(namingToolTip);
+    QHBoxLayout *namingHLayout = new QHBoxLayout(namingGroupBox);
+    m_namingComboBox = new QComboBox;
+    m_namingComboBox->setToolTip(namingToolTip);
+    QStringList items; // matching ActionEditor::NamingMode
+    items << QCoreApplication::translate("FormEditorOptionsPage", "Camel Case")
+        << QCoreApplication::translate("FormEditorOptionsPage", "Underscore");
+    m_namingComboBox->addItems(items);
+    m_namingComboBox->setCurrentIndex(settings.objectNamingMode());
+    namingHLayout->addWidget(m_namingComboBox.data());
+
     QVBoxLayout *optionsVLayout = new QVBoxLayout();
     optionsVLayout->addWidget(m_defaultGridConf);
     optionsVLayout->addWidget(m_previewConf);
     optionsVLayout->addWidget(m_zoomSettingsWidget);
+    optionsVLayout->addWidget(namingGroupBox);
     optionsVLayout->addStretch(1);
 
     // Outer layout to give it horizontal stretch
@@ -172,6 +157,13 @@ void FormEditorOptionsPage::apply()
 
     if (m_zoomSettingsWidget)
         m_zoomSettingsWidget->toSettings(settings);
+
+    if (m_namingComboBox) {
+        const ObjectNamingMode namingMode
+            = static_cast<ObjectNamingMode>(m_namingComboBox->currentIndex());
+        settings.setObjectNamingMode(namingMode);
+        ActionEditor::setObjectNamingMode(namingMode);
+    }
 }
 
 void FormEditorOptionsPage::finish()

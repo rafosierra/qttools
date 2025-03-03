@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #ifndef PHRASE_H
 #define PHRASE_H
@@ -39,6 +9,8 @@
 #include <QList>
 #include <QtCore/QLocale>
 
+#include "simtexth.h"
+
 QT_BEGIN_NAMESPACE
 
 class PhraseBook;
@@ -47,8 +19,8 @@ class Phrase
 {
 public:
     Phrase();
-    Phrase(const QString &source, const QString &target,
-            const QString &definition, int sc = -1);
+    Phrase(const QString &source, const QString &target, const QString &definition,
+            const Candidate &candidate, int sc = -1);
     Phrase(const QString &source, const QString &target,
             const QString &definition, PhraseBook *phraseBook);
 
@@ -59,6 +31,7 @@ public:
     QString definition() const {return d;}
     void setDefinition (const QString &nd);
     int shortcut() const { return shrtc; }
+    Candidate candidate() const { return cand; }
     PhraseBook *phraseBook() const { return m_phraseBook; }
     void setPhraseBook(PhraseBook *book) { m_phraseBook = book; }
 
@@ -67,6 +40,7 @@ private:
     QString s;
     QString t;
     QString d;
+    Candidate cand;
     PhraseBook *m_phraseBook;
 };
 
@@ -93,12 +67,12 @@ public:
     QString friendlyPhraseBookName() const;
     bool isModified() const { return m_changed; }
 
-    void setLanguageAndCountry(QLocale::Language lang, QLocale::Country country);
+    void setLanguageAndTerritory(QLocale::Language lang, QLocale::Territory territory);
     QLocale::Language language() const { return m_language; }
-    QLocale::Country country() const { return m_country; }
-    void setSourceLanguageAndCountry(QLocale::Language lang, QLocale::Country country);
+    QLocale::Territory territory() const { return m_territory; }
+    void setSourceLanguageAndTerritory(QLocale::Language lang, QLocale::Territory territory);
     QLocale::Language sourceLanguage() const { return m_sourceLanguage; }
-    QLocale::Country sourceCountry() const { return m_sourceCountry; }
+    QLocale::Territory sourceTerritory() const { return m_sourceTerritory; }
 
 signals:
     void modifiedChanged(bool changed);
@@ -118,8 +92,8 @@ private:
 
     QLocale::Language m_language;
     QLocale::Language m_sourceLanguage;
-    QLocale::Country m_country;
-    QLocale::Country m_sourceCountry;
+    QLocale::Territory m_territory;
+    QLocale::Territory m_sourceTerritory;
 
     friend class QphHandler;
     friend class Phrase;

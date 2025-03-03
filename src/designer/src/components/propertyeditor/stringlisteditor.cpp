@@ -1,62 +1,39 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "stringlisteditor.h"
 #include <iconloader_p.h>
-#include <QtCore/QStringListModel>
+#include <QtCore/qstringlistmodel.h>
 
 QT_BEGIN_NAMESPACE
 
-using namespace qdesigner_internal;
+using namespace Qt::StringLiterals;
+
+namespace qdesigner_internal {
 
 StringListEditor::StringListEditor(QWidget *parent)
     : QDialog(parent), m_model(new QStringListModel(this))
 {
     setupUi(this);
-    setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
     listView->setModel(m_model);
 
     connect(listView->selectionModel(),
-            SIGNAL(currentChanged(QModelIndex,QModelIndex)),
-            this, SLOT(currentIndexChanged(QModelIndex,QModelIndex)));
+            &QItemSelectionModel::currentChanged,
+            this, &StringListEditor::currentIndexChanged);
     connect(listView->itemDelegate(),
-            SIGNAL(closeEditor(QWidget*,QAbstractItemDelegate::EndEditHint)),
-            this, SLOT(currentValueChanged()));
+            &QAbstractItemDelegate::closeEditor,
+            this, &StringListEditor::currentValueChanged);
 
-    QIcon upIcon = createIconSet(QString::fromUtf8("up.png"));
-    QIcon downIcon = createIconSet(QString::fromUtf8("down.png"));
-    QIcon minusIcon = createIconSet(QString::fromUtf8("minus.png"));
-    QIcon plusIcon = createIconSet(QString::fromUtf8("plus.png"));
+    connect(upButton, &QAbstractButton::clicked, this, &StringListEditor::upButtonClicked);
+    connect(downButton, &QAbstractButton::clicked, this, &StringListEditor::downButtonClicked);
+    connect(newButton, &QAbstractButton::clicked, this, &StringListEditor::newButtonClicked);
+    connect(deleteButton, &QAbstractButton::clicked, this, &StringListEditor::deleteButtonClicked);
+    connect(valueEdit, &QLineEdit::textEdited, this, &StringListEditor::valueEdited);
+
+    QIcon upIcon = createIconSet("up.png"_L1);
+    QIcon downIcon = createIconSet("down.png"_L1);
+    QIcon minusIcon = createIconSet("minus.png"_L1);
+    QIcon plusIcon = createIconSet("plus.png"_L1);
     upButton->setIcon(upIcon);
     downButton->setIcon(downIcon);
     newButton->setIcon(plusIcon);
@@ -65,9 +42,7 @@ StringListEditor::StringListEditor(QWidget *parent)
     updateUi();
 }
 
-StringListEditor::~StringListEditor()
-{
-}
+StringListEditor::~StringListEditor() = default;
 
 QStringList StringListEditor::getStringList(QWidget *parent, const QStringList &init, int *result)
 {
@@ -103,7 +78,7 @@ void StringListEditor::currentValueChanged()
     updateUi();
 }
 
-void StringListEditor::on_upButton_clicked()
+void StringListEditor::upButtonClicked()
 {
     int from = currentIndex();
     int to = currentIndex() - 1;
@@ -114,7 +89,7 @@ void StringListEditor::on_upButton_clicked()
     updateUi();
 }
 
-void StringListEditor::on_downButton_clicked()
+void StringListEditor::downButtonClicked()
 {
     int from = currentIndex();
     int to = currentIndex() + 1;
@@ -125,7 +100,7 @@ void StringListEditor::on_downButton_clicked()
     updateUi();
 }
 
-void StringListEditor::on_newButton_clicked()
+void StringListEditor::newButtonClicked()
 {
     int to = currentIndex();
     if (to == -1)
@@ -137,14 +112,14 @@ void StringListEditor::on_newButton_clicked()
     editString(to);
 }
 
-void StringListEditor::on_deleteButton_clicked()
+void StringListEditor::deleteButtonClicked()
 {
     removeString(currentIndex());
     setCurrentIndex(currentIndex());
     updateUi();
 }
 
-void StringListEditor::on_valueEdit_textEdited(const QString &text)
+void StringListEditor::valueEdited(const QString &text)
 {
     setStringAt(currentIndex(), text);
 }
@@ -200,5 +175,7 @@ void StringListEditor::editString(int index)
 {
     listView->edit(m_model->index(index, 0));
 }
+
+} // namespace qdesigner_internal
 
 QT_END_NAMESPACE

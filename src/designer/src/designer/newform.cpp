@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "newform.h"
 #include "qdesigner_workbench.h"
@@ -39,24 +9,29 @@
 
 #include <newformwidget_p.h>
 
-#include <QtDesigner/QDesignerFormEditorInterface>
+#include <QtDesigner/abstractformeditor.h>
 
-#include <QtCore/QDir>
-#include <QtCore/QFileInfo>
-#include <QtCore/QDebug>
-#include <QtCore/QDir>
-#include <QtCore/QTemporaryFile>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qpushbutton.h>
+#include <QtWidgets/qdialogbuttonbox.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qcheckbox.h>
+#include <QtWidgets/qframe.h>
+#include <QtWidgets/qmessagebox.h>
 
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QVBoxLayout>
-#include <QtWidgets/QPushButton>
-#include <QtWidgets/QDialogButtonBox>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QCheckBox>
-#include <QtWidgets/QFrame>
-#include <QtWidgets/QMessageBox>
+#include <QtGui/qaction.h>
+#include <QtGui/qactiongroup.h>
+
+#include <QtCore/qdir.h>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qdir.h>
+#include <QtCore/qtemporaryfile.h>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 NewForm::NewForm(QDesignerWorkbench *workbench, QWidget *parentWidget, const QString &fileName)
     : QDialog(parentWidget, Qt::WindowTitleHint | Qt::WindowSystemMenuHint | Qt::WindowCloseButtonHint),
@@ -64,17 +39,18 @@ NewForm::NewForm(QDesignerWorkbench *workbench, QWidget *parentWidget, const QSt
       m_newFormWidget(QDesignerNewFormWidgetInterface::createNewFormWidget(workbench->core())),
       m_workbench(workbench),
       m_chkShowOnStartup(new QCheckBox(tr("Show this Dialog on Startup"))),
-      m_createButton(new QPushButton(QApplication::translate("NewForm", "C&reate", 0))),
-      m_recentButton(new QPushButton(QApplication::translate("NewForm", "Recent", 0))),
-      m_buttonBox(0)
+      m_createButton(new QPushButton(QApplication::translate("NewForm", "C&reate", nullptr))),
+      m_recentButton(new QPushButton(QApplication::translate("NewForm", "Recent", nullptr)))
 {
     setWindowTitle(tr("New Form"));
     QDesignerSettings settings(m_workbench->core());
 
     QVBoxLayout *vBoxLayout = new QVBoxLayout;
 
-    connect(m_newFormWidget, SIGNAL(templateActivated()), this, SLOT(slotTemplateActivated()));
-    connect(m_newFormWidget, SIGNAL(currentTemplateChanged(bool)), this, SLOT(slotCurrentTemplateChanged(bool)));
+    connect(m_newFormWidget, &QDesignerNewFormWidgetInterface::templateActivated,
+            this, &NewForm::slotTemplateActivated);
+    connect(m_newFormWidget, &QDesignerNewFormWidgetInterface::currentTemplateChanged,
+            this, &NewForm::slotCurrentTemplateChanged);
     vBoxLayout->addWidget(m_newFormWidget);
 
     QFrame *horizontalLine = new QFrame;
@@ -97,25 +73,22 @@ QDialogButtonBox *NewForm::createButtonBox()
 {
     // Dialog buttons with 'recent files'
     QDialogButtonBox *buttonBox = new QDialogButtonBox;
-    buttonBox->addButton(QApplication::translate("NewForm", "&Close", 0),
+    buttonBox->addButton(QApplication::translate("NewForm", "&Close", nullptr),
                          QDialogButtonBox::RejectRole);
     buttonBox->addButton(m_createButton, QDialogButtonBox::AcceptRole);
-    buttonBox->addButton(QApplication::translate("NewForm", "&Open...", 0),
+    buttonBox->addButton(QApplication::translate("NewForm", "&Open...", nullptr),
                          QDialogButtonBox::ActionRole);
     buttonBox->addButton(m_recentButton, QDialogButtonBox::ActionRole);
     QDesignerActions *da = m_workbench->actionManager();
     QMenu *recentFilesMenu = new QMenu(tr("&Recent Forms"), m_recentButton);
     // Pop the "Recent Files" stuff in here.
-    const QList<QAction *> recentActions = da->recentFilesActions()->actions();
-    if (!recentActions.empty()) {
-        const QList<QAction *>::const_iterator acend = recentActions.constEnd();
-        for (QList<QAction *>::const_iterator it = recentActions.constBegin(); it != acend; ++it) {
-            recentFilesMenu->addAction(*it);
-            connect(*it, SIGNAL(triggered()), this, SLOT(recentFileChosen()));
-        }
+    const auto recentActions = da->recentFilesActions()->actions();
+    for (auto action : recentActions) {
+        recentFilesMenu->addAction(action);
+        connect(action, &QAction::triggered, this, &NewForm::recentFileChosen);
     }
     m_recentButton->setMenu(recentFilesMenu);
-    connect(buttonBox, SIGNAL(clicked(QAbstractButton*)), this, SLOT(slotButtonBoxClicked(QAbstractButton*)));
+    connect(buttonBox, &QDialogButtonBox::clicked, this, &NewForm::slotButtonBoxClicked);
     return buttonBox;
 }
 
@@ -128,11 +101,8 @@ NewForm::~NewForm()
 void NewForm::recentFileChosen()
 {
     QAction *action = qobject_cast<QAction *>(sender());
-    if (!action)
-        return;
-    if (action->objectName() == QStringLiteral("__qt_action_clear_menu_"))
-        return;
-    close();
+    if (action && action->objectName() != "__qt_action_clear_menu_"_L1)
+        close();
 }
 
 void NewForm::slotCurrentTemplateChanged(bool templateSelected)
@@ -147,7 +117,7 @@ void NewForm::slotCurrentTemplateChanged(bool templateSelected)
 
 void NewForm::slotTemplateActivated()
 {
-    m_createButton->animateClick(0);
+    m_createButton->animateClick();
 }
 
 void NewForm::slotButtonBoxClicked(QAbstractButton *btn)
@@ -186,18 +156,20 @@ bool NewForm::openTemplate(QString *ptrToErrorMessage)
     QString tempPattern = QDir::tempPath();
     if (!tempPattern.endsWith(QDir::separator())) // platform-dependant
         tempPattern += QDir::separator();
-    tempPattern += QStringLiteral("XXXXXX.ui");
+    tempPattern += "XXXXXX.ui"_L1;
     QTemporaryFile tempFormFile(tempPattern);
 
     tempFormFile.setAutoRemove(true);
     if (!tempFormFile.open()) {
-        *ptrToErrorMessage = tr("A temporary form file could not be created in %1.").arg(QDir::tempPath());
+        *ptrToErrorMessage = tr("A temporary form file could not be created in %1: %2")
+            .arg(QDir::toNativeSeparators(QDir::tempPath()), tempFormFile.errorString());
         return false;
     }
     const QString tempFormFileName = tempFormFile.fileName();
     tempFormFile.write(contents.toUtf8());
     if (!tempFormFile.flush())  {
-        *ptrToErrorMessage = tr("The temporary form file %1 could not be written.").arg(tempFormFileName);
+        *ptrToErrorMessage = tr("The temporary form file %1 could not be written: %2")
+            .arg(QDir::toNativeSeparators(tempFormFileName), tempFormFile.errorString());
         return false;
     }
     tempFormFile.close();

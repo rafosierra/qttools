@@ -1,42 +1,13 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #ifndef FONTPROPERTYMANAGER_H
 #define FONTPROPERTYMANAGER_H
 
-#include <QtCore/QMap>
-#include <QtCore/QStringList>
-#include <QtGui/QFont>
+#include <QtCore/qhash.h>
+#include <QtCore/qmap.h>
+#include <QtCore/qstringlist.h>
+#include <QtGui/qfont.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -55,13 +26,13 @@ namespace qdesigner_internal {
  * contains annotations indicating the platform the font is available on. */
 
 class FontPropertyManager {
-    Q_DISABLE_COPY(FontPropertyManager)
+    Q_DISABLE_COPY_MOVE(FontPropertyManager)
 
 public:
     FontPropertyManager();
 
-    typedef QMap<QtProperty *, bool> ResetMap;
-    typedef QMap<QString, QString> NameMap;
+    using ResetMap = QHash<const QtProperty *, bool>;
+    using NameMap = QMap<QString, QString>;
 
     // Call before QtVariantPropertyManager::initializeProperty.
     void preInitializeProperty(QtProperty *property, int type, ResetMap &resetMap);
@@ -85,24 +56,36 @@ public:
     static bool readFamilyMapping(NameMap *rc, QString *errorMessage);
 
 private:
-    typedef QMap<QtProperty *, QtProperty *> PropertyToPropertyMap;
-    typedef QList<QtProperty *> PropertyList;
-    typedef QMap<QtProperty *, PropertyList>  PropertyToSubPropertiesMap;
+    using PropertyToPropertyMap = QHash<QtProperty *, QtProperty *>;
+    using PropertyList = QList<QtProperty *>;
 
     void removeAntialiasingProperty(QtProperty *);
+    void removeHintingPreferenceProperty(QtProperty *);
+    int antialiasingValueChanged(QtVariantPropertyManager *vm,
+                                 QtProperty *antialiasingProperty, const QVariant &value);
+    int hintingPreferenceValueChanged(QtVariantPropertyManager *vm,
+                                      QtProperty *hintingPreferenceProperty,
+                                      const QVariant &value);
     void updateModifiedState(QtProperty *property, const QVariant &value);
     static int antialiasingToIndex(QFont::StyleStrategy antialias);
     static QFont::StyleStrategy indexToAntialiasing(int idx);
+    static int hintingPreferenceToIndex(QFont::HintingPreference h);
+    static QFont::HintingPreference indexToHintingPreference(int idx);
+
     static unsigned fontFlag(int idx);
 
     PropertyToPropertyMap m_propertyToAntialiasing;
     PropertyToPropertyMap m_antialiasingToProperty;
+    PropertyToPropertyMap m_propertyToHintingPreference;
+    PropertyToPropertyMap m_hintingPreferenceToProperty;
 
-    PropertyToSubPropertiesMap m_propertyToFontSubProperties;
-    QMap<QtProperty *, int> m_fontSubPropertyToFlag;
+
+    QHash<QtProperty *, PropertyList> m_propertyToFontSubProperties;
+    QHash<QtProperty *, int> m_fontSubPropertyToFlag;
     PropertyToPropertyMap m_fontSubPropertyToProperty;
-    QtProperty *m_createdFontProperty;
+    QtProperty *m_createdFontProperty = nullptr;
     QStringList m_aliasingEnumNames;
+    QStringList m_hintingPreferenceEnumNames;
     // Font families with Designer annotations
     QStringList m_designerFamilyNames;
     NameMap m_familyMappings;

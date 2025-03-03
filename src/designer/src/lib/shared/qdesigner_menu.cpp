@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qdesigner_menu_p.h"
 #include "qdesigner_menubar_p.h"
@@ -42,29 +12,28 @@
 #include "qdesigner_utils_p.h"
 #include "qdesigner_objectinspector_p.h"
 
-#include <QtCore/QTimer>
-#include <QtCore/qdebug.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractwidgetfactory.h>
+#include <QtDesigner/abstractmetadatabase.h>
+#include <QtDesigner/qextensionmanager.h>
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerWidgetFactoryInterface>
-#include <QtDesigner/QDesignerMetaDataBaseInterface>
-#include <QtDesigner/QExtensionManager>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qlineedit.h>
+#include <QtWidgets/qrubberband.h>
+#include <QtWidgets/qtooltip.h>
+#include <QtWidgets/qtoolbar.h>
 
-#include <QtWidgets/QAction>
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QLineEdit>
-#include <QtGui/QPainter>
-#include <QtGui/QDrag>
-#include <QtWidgets/QRubberBand>
-#include <QtWidgets/QToolTip>
-#include <QtWidgets/QToolBar>
+#include <QtGui/qaction.h>
+#include <QtGui/qdrag.h>
 #include <QtGui/qevent.h>
+#include <QtGui/qpainter.h>
 
-Q_DECLARE_METATYPE(QAction*)
+#include <QtCore/qtimer.h>
+#include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
 
-using namespace qdesigner_internal;
+using namespace Qt::StringLiterals;
 
 // give the user a little more space to click on the sub menu rectangle
 static inline void extendClickableArea(QRect *subMenuRect, Qt::LayoutDirection dir)
@@ -82,10 +51,10 @@ static inline void extendClickableArea(QRect *subMenuRect, Qt::LayoutDirection d
 
 QDesignerMenu::QDesignerMenu(QWidget *parent) :
     QMenu(parent),
-    m_subMenuPixmap(QPixmap(QStringLiteral(":/qt-project.org/formeditor/images/submenu.png"))),
+    m_subMenuPixmap(QPixmap(u":/qt-project.org/formeditor/images/submenu.png"_s)),
     m_currentIndex(0),
-    m_addItem(new SpecialMenuAction(this)),
-    m_addSeparator(new SpecialMenuAction(this)),
+    m_addItem(new qdesigner_internal::SpecialMenuAction(this)),
+    m_addSeparator(new qdesigner_internal::SpecialMenuAction(this)),
     m_showSubMenuTimer(new QTimer(this)),
     m_deactivateWindowTimer(new QTimer(this)),
     m_adjustSizeTimer(new QTimer(this)),
@@ -97,27 +66,25 @@ QDesignerMenu::QDesignerMenu(QWidget *parent) :
     setAcceptDrops(true); // ### fake
     setSeparatorsCollapsible(false);
 
-    connect(m_adjustSizeTimer, SIGNAL(timeout()), this, SLOT(slotAdjustSizeNow()));
+    connect(m_adjustSizeTimer, &QTimer::timeout, this, &QDesignerMenu::slotAdjustSizeNow);
     m_addItem->setText(tr("Type Here"));
     addAction(m_addItem);
 
     m_addSeparator->setText(tr("Add Separator"));
     addAction(m_addSeparator);
 
-    connect(m_showSubMenuTimer, SIGNAL(timeout()), this, SLOT(slotShowSubMenuNow()));
+    connect(m_showSubMenuTimer, &QTimer::timeout, this, &QDesignerMenu::slotShowSubMenuNow);
 
-    connect(m_deactivateWindowTimer, SIGNAL(timeout()), this, SLOT(slotDeactivateNow()));
+    connect(m_deactivateWindowTimer, &QTimer::timeout, this, &QDesignerMenu::slotDeactivateNow);
 
-    m_editor->setObjectName(QStringLiteral("__qt__passive_editor"));
+    m_editor->setObjectName(u"__qt__passive_editor"_s);
     m_editor->hide();
 
     m_editor->installEventFilter(this);
     installEventFilter(this);
 }
 
-QDesignerMenu::~QDesignerMenu()
-{
-}
+QDesignerMenu::~QDesignerMenu() = default;
 
 void QDesignerMenu::slotAdjustSizeNow()
 {
@@ -158,6 +125,8 @@ bool QDesignerMenu::handleEvent(QWidget *widget, QEvent *event)
 
 void QDesignerMenu::startDrag(const QPoint &pos, Qt::KeyboardModifiers modifiers)
 {
+    using namespace qdesigner_internal;
+
     const int index = findAction(pos);
     if (index >= realActionCount())
         return;
@@ -167,7 +136,7 @@ void QDesignerMenu::startDrag(const QPoint &pos, Qt::KeyboardModifiers modifiers
     QDesignerFormWindowInterface *fw = formWindow();
     const Qt::DropAction dropAction = (modifiers & Qt::ControlModifier) ? Qt::CopyAction : Qt::MoveAction;
     if (dropAction == Qt::MoveAction) {
-        RemoveActionFromCommand *cmd = new RemoveActionFromCommand(fw);
+        auto *cmd = new RemoveActionFromCommand(fw);
         cmd->init(this, action, actions().at(index + 1));
         fw->commandHistory()->push(cmd);
     }
@@ -179,10 +148,10 @@ void QDesignerMenu::startDrag(const QPoint &pos, Qt::KeyboardModifiers modifiers
     const int old_index = m_currentIndex;
     m_currentIndex = -1;
 
-    if (drag->start(dropAction) == Qt::IgnoreAction) {
+    if (drag->exec(dropAction) == Qt::IgnoreAction) {
         if (dropAction == Qt::MoveAction) {
             QAction *previous = safeActionAt(index);
-            InsertActionIntoCommand *cmd = new InsertActionIntoCommand(fw);
+            auto *cmd = new InsertActionIntoCommand(fw);
             cmd->init(this, action, previous);
             fw->commandHistory()->push(cmd);
         }
@@ -230,7 +199,7 @@ bool QDesignerMenu::handleKeyPressEvent(QWidget * /*widget*/, QKeyEvent *e)
             break;
 
         case Qt::Key_PageDown:
-            m_currentIndex = actions().count() - 1;
+            m_currentIndex = actions().size() - 1;
             break;
 
         case Qt::Key_Enter:
@@ -259,7 +228,8 @@ bool QDesignerMenu::handleKeyPressEvent(QWidget * /*widget*/, QKeyEvent *e)
             if (!action || action->isSeparator() || action == m_addSeparator) {
                 e->ignore();
                 return true;
-            } else if (!e->text().isEmpty() && e->text().at(0).toLatin1() >= 32) {
+            }
+            if (!e->text().isEmpty() && e->text().at(0).toLatin1() >= 32) {
                 showLineEdit();
                 QApplication::sendEvent(m_editor, e);
                 e->accept();
@@ -284,7 +254,7 @@ bool QDesignerMenu::handleKeyPressEvent(QWidget * /*widget*/, QKeyEvent *e)
                 moveDown(false);
                 break;
             }
-            // fall through
+            Q_FALLTHROUGH();
 
         case Qt::Key_Escape:
             m_editor->hide();
@@ -301,7 +271,7 @@ bool QDesignerMenu::handleKeyPressEvent(QWidget * /*widget*/, QKeyEvent *e)
 
 static void sendMouseEventTo(QWidget *target, const QPoint &targetPoint, const QMouseEvent *event)
 {
-    QMouseEvent e(event->type(), targetPoint, event->globalPos(), event->button(), event->buttons(), event->modifiers());
+    QMouseEvent e(event->type(), targetPoint, event->globalPosition().toPoint(), event->button(), event->buttons(), event->modifiers());
     QApplication::sendEvent(target, &e);
 }
 
@@ -313,21 +283,21 @@ bool QDesignerMenu::handleMouseDoubleClickEvent(QWidget *, QMouseEvent *event)
     if ((event->buttons() & Qt::LeftButton) != Qt::LeftButton)
         return true;
 
-    if (!rect().contains(event->pos())) {
+    if (!rect().contains(event->position().toPoint())) {
         // special case for menubar
-        QWidget *target = QApplication::widgetAt(event->globalPos());
+        QWidget *target = QApplication::widgetAt(event->globalPosition().toPoint());
         QMenuBar *mb = qobject_cast<QMenuBar*>(target);
         QDesignerMenu *menu = qobject_cast<QDesignerMenu*>(target);
-        if (mb != 0 || menu != 0) {
-            const QPoint pt = target->mapFromGlobal(event->globalPos());
-            QAction *action = mb == 0 ? menu->actionAt(pt) : mb->actionAt(pt);
+        if (mb != nullptr || menu != nullptr) {
+            const QPoint pt = target->mapFromGlobal(event->globalPosition().toPoint());
+            QAction *action = mb == nullptr ? menu->actionAt(pt) : mb->actionAt(pt);
             if (action)
                  sendMouseEventTo(target, pt, event);
         }
         return true;
     }
 
-    m_currentIndex = findAction(event->pos());
+    m_currentIndex = findAction(event->position().toPoint());
     QAction *action = safeActionAt(m_currentIndex);
 
     QRect pm_rect;
@@ -336,7 +306,7 @@ bool QDesignerMenu::handleMouseDoubleClickEvent(QWidget *, QMouseEvent *event)
         extendClickableArea(&pm_rect, layoutDirection());
     }
 
-    if (!pm_rect.contains(event->pos()) && m_currentIndex != -1)
+    if (!pm_rect.contains(event->position().toPoint()) && m_currentIndex != -1)
         enterEditMode();
 
     return true;
@@ -344,10 +314,10 @@ bool QDesignerMenu::handleMouseDoubleClickEvent(QWidget *, QMouseEvent *event)
 
 bool QDesignerMenu::handleMousePressEvent(QWidget * /*widget*/, QMouseEvent *event)
 {
-    if (!rect().contains(event->pos())) {
-        QWidget *clickedWidget = QApplication::widgetAt(event->globalPos());
+    if (!rect().contains(event->position().toPoint())) {
+        QWidget *clickedWidget = QApplication::widgetAt(event->globalPosition().toPoint());
         if (QMenuBar *mb = qobject_cast<QMenuBar*>(clickedWidget)) {
-            const QPoint pt = mb->mapFromGlobal(event->globalPos());
+            const QPoint pt = mb->mapFromGlobal(event->globalPosition().toPoint());
             if (QAction *action = mb->actionAt(pt)) {
                 QMenu * menu = action->menu();
                 if (menu == findRootMenu()) {
@@ -360,7 +330,7 @@ bool QDesignerMenu::handleMousePressEvent(QWidget * /*widget*/, QMouseEvent *eve
 
         if (QDesignerMenu *m = qobject_cast<QDesignerMenu *>(clickedWidget)) {
             m->hideSubMenu();
-            sendMouseEventTo(m, m->mapFromGlobal(event->globalPos()), event);
+            sendMouseEventTo(m, m->mapFromGlobal(event->globalPosition().toPoint()), event);
         } else {
             QDesignerMenu *root = findRootMenu();
             root->hide();
@@ -382,7 +352,7 @@ bool QDesignerMenu::handleMousePressEvent(QWidget * /*widget*/, QMouseEvent *eve
     if (event->button() != Qt::LeftButton)
         return true;
 
-    m_startPosition = mapFromGlobal(event->globalPos());
+    m_startPosition = mapFromGlobal(event->globalPosition().toPoint());
 
     const int index = findAction(m_startPosition);
 
@@ -392,7 +362,7 @@ bool QDesignerMenu::handleMousePressEvent(QWidget * /*widget*/, QMouseEvent *eve
 
     const int old_index = m_currentIndex;
     m_currentIndex = index;
-    if ((hasSubMenuPixmap(action) || action->menu() != 0)
+    if ((hasSubMenuPixmap(action) || action->menu() != nullptr)
         && pm_rect.contains(m_startPosition)) {
         if (m_currentIndex == m_lastSubMenuIndex) {
             hideSubMenu();
@@ -427,10 +397,10 @@ bool QDesignerMenu::handleMouseMoveEvent(QWidget *, QMouseEvent *event)
     if ((event->buttons() & Qt::LeftButton) != Qt::LeftButton)
         return true;
 
-    if (!rect().contains(event->pos())) {
+    if (!rect().contains(event->position().toPoint())) {
 
-        if (QMenuBar *mb = qobject_cast<QMenuBar*>(QApplication::widgetAt(event->globalPos()))) {
-            const QPoint pt = mb->mapFromGlobal(event->globalPos());
+        if (QMenuBar *mb = qobject_cast<QMenuBar*>(QApplication::widgetAt(event->globalPosition().toPoint()))) {
+            const QPoint pt = mb->mapFromGlobal(event->globalPosition().toPoint());
             QAction *action = mb->actionAt(pt);
             if (action && action->menu() == findRootMenu()) {
                 // propagate the mouse press event (but don't close the popup)
@@ -448,7 +418,7 @@ bool QDesignerMenu::handleMouseMoveEvent(QWidget *, QMouseEvent *event)
 
     event->accept();
 
-    const QPoint pos = mapFromGlobal(event->globalPos());
+    const QPoint pos = mapFromGlobal(event->globalPosition().toPoint());
 
     if ((pos - m_startPosition).manhattanLength() < qApp->startDragDistance())
         return true;
@@ -465,7 +435,7 @@ bool QDesignerMenu::handleContextMenuEvent(QWidget *, QContextMenuEvent *event)
 
     const int index = findAction(mapFromGlobal(event->globalPos()));
     QAction *action = safeActionAt(index);
-    if (qobject_cast<SpecialMenuAction*>(action))
+    if (qobject_cast<qdesigner_internal::SpecialMenuAction*>(action))
         return true;
 
     QMenu menu;
@@ -475,15 +445,15 @@ bool QDesignerMenu::handleContextMenuEvent(QWidget *, QContextMenuEvent *event)
     QAction *addSeparatorAction = menu.addAction(tr("Insert separator"));
     addSeparatorAction->setData(itemData);
 
-    QAction *removeAction = 0;
+    QAction *removeAction = nullptr;
     if (action->isSeparator())
         removeAction = menu.addAction(tr("Remove separator"));
     else
         removeAction = menu.addAction(tr("Remove action '%1'").arg(action->objectName()));
     removeAction->setData(itemData);
 
-    connect(addSeparatorAction, SIGNAL(triggered(bool)), this, SLOT(slotAddSeparator()));
-    connect(removeAction, SIGNAL(triggered(bool)), this, SLOT(slotRemoveSelectedAction()));
+    connect(addSeparatorAction, &QAction::triggered, this, &QDesignerMenu::slotAddSeparator);
+    connect(removeAction, &QAction::triggered, this, &QDesignerMenu::slotRemoveSelectedAction);
     menu.exec(event->globalPos());
 
     return true;
@@ -496,10 +466,10 @@ void QDesignerMenu::slotAddSeparator()
         return;
 
     QAction *a = qvariant_cast<QAction*>(action->data());
-    Q_ASSERT(a != 0);
+    Q_ASSERT(a != nullptr);
 
     const int pos = actions().indexOf(a);
-    QAction *action_before = 0;
+    QAction *action_before = nullptr;
     if (pos != -1)
         action_before = safeActionAt(pos);
 
@@ -507,14 +477,14 @@ void QDesignerMenu::slotAddSeparator()
     fw->beginCommand(tr("Add separator"));
     QAction *sep = createAction(QString(), true);
 
-    InsertActionIntoCommand *cmd = new InsertActionIntoCommand(fw);
+    auto *cmd = new qdesigner_internal::InsertActionIntoCommand(fw);
     cmd->init(this, sep, action_before);
     fw->commandHistory()->push(cmd);
 
     if (parentMenu()) {
         QAction *parent_action = parentMenu()->currentAction();
-        if (parent_action->menu() == 0) {
-            CreateSubmenuCommand *cmd = new CreateSubmenuCommand(fw);
+        if (parent_action->menu() == nullptr) {
+            auto *cmd = new qdesigner_internal::CreateSubmenuCommand(fw);
             cmd->init(parentMenu(), parentMenu()->currentAction());
             fw->commandHistory()->push(cmd);
         }
@@ -533,12 +503,12 @@ void QDesignerMenu::slotRemoveSelectedAction()
 void QDesignerMenu::deleteAction(QAction *a)
 {
     const int pos = actions().indexOf(a);
-    QAction *action_before = 0;
+    QAction *action_before = nullptr;
     if (pos != -1)
         action_before = safeActionAt(pos + 1);
 
     QDesignerFormWindowInterface *fw = formWindow();
-    RemoveActionFromCommand *cmd = new RemoveActionFromCommand(fw);
+    auto *cmd = new qdesigner_internal::RemoveActionFromCommand(fw);
     cmd->init(this, a, action_before);
     fw->commandHistory()->push(cmd);
 }
@@ -553,8 +523,8 @@ QRect QDesignerMenu::subMenuPixmapRect(QAction *action) const
 
 bool QDesignerMenu::hasSubMenuPixmap(QAction *action) const
 {
-    return action != 0
-            && qobject_cast<SpecialMenuAction*>(action) == 0
+    return action != nullptr
+            && qobject_cast<qdesigner_internal::SpecialMenuAction*>(action) == nullptr
             && !action->isSeparator()
             && !action->menu()
             && canCreateSubMenu(action);
@@ -568,13 +538,16 @@ void QDesignerMenu::showEvent ( QShowEvent * event )
 
 void QDesignerMenu::paintEvent(QPaintEvent *event)
 {
+    using namespace qdesigner_internal;
+
     QMenu::paintEvent(event);
 
     QPainter p(this);
 
     QAction *current = currentAction();
 
-    foreach (QAction *a, actions()) {
+    const auto &actionList = actions();
+    for (QAction *a : actionList) {
         const QRect g = actionGeometry(a);
 
         if (qobject_cast<SpecialMenuAction*>(a)) {
@@ -621,16 +594,12 @@ QDesignerMenu *QDesignerMenu::findRootMenu() const
 
 QDesignerMenu *QDesignerMenu::findActivatedMenu() const
 {
-    QList<QDesignerMenu*> candidates;
-    candidates.append(const_cast<QDesignerMenu*>(this));
-    candidates += findChildren<QDesignerMenu*>();
-
-    foreach (QDesignerMenu *m, candidates) {
-        if (m == qApp->activeWindow())
-            return m;
+    if (QDesignerMenu *activeDesignerMenu = qobject_cast<QDesignerMenu *>(QApplication::activeWindow())) {
+        if (activeDesignerMenu == this || findChildren<QDesignerMenu *>().contains(activeDesignerMenu))
+            return activeDesignerMenu;
     }
 
-    return 0;
+    return nullptr;
 }
 
 bool QDesignerMenu::eventFilter(QObject *object, QEvent *event)
@@ -663,12 +632,12 @@ bool QDesignerMenu::eventFilter(QObject *object, QEvent *event)
                 QApplication::activePopupWidget()->close();
             }
 
-        // fall through
+            Q_FALLTHROUGH(); // fall through
         case QEvent::KeyPress:
         case QEvent::KeyRelease:
         case QEvent::MouseMove:
             dispatch = (object != m_editor);
-            // no break
+            Q_FALLTHROUGH(); // no break
 
         case QEvent::Enter:
         case QEvent::Leave:
@@ -705,7 +674,7 @@ QDesignerMenu::ActionDragCheck QDesignerMenu::checkAction(QAction *action) const
     if (!action || (action->menu() && action->menu()->parentWidget() != const_cast<QDesignerMenu*>(this)))
         return NoActionDrag; // menu action!! nothing to do
 
-    if (!Utils::isObjectAncestorOf(formWindow()->mainContainer(), action))
+    if (!qdesigner_internal::Utils::isObjectAncestorOf(formWindow()->mainContainer(), action))
         return NoActionDrag; // the action belongs to another form window
 
     if (actions().contains(action))
@@ -716,8 +685,8 @@ QDesignerMenu::ActionDragCheck QDesignerMenu::checkAction(QAction *action) const
 
 void QDesignerMenu::dragEnterEvent(QDragEnterEvent *event)
 {
-    const ActionRepositoryMimeData *d = qobject_cast<const ActionRepositoryMimeData*>(event->mimeData());
-    if (!d || d->actionList().empty()) {
+    auto *d = qobject_cast<const qdesigner_internal::ActionRepositoryMimeData*>(event->mimeData());
+    if (!d || d->actionList().isEmpty()) {
         event->ignore();
         return;
     }
@@ -735,21 +704,21 @@ void QDesignerMenu::dragEnterEvent(QDragEnterEvent *event)
     case AcceptActionDrag:
         d->accept(event);
         m_dragging = true;
-        adjustIndicator(event->pos());
+        adjustIndicator(event->position().toPoint());
         break;
     }
 }
 
 void QDesignerMenu::dragMoveEvent(QDragMoveEvent *event)
 {
-    if (actionGeometry(m_addSeparator).contains(event->pos())) {
+    if (actionGeometry(m_addSeparator).contains(event->position().toPoint())) {
         event->ignore();
         adjustIndicator(QPoint(-1, -1));
         return;
     }
 
-    const ActionRepositoryMimeData *d = qobject_cast<const ActionRepositoryMimeData*>(event->mimeData());
-    if (!d || d->actionList().empty()) {
+    auto *d = qobject_cast<const qdesigner_internal::ActionRepositoryMimeData*>(event->mimeData());
+    if (!d || d->actionList().isEmpty()) {
         event->ignore();
         return;
     }
@@ -762,14 +731,14 @@ void QDesignerMenu::dragMoveEvent(QDragMoveEvent *event)
         break;
     case ActionDragOnSubMenu:
     case AcceptActionDrag: { // Do not pop up submenu of action being dragged
-        const int newIndex = findAction(event->pos());
+        const int newIndex = findAction(event->position().toPoint());
         if (safeActionAt(newIndex) != action) {
             m_currentIndex = newIndex;
             if (m_lastSubMenuIndex != m_currentIndex)
                 m_showSubMenuTimer->start(300);
         }
         if (dc == AcceptActionDrag) {
-            adjustIndicator(event->pos());
+            adjustIndicator(event->position().toPoint());
             d->accept(event);
         } else {
             event->ignore();
@@ -793,19 +762,19 @@ void QDesignerMenu::dropEvent(QDropEvent *event)
     m_dragging = false;
 
     QDesignerFormWindowInterface *fw = formWindow();
-    const ActionRepositoryMimeData *d = qobject_cast<const ActionRepositoryMimeData*>(event->mimeData());
-    if (!d || d->actionList().empty()) {
+    auto *d = qobject_cast<const qdesigner_internal::ActionRepositoryMimeData*>(event->mimeData());
+    if (!d || d->actionList().isEmpty()) {
         event->ignore();
         return;
     }
     QAction *action = d->actionList().first();
     if (action && checkAction(action) == AcceptActionDrag) {
         event->acceptProposedAction();
-        int index = findAction(event->pos());
-        index = qMin(index, actions().count() - 1);
+        int index = findAction(event->position().toPoint());
+        index = qMin(index, actions().size() - 1);
 
         fw->beginCommand(tr("Insert action"));
-        InsertActionIntoCommand *cmd = new InsertActionIntoCommand(fw);
+        auto *cmd = new qdesigner_internal::InsertActionIntoCommand(fw);
         cmd->init(this, action, safeActionAt(index));
         fw->commandHistory()->push(cmd);
 
@@ -813,8 +782,8 @@ void QDesignerMenu::dropEvent(QDropEvent *event)
 
         if (parentMenu()) {
             QAction *parent_action = parentMenu()->currentAction();
-            if (parent_action->menu() == 0) {
-                CreateSubmenuCommand *cmd = new CreateSubmenuCommand(fw);
+            if (parent_action->menu() == nullptr) {
+                auto *cmd = new qdesigner_internal::CreateSubmenuCommand(fw);
                 cmd->init(parentMenu(), parentMenu()->currentAction(), action);
                 fw->commandHistory()->push(cmd);
             }
@@ -848,7 +817,7 @@ QDesignerActionProviderExtension *QDesignerMenu::actionProvider()
         return qt_extension<QDesignerActionProviderExtension*>(core->extensionManager(), this);
     }
 
-    return 0;
+    return nullptr;
 }
 
 void QDesignerMenu::closeMenuChain()
@@ -860,9 +829,9 @@ void QDesignerMenu::closeMenuChain()
         w = w->parentWidget();
 
     if (w) {
-        foreach (QMenu *subMenu, w->findChildren<QMenu*>()) {
+        const auto &menus = w->findChildren<QMenu *>();
+        for (QMenu *subMenu : menus)
             subMenu->hide();
-        }
     }
 
     m_lastSubMenuIndex = -1;
@@ -878,15 +847,15 @@ bool QDesignerMenu::hideSubMenuOnCursorKey()
     }
     closeMenuChain();
     update();
-    if (parentMenuBar())
-        return false;
-    return true;
+    return parentMenuBar() == nullptr;
 }
 
 // Open a submenu using the left/right keys according to layoutDirection().
 // Return false to indicate the event must be propagated to the menu bar.
 bool QDesignerMenu::showSubMenuOnCursorKey()
 {
+    using namespace qdesigner_internal;
+
     const QAction *action = currentAction();
 
     if (qobject_cast<const SpecialMenuAction*>(action) || action->isSeparator()) {
@@ -934,7 +903,7 @@ void QDesignerMenu::moveUp(bool ctrl)
 
 void QDesignerMenu::moveDown(bool ctrl)
 {
-    if (m_currentIndex == actions().count() - 1) {
+    if (m_currentIndex == actions().size() - 1) {
         return;
     }
 
@@ -942,7 +911,7 @@ void QDesignerMenu::moveDown(bool ctrl)
         (void) swap(m_currentIndex + 1, m_currentIndex);
 
     ++m_currentIndex;
-    m_currentIndex = qMin(actions().count() - 1, m_currentIndex);
+    m_currentIndex = qMin(actions().size() - 1, m_currentIndex);
     update();
     if (!ctrl)
         selectCurrentAction();
@@ -950,39 +919,52 @@ void QDesignerMenu::moveDown(bool ctrl)
 
 QAction *QDesignerMenu::currentAction() const
 {
-    if (m_currentIndex < 0 || m_currentIndex >= actions().count())
-        return 0;
+    if (m_currentIndex < 0 || m_currentIndex >= actions().size())
+        return nullptr;
 
     return safeActionAt(m_currentIndex);
 }
 
 int QDesignerMenu::realActionCount() const
 {
-    return actions().count() - 2; // 2 fake actions
+    return actions().size() - 2; // 2 fake actions
 }
 
 void QDesignerMenu::selectCurrentAction()
 {
+    using namespace qdesigner_internal;
+
     QAction *action = currentAction();
     if (!action || action == m_addSeparator || action == m_addItem)
         return;
 
-    QDesignerObjectInspector *oi = 0;
-    if (QDesignerFormWindowInterface *fw = formWindow())
-        oi = qobject_cast<QDesignerObjectInspector *>(fw->core()->objectInspector());
+    QDesignerObjectInspector *oi = nullptr;
+    ActionEditor *ae = nullptr;
+    if (QDesignerFormWindowInterface *fw = formWindow()) {
+        auto core = fw->core();
+        oi = qobject_cast<QDesignerObjectInspector *>(core->objectInspector());
+        ae = qobject_cast<ActionEditor *>(core->actionEditor());
+    }
 
     if (!oi)
         return;
 
     oi->clearSelection();
-    if (QMenu *menu = action->menu())
+    if (QMenu *menu = action->menu()) {
         oi->selectObject(menu);
-    else
+        if (ae)
+            ae->clearSelection();
+    } else {
         oi->selectObject(action);
+        if (ae)
+            ae->selectAction(action);
+    }
 }
 
 void QDesignerMenu::createRealMenuAction(QAction *action)
 {
+    using namespace qdesigner_internal;
+
     if (action->menu())
         return; // nothing to do
 
@@ -999,7 +981,7 @@ void QDesignerMenu::createRealMenuAction(QAction *action)
 
     core->widgetFactory()->initialize(menu);
 
-    const QString niceObjectName = ActionEditor::actionTextToName(menu->title(), QStringLiteral("menu"));
+    const QString niceObjectName = ActionEditor::actionTextToName(menu->title(), u"menu"_s);
     menu->setObjectName(niceObjectName);
 
     core->metaDataBase()->add(menu);
@@ -1012,9 +994,9 @@ void QDesignerMenu::createRealMenuAction(QAction *action)
 void QDesignerMenu::removeRealMenu(QAction *action)
 {
     QDesignerMenu *menu = qobject_cast<QDesignerMenu*>(action->menu());
-    if (menu == 0)
+    if (menu == nullptr)
         return;
-    action->setMenu(0);
+    action->setMenu(nullptr);
     m_subMenus.insert(action, menu);
     QDesignerFormEditorInterface *core = formWindow()->core();
     core->metaDataBase()->remove(menu);
@@ -1036,17 +1018,18 @@ QDesignerMenu *QDesignerMenu::findOrCreateSubMenu(QAction *action)
 
 bool QDesignerMenu::canCreateSubMenu(QAction *action) const // ### improve it's a bit too slow
 {
-    foreach (const QWidget *aw, action->associatedWidgets())
-        if (aw != this) {
-            if (const QMenu *m = qobject_cast<const QMenu *>(aw)) {
+    const QObjectList associatedObjects = action->associatedObjects();
+    for (const QObject *ao : associatedObjects) {
+        if (ao != this) {
+            if (const QMenu *m = qobject_cast<const QMenu *>(ao)) {
                 if (m->actions().contains(action))
                     return false; // sorry
-            } else {
-                if (const QToolBar *tb = qobject_cast<const QToolBar *>(aw))
-                    if (tb->actions().contains(action))
-                        return false; // sorry
+            } else if (const QToolBar *tb = qobject_cast<const QToolBar *>(ao)) {
+                if (tb->actions().contains(action))
+                    return false; // sorry
             }
         }
+    }
     return true;
 }
 
@@ -1094,6 +1077,8 @@ void QDesignerMenu::slotShowSubMenuNow()
 
 void QDesignerMenu::showSubMenu(QAction *action)
 {
+    using namespace qdesigner_internal;
+
     m_showSubMenuTimer->stop();
 
     if (m_editor->isVisible() || !action || qobject_cast<SpecialMenuAction*>(action)
@@ -1110,13 +1095,12 @@ QDesignerMenu *QDesignerMenu::parentMenu() const
 
 QDesignerMenuBar *QDesignerMenu::parentMenuBar() const
 {
-    if (QDesignerMenuBar *mb = qobject_cast<QDesignerMenuBar*>(parentWidget())) {
+    if (QDesignerMenuBar *mb = qobject_cast<QDesignerMenuBar*>(parentWidget()))
         return mb;
-    } else if (QDesignerMenu *m = parentMenu()) {
+    if (QDesignerMenu *m = parentMenu())
         return m->parentMenuBar();
-    }
 
-    return 0;
+    return nullptr;
 }
 
 void QDesignerMenu::setVisible(bool visible)
@@ -1138,13 +1122,6 @@ void QDesignerMenu::adjustSpecialActions()
     addAction(m_addSeparator);
 }
 
-bool QDesignerMenu::interactive(bool i)
-{
-    const bool old = m_interactive;
-    m_interactive = i;
-    return old;
-}
-
 void QDesignerMenu::enterEditMode()
 {
     if (m_currentIndex >= 0 && m_currentIndex <= realActionCount()) {
@@ -1155,14 +1132,14 @@ void QDesignerMenu::enterEditMode()
         fw->beginCommand(tr("Add separator"));
         QAction *sep = createAction(QString(), true);
 
-        InsertActionIntoCommand *cmd = new InsertActionIntoCommand(fw);
+        auto *cmd = new qdesigner_internal::InsertActionIntoCommand(fw);
         cmd->init(this, sep, safeActionAt(realActionCount()));
         fw->commandHistory()->push(cmd);
 
         if (parentMenu()) {
             QAction *parent_action = parentMenu()->currentAction();
-            if (parent_action->menu() == 0) {
-                CreateSubmenuCommand *cmd = new CreateSubmenuCommand(fw);
+            if (parent_action->menu() == nullptr) {
+                auto *cmd = new qdesigner_internal::CreateSubmenuCommand(fw);
                 cmd->init(parentMenu(), parentMenu()->currentAction());
                 fw->commandHistory()->push(cmd);
             }
@@ -1177,32 +1154,34 @@ void QDesignerMenu::enterEditMode()
 
 void QDesignerMenu::leaveEditMode(LeaveEditMode mode)
 {
+    using namespace qdesigner_internal;
+
     if (mode == Default)
         return;
 
-    QAction *action = 0;
+    QAction *action = nullptr;
 
     QDesignerFormWindowInterface *fw = formWindow();
     if (m_currentIndex < realActionCount()) {
         action = safeActionAt(m_currentIndex);
         fw->beginCommand(QApplication::translate("Command", "Set action text"));
     } else {
-        Q_ASSERT(fw != 0);
+        Q_ASSERT(fw != nullptr);
         fw->beginCommand(QApplication::translate("Command", "Insert action"));
         action = createAction(ActionEditor::actionTextToName(m_editor->text()));
-        InsertActionIntoCommand *cmd = new InsertActionIntoCommand(fw);
+        auto *cmd = new qdesigner_internal::InsertActionIntoCommand(fw);
         cmd->init(this, action, currentAction());
         fw->commandHistory()->push(cmd);
     }
 
-    SetPropertyCommand *cmd = new SetPropertyCommand(fw);
-    cmd->init(action, QStringLiteral("text"), m_editor->text());
+    auto *cmd = new qdesigner_internal::SetPropertyCommand(fw);
+    cmd->init(action, u"text"_s, m_editor->text());
     fw->commandHistory()->push(cmd);
 
     if (parentMenu()) {
         QAction *parent_action = parentMenu()->currentAction();
-        if (parent_action->menu() == 0) {
-            CreateSubmenuCommand *cmd = new CreateSubmenuCommand(fw);
+        if (parent_action->menu() == nullptr) {
+            auto *cmd = new qdesigner_internal::CreateSubmenuCommand(fw);
             cmd->init(parentMenu(), parentMenu()->currentAction(), action);
             fw->commandHistory()->push(cmd);
         }
@@ -1226,7 +1205,7 @@ void QDesignerMenu::showLineEdit()
 {
     m_showSubMenuTimer->stop();
 
-    QAction *action = 0;
+    QAction *action = nullptr;
 
     if (m_currentIndex < realActionCount())
         action = safeActionAt(m_currentIndex);
@@ -1253,12 +1232,14 @@ QAction *QDesignerMenu::createAction(const QString &objectName, bool separator)
 {
     QDesignerFormWindowInterface *fw = formWindow();
     Q_ASSERT(fw);
-    return ToolBarEventFilter::createAction(fw, objectName, separator);
+    return qdesigner_internal::ToolBarEventFilter::createAction(fw, objectName, separator);
 }
 
 // ### share with QDesignerMenu::swap
 bool QDesignerMenu::swap(int a, int b)
 {
+    using namespace qdesigner_internal;
+
     const int left = qMin(a, b);
     int right = qMax(a, b);
 
@@ -1281,21 +1262,21 @@ bool QDesignerMenu::swap(int a, int b)
 
     QAction *action_b_before = safeActionAt(right + 1);
 
-    RemoveActionFromCommand *cmd1 = new RemoveActionFromCommand(fw);
+    auto *cmd1 = new qdesigner_internal::RemoveActionFromCommand(fw);
     cmd1->init(this, action_b, action_b_before, false);
     fw->commandHistory()->push(cmd1);
 
     QAction *action_a_before = safeActionAt(left + 1);
 
-    InsertActionIntoCommand *cmd2 = new InsertActionIntoCommand(fw);
+    auto *cmd2 = new qdesigner_internal::InsertActionIntoCommand(fw);
     cmd2->init(this, action_b, action_a_before, false);
     fw->commandHistory()->push(cmd2);
 
-    RemoveActionFromCommand *cmd3 = new RemoveActionFromCommand(fw);
+    auto *cmd3 = new qdesigner_internal::RemoveActionFromCommand(fw);
     cmd3->init(this, action_a, action_b, false);
     fw->commandHistory()->push(cmd3);
 
-    InsertActionIntoCommand *cmd4 = new InsertActionIntoCommand(fw);
+    auto *cmd4 = new qdesigner_internal::InsertActionIntoCommand(fw);
     cmd4->init(this, action_a, action_b_before, true);
     fw->commandHistory()->push(cmd4);
 
@@ -1306,8 +1287,8 @@ bool QDesignerMenu::swap(int a, int b)
 
 QAction *QDesignerMenu::safeActionAt(int index) const
 {
-    if (index < 0 || index >= actions().count())
-        return 0;
+    if (index < 0 || index >= actions().size())
+        return nullptr;
 
     return actions().at(index);
 }
@@ -1315,21 +1296,21 @@ QAction *QDesignerMenu::safeActionAt(int index) const
 void QDesignerMenu::hideSubMenu()
 {
     m_lastSubMenuIndex = -1;
-    foreach (QMenu *subMenu, findChildren<QMenu*>()) {
+    const auto &menus = findChildren<QMenu *>();
+    for (QMenu *subMenu : menus)
         subMenu->hide();
-    }
 }
 
 void QDesignerMenu::deleteAction()
 {
     QAction *action = currentAction();
     const int pos = actions().indexOf(action);
-    QAction *action_before = 0;
+    QAction *action_before = nullptr;
     if (pos != -1)
         action_before = safeActionAt(pos + 1);
 
     QDesignerFormWindowInterface *fw = formWindow();
-    RemoveActionFromCommand *cmd = new RemoveActionFromCommand(fw);
+    auto *cmd = new qdesigner_internal::RemoveActionFromCommand(fw);
     cmd->init(this, action, action_before);
     fw->commandHistory()->push(cmd);
 

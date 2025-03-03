@@ -1,52 +1,25 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Assistant of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 #include "bookmarkmanagerwidget.h"
 #include "bookmarkitem.h"
 #include "bookmarkmodel.h"
 #include "tracer.h"
 #include "xbelsupport.h"
 
+#include <QtWidgets/QFileDialog>
+#include <QtWidgets/QMessageBox>
+
+#include <QtGui/QCloseEvent>
+#include <QtGui/QKeySequence>
+#include <QtGui/QShortcut>
+
 #include <QtCore/QCoreApplication>
 #include <QtCore/QFile>
 #include <QtCore/QUrl>
 
-#include <QtGui/QCloseEvent>
-#include <QtWidgets/QFileDialog>
-#include <QtGui/QKeySequence>
-#include <QtWidgets/QMessageBox>
-#include <QtWidgets/QShortcut>
-
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 BookmarkManagerWidget::BookmarkManagerWidget(BookmarkModel *sourceModel,
         QWidget *parent)
@@ -63,27 +36,36 @@ BookmarkManagerWidget::BookmarkManagerWidget(BookmarkModel *sourceModel,
     ui.treeView->viewport()->installEventFilter(this);
     ui.treeView->setContextMenuPolicy(Qt::CustomContextMenu);
 
-    connect(ui.treeView, SIGNAL(customContextMenuRequested(QPoint)), this,
-        SLOT(customContextMenuRequested(QPoint)));
+    connect(ui.treeView, &QWidget::customContextMenuRequested,
+            this, &BookmarkManagerWidget::customContextMenuRequested);
 
-    connect(ui.remove, SIGNAL(clicked()), this, SLOT(removeItem()));
-    connect(ui.lineEdit, SIGNAL(textChanged(QString)), this,
-        SLOT(textChanged(QString)));
-    new QShortcut(QKeySequence::Find, ui.lineEdit, SLOT(setFocus()));
+    connect(ui.remove, &QAbstractButton::clicked,
+            this, [this]() { removeItem(); });
+    connect(ui.lineEdit, &QLineEdit::textChanged,
+            this, &BookmarkManagerWidget::textChanged);
+    QShortcut *shortcut = new QShortcut(QKeySequence::Find, ui.lineEdit);
+    connect(shortcut, &QShortcut::activated,
+            ui.lineEdit, QOverload<>::of(&QWidget::setFocus));
 
-    importExportMenu.addAction(tr("Import..."), this, SLOT(importBookmarks()));
-    importExportMenu.addAction(tr("Export..."), this, SLOT(exportBookmarks()));
+    importExportMenu.addAction(tr("Import..."), this,
+                               &BookmarkManagerWidget::importBookmarks);
+    importExportMenu.addAction(tr("Export..."), this,
+                               &BookmarkManagerWidget::exportBookmarks);
     ui.importExport->setMenu(&importExportMenu);
 
-    new QShortcut(QKeySequence::FindNext, this, SLOT(findNext()));
-    new QShortcut(QKeySequence::FindPrevious, this, SLOT(findPrevious()));
+    shortcut = new QShortcut(QKeySequence::FindNext, this);
+    connect(shortcut, &QShortcut::activated,
+            this, &BookmarkManagerWidget::findNext);
+    shortcut = new QShortcut(QKeySequence::FindPrevious, this);
+    connect(shortcut, &QShortcut::activated,
+            this, &BookmarkManagerWidget::findPrevious);
 
-    connect(bookmarkModel, SIGNAL(rowsRemoved(QModelIndex,int,int)), this,
-        SLOT(refeshBookmarkCache()));
-    connect(bookmarkModel, SIGNAL(rowsInserted(QModelIndex,int,int)), this,
-        SLOT(refeshBookmarkCache()));
-    connect(bookmarkModel, SIGNAL(dataChanged(QModelIndex,QModelIndex)), this,
-        SLOT(refeshBookmarkCache()));
+    connect(bookmarkModel, &QAbstractItemModel::rowsRemoved,
+            this, &BookmarkManagerWidget::refeshBookmarkCache);
+    connect(bookmarkModel, &QAbstractItemModel::rowsInserted,
+            this, &BookmarkManagerWidget::refeshBookmarkCache);
+    connect(bookmarkModel, &QAbstractItemModel::dataChanged,
+            this, &BookmarkManagerWidget::refeshBookmarkCache);
 
     ui.treeView->setCurrentIndex(ui.treeView->indexAt(QPoint(2, 2)));
 }
@@ -124,7 +106,7 @@ void BookmarkManagerWidget::selectNextIndex(bool direction) const
 {
     QModelIndex current = ui.treeView->currentIndex();
     if (current.isValid() && !cache.isEmpty()) {
-        current = cache.at(nextIndex(cache.indexOf(current), cache.count(),
+        current = cache.at(nextIndex(cache.indexOf(current), cache.size(),
             direction));
     }
     ui.treeView->setCurrentIndex(current);
@@ -139,13 +121,13 @@ bool BookmarkManagerWidget::eventFilter(QObject *object, QEvent *event)
     if (event->type() == QEvent::KeyPress) {
         QKeyEvent *ke = static_cast<QKeyEvent*>(event);
         switch (ke->key()) {
-            case Qt::Key_F2: {
+            case Qt::Key_F2:
                 renameItem(ui.treeView->currentIndex());
-            }   break;
+                break;
 
-            case Qt::Key_Delete: {
+            case Qt::Key_Delete:
                 removeItem(ui.treeView->currentIndex());
-            }   break;
+                break;
 
             default: break;
         }
@@ -154,14 +136,14 @@ bool BookmarkManagerWidget::eventFilter(QObject *object, QEvent *event)
     if (event->type() == QEvent::MouseButtonRelease) {
         QMouseEvent *me = static_cast<QMouseEvent*>(event);
         switch (me->button()) {
-            case Qt::LeftButton: {
+            case Qt::LeftButton:
                 if (me->modifiers() & Qt::ControlModifier)
                     setSourceFromIndex(ui.treeView->currentIndex(), true);
-            }   break;
+                break;
 
-            case Qt::MidButton: {
+            case Qt::MiddleButton:
                 setSourceFromIndex(ui.treeView->currentIndex(), true);
-            }   break;
+                break;
 
             default: break;
         }
@@ -184,7 +166,7 @@ void BookmarkManagerWidget::findPrevious()
 void BookmarkManagerWidget::importBookmarks()
 {
     TRACE_OBJ
-    const QString &fileName = QFileDialog::getOpenFileName(0, tr("Open File"),
+    const QString &fileName = QFileDialog::getOpenFileName(nullptr, tr("Open File"),
         QDir::currentPath(), tr("Files (*.xbel)"));
 
     if (fileName.isEmpty())
@@ -200,10 +182,10 @@ void BookmarkManagerWidget::importBookmarks()
 void BookmarkManagerWidget::exportBookmarks()
 {
     TRACE_OBJ
-    QString fileName = QFileDialog::getSaveFileName(0, tr("Save File"),
-        QLatin1String("untitled.xbel"), tr("Files (*.xbel)"));
+    QString fileName = QFileDialog::getSaveFileName(nullptr, tr("Save File"), "untitled.xbel"_L1,
+                                                    tr("Files (*.xbel)"));
 
-    const QLatin1String suffix(".xbel");
+    const QLatin1StringView suffix(".xbel");
     if (!fileName.endsWith(suffix))
         fileName.append(suffix);
 
@@ -213,7 +195,7 @@ void BookmarkManagerWidget::exportBookmarks()
         writer.writeToFile(&file);
     } else {
         QMessageBox::information(this, tr("Qt Assistant"),
-            tr("Unable to save bookmarks."), tr("OK"));
+            tr("Unable to save bookmarks."), QMessageBox::Ok);
     }
 }
 
@@ -264,12 +246,12 @@ void BookmarkManagerWidget::customContextMenuRequested(const QPoint &point)
     if (!bookmarkModel->parent(index).isValid())
         return;
 
-    QAction *remove = 0;
-    QAction *rename = 0;
-    QAction *showItem = 0;
-    QAction *showItemInNewTab = 0;
+    QAction *remove = nullptr;
+    QAction *rename = nullptr;
+    QAction *showItem = nullptr;
+    QAction *showItemInNewTab = nullptr;
 
-    QMenu menu(QLatin1String(""));
+    QMenu menu;
     if (bookmarkModel->data(index, UserRoleFolder).toBool()) {
         remove = menu.addAction(tr("Delete Folder"));
         rename = menu.addAction(tr("Rename Folder"));

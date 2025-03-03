@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Assistant of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 #include "tracer.h"
 #include "findwidget.h"
 
@@ -44,6 +14,8 @@
 
 QT_BEGIN_NAMESPACE
 
+using namespace Qt::StringLiterals;
+
 FindWidget::FindWidget(QWidget *parent)
     : QWidget(parent)
     , appPalette(qApp->palette())
@@ -51,39 +23,35 @@ FindWidget::FindWidget(QWidget *parent)
     TRACE_OBJ
     installEventFilter(this);
     QHBoxLayout *hboxLayout = new QHBoxLayout(this);
-    QString resourcePath = QLatin1String(":/qt-project.org/assistant/images/");
+    QString resourcePath = ":/qt-project.org/assistant/images/"_L1;
 
 #ifndef Q_OS_MAC
-    hboxLayout->setMargin(0);
+    hboxLayout->setContentsMargins({});
     hboxLayout->setSpacing(6);
-    resourcePath.append(QLatin1String("win"));
+    resourcePath.append("win"_L1);
 #else
-    resourcePath.append(QLatin1String("mac"));
+    resourcePath.append("mac"_L1);
 #endif
 
-    toolClose = setupToolButton(QLatin1String(""),
-        resourcePath + QLatin1String("/closetab.png"));
+    toolClose = setupToolButton({}, resourcePath + "/closetab.png"_L1);
     hboxLayout->addWidget(toolClose);
-    connect(toolClose, SIGNAL(clicked()), SLOT(hide()));
+    connect(toolClose, &QAbstractButton::clicked, this, &QWidget::hide);
 
     editFind = new QLineEdit(this);
     hboxLayout->addWidget(editFind);
     editFind->setMinimumSize(QSize(150, 0));
-    connect(editFind, SIGNAL(textChanged(QString)), this,
-        SLOT(textChanged(QString)));
-    connect(editFind, SIGNAL(returnPressed()), this, SIGNAL(findNext()));
-    connect(editFind, SIGNAL(textChanged(QString)), this, SLOT(updateButtons()));
+    connect(editFind, &QLineEdit::textChanged, this, &FindWidget::textChanged);
+    connect(editFind, &QLineEdit::returnPressed, this, &FindWidget::findNext);
+    connect(editFind, &QLineEdit::textChanged, this, &FindWidget::updateButtons);
 
-    toolPrevious = setupToolButton(tr("Previous"),
-        resourcePath + QLatin1String("/previous.png"));
-    connect(toolPrevious, SIGNAL(clicked()), this, SIGNAL(findPrevious()));
+    toolPrevious = setupToolButton(tr("Previous"), resourcePath + "/previous.png"_L1);
+    connect(toolPrevious, &QAbstractButton::clicked, this, &FindWidget::findPrevious);
 
     hboxLayout->addWidget(toolPrevious);
 
-    toolNext = setupToolButton(tr("Next"),
-        resourcePath + QLatin1String("/next.png"));
+    toolNext = setupToolButton(tr("Next"), resourcePath + "/next.png"_L1);
     hboxLayout->addWidget(toolNext);
-    connect(toolNext, SIGNAL(clicked()), this, SIGNAL(findNext()));
+    connect(toolNext, &QAbstractButton::clicked, this, &FindWidget::findNext);
 
     checkCase = new QCheckBox(tr("Case Sensitive"), this);
     hboxLayout->addWidget(checkCase);

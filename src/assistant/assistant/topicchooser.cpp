@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Assistant of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 #include "tracer.h"
 
 #include "topicchooser.h"
@@ -40,9 +10,11 @@
 #include <QSortFilterProxyModel>
 #include <QUrl>
 
+#include <QtHelp/QHelpLink>
+
 QT_BEGIN_NAMESPACE
 
-TopicChooser::TopicChooser(QWidget *parent, const QString &keyword, const QMap<QString, QUrl> &links)
+TopicChooser::TopicChooser(QWidget *parent, const QString &keyword, const QList<QHelpLink> &docs)
     : QDialog(parent)
     , m_filterModel(new QSortFilterProxyModel(this))
 {
@@ -58,11 +30,10 @@ TopicChooser::TopicChooser(QWidget *parent, const QString &keyword, const QMap<Q
     m_filterModel->setSourceModel(model);
     m_filterModel->setFilterCaseSensitivity(Qt::CaseInsensitive);
 
-    QMap<QString, QUrl>::const_iterator it = links.constBegin();
-    for (; it != links.constEnd(); ++it) {
-        m_links.append(it.value());
-        QStandardItem *item = new QStandardItem(it.key());
-        item->setToolTip(it.value().toString());
+    for (const auto &doc : docs) {
+        m_links.append(doc.url);
+        QStandardItem *item = new QStandardItem(doc.title);
+        item->setToolTip(doc.url.toString());
         model->appendRow(item);
     }
 
@@ -73,10 +44,14 @@ TopicChooser::TopicChooser(QWidget *parent, const QString &keyword, const QMap<Q
     if (m_filterModel->rowCount() != 0)
         ui.listWidget->setCurrentIndex(m_filterModel->index(0, 0));
 
-    connect(ui.buttonCancel, SIGNAL(clicked()), this, SLOT(reject()));
-    connect(ui.buttonDisplay, SIGNAL(clicked()), this, SLOT(acceptDialog()));
-    connect(ui.lineEdit, SIGNAL(textChanged(QString)), this, SLOT(setFilter(QString)));
-    connect(ui.listWidget, SIGNAL(activated(QModelIndex)), this, SLOT(activated(QModelIndex)));
+    connect(ui.buttonCancel, &QAbstractButton::clicked,
+            this, &QDialog::reject);
+    connect(ui.buttonDisplay, &QAbstractButton::clicked,
+            this, &TopicChooser::acceptDialog);
+    connect(ui.lineEdit, &QLineEdit::textChanged,
+            this, &TopicChooser::setFilter);
+    connect(ui.listWidget, &QAbstractItemView::activated,
+            this, &TopicChooser::activated);
 
     const QByteArray ba = HelpEngineWrapper::instance().topicChooserGeometry();
     if (!ba.isEmpty())
@@ -122,23 +97,14 @@ bool TopicChooser::eventFilter(QObject *object, QEvent *event)
 {
     TRACE_OBJ
     if (object == ui.lineEdit && event->type() == QEvent::KeyPress) {
-        QModelIndex idx = ui.listWidget->currentIndex();
-        switch ((static_cast<QKeyEvent*>(event)->key())) {
-            case Qt::Key_Up:
-                idx = m_filterModel->index(idx.row() - 1, idx.column(),
-                    idx.parent());
-                if (idx.isValid())
-                    ui.listWidget->setCurrentIndex(idx);
-                break;
-
-            case Qt::Key_Down:
-                idx = m_filterModel->index(idx.row() + 1, idx.column(),
-                    idx.parent());
-                if (idx.isValid())
-                    ui.listWidget->setCurrentIndex(idx);
-                break;
-
-            default: ;
+        QKeyEvent *keyEvent = static_cast<QKeyEvent*>(event);
+        switch (keyEvent->key()) {
+        case Qt::Key_Up:
+        case Qt::Key_Down:
+        case Qt::Key_PageUp:
+        case Qt::Key_PageDown:
+            QCoreApplication::sendEvent(ui.listWidget, event);
+            break;
         }
     } else if (ui.lineEdit && event->type() == QEvent::FocusIn
         && static_cast<QFocusEvent *>(event)->reason() != Qt::MouseFocusReason) {

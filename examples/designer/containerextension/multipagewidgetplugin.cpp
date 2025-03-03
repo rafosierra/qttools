@@ -1,42 +1,9 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the examples of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:BSD$
-** You may use this file under the terms of the BSD license as follows:
-**
-** "Redistribution and use in source and binary forms, with or without
-** modification, are permitted provided that the following conditions are
-** met:
-**   * Redistributions of source code must retain the above copyright
-**     notice, this list of conditions and the following disclaimer.
-**   * Redistributions in binary form must reproduce the above copyright
-**     notice, this list of conditions and the following disclaimer in
-**     the documentation and/or other materials provided with the
-**     distribution.
-**   * Neither the name of The Qt Company Ltd nor the names of its
-**     contributors may be used to endorse or promote products derived
-**     from this software without specific prior written permission.
-**
-**
-** THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-** "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-** LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-** A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-** OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-** SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-** LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-** DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-** THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-** (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-** OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
+
+#include "multipagewidget.h"
+#include "multipagewidgetplugin.h"
+#include "multipagewidgetextensionfactory.h"
 
 #include <QtDesigner/QExtensionFactory>
 #include <QtDesigner/QExtensionManager>
@@ -48,45 +15,42 @@
 #include <QIcon>
 #include <QtPlugin>
 
-#include "multipagewidget.h"
-#include "multipagewidgetplugin.h"
-#include "multipagewidgetextensionfactory.h"
+using namespace Qt::StringLiterals;
 
 //! [0]
 MultiPageWidgetPlugin::MultiPageWidgetPlugin(QObject *parent)
     : QObject(parent)
-    , initialized(false)
 {
 }
 
 QString MultiPageWidgetPlugin::name() const
 {
-    return QLatin1String("MultiPageWidget");
+    return u"MultiPageWidget"_s;
 }
 
 QString MultiPageWidgetPlugin::group() const
 {
-    return QLatin1String("Display Widgets [Examples]");
+    return u"Display Widgets [Examples]"_s;
 }
 
 QString MultiPageWidgetPlugin::toolTip() const
 {
-    return QString();
+    return {};
 }
 
 QString MultiPageWidgetPlugin::whatsThis() const
 {
-    return QString();
+    return {};
 }
 
 QString MultiPageWidgetPlugin::includeFile() const
 {
-    return QLatin1String("multipagewidget.h");
+    return u"multipagewidget.h"_s;
 }
 
 QIcon MultiPageWidgetPlugin::icon() const
 {
-    return QIcon();
+    return {};
 }
 
 //! [0] //! [1]
@@ -98,7 +62,7 @@ bool MultiPageWidgetPlugin::isContainer() const
 //! [1] //! [2]
 QWidget *MultiPageWidgetPlugin::createWidget(QWidget *parent)
 {
-    MultiPageWidget *widget = new MultiPageWidget(parent);
+    auto *widget = new MultiPageWidget(parent);
     connect(widget, &MultiPageWidget::currentIndexChanged,
             this, &MultiPageWidgetPlugin::currentIndexChanged);
     connect(widget, &MultiPageWidget::pageTitleChanged,
@@ -121,11 +85,11 @@ void MultiPageWidgetPlugin::initialize(QDesignerFormEditorInterface *formEditor)
 //! [4]
 
 //! [5]
-    QExtensionManager *manager = formEditor->extensionManager();
+    auto *manager = formEditor->extensionManager();
 //! [5] //! [6]
-    QExtensionFactory *factory = new MultiPageWidgetExtensionFactory(manager);
+    auto *factory = new MultiPageWidgetExtensionFactory(manager);
 
-    Q_ASSERT(manager != 0);
+    Q_ASSERT(manager != nullptr);
     manager->registerExtensions(factory, Q_TYPEID(QDesignerContainerExtension));
 
     initialized = true;
@@ -135,19 +99,19 @@ void MultiPageWidgetPlugin::initialize(QDesignerFormEditorInterface *formEditor)
 //! [7]
 QString MultiPageWidgetPlugin::domXml() const
 {
-    return QLatin1String("\
-<ui language=\"c++\">\
-    <widget class=\"MultiPageWidget\" name=\"multipagewidget\">\
-        <widget class=\"QWidget\" name=\"page\" />\
-    </widget>\
-    <customwidgets>\
-        <customwidget>\
-            <class>MultiPageWidget</class>\
-            <extends>QWidget</extends>\
-            <addpagemethod>addPage</addpagemethod>\
-        </customwidget>\
-    </customwidgets>\
-</ui>");
+    return uR"(
+<ui language="c++">
+    <widget class="MultiPageWidget" name="multipagewidget">
+        <widget class="QWidget" name="page"/>
+    </widget>
+    <customwidgets>
+        <customwidget>
+            <class>MultiPageWidget</class>
+            <extends>QWidget</extends>
+            <addpagemethod>addPage</addpagemethod>
+        </customwidget>
+    </customwidgets>
+</ui>)"_s;
 }
 //! [7]
 
@@ -155,10 +119,10 @@ QString MultiPageWidgetPlugin::domXml() const
 void MultiPageWidgetPlugin::currentIndexChanged(int index)
 {
     Q_UNUSED(index);
-    MultiPageWidget *widget = qobject_cast<MultiPageWidget*>(sender());
+    auto *widget = qobject_cast<MultiPageWidget*>(sender());
 //! [8] //! [9]
     if (widget) {
-        QDesignerFormWindowInterface *form = QDesignerFormWindowInterface::findFormWindow(widget);
+        auto *form = QDesignerFormWindowInterface::findFormWindow(widget);
         if (form)
             form->emitSelectionChanged();
     }
@@ -169,20 +133,18 @@ void MultiPageWidgetPlugin::currentIndexChanged(int index)
 void MultiPageWidgetPlugin::pageTitleChanged(const QString &title)
 {
     Q_UNUSED(title);
-    MultiPageWidget *widget = qobject_cast<MultiPageWidget*>(sender());
+    auto *widget = qobject_cast<MultiPageWidget*>(sender());
 //! [10] //! [11]
     if (widget) {
-        QWidget *page = widget->widget(widget->currentIndex());
-        QDesignerFormWindowInterface *form;
-        form = QDesignerFormWindowInterface::findFormWindow(widget);
+        auto *page = widget->widget(widget->currentIndex());
+        auto *form = QDesignerFormWindowInterface::findFormWindow(widget);
 //! [11]
         if (form) {
 //! [12]
-            QDesignerFormEditorInterface *editor = form->core();
-            QExtensionManager *manager = editor->extensionManager();
+            auto *editor = form->core();
+            auto *manager = editor->extensionManager();
 //! [12] //! [13]
-            QDesignerPropertySheetExtension *sheet;
-            sheet = qt_extension<QDesignerPropertySheetExtension*>(manager, page);
+            auto *sheet = qt_extension<QDesignerPropertySheetExtension*>(manager, page);
             const int propertyIndex = sheet->indexOf(QLatin1String("windowTitle"));
             sheet->setChanged(propertyIndex, true);
         }

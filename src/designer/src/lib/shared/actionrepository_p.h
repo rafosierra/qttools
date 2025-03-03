@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 //
 //  W A R N I N G
@@ -46,12 +16,12 @@
 #define ACTIONREPOSITORY_H
 
 #include "shared_global_p.h"
-#include <QtCore/QMimeData>
-#include <QtGui/QStandardItemModel>
-#include <QtWidgets/QTreeView>
-#include <QtWidgets/QListView>
-#include <QtWidgets/QStackedWidget>
-#include <QtGui/QIcon>
+#include <QtCore/qmimedata.h>
+#include <QtGui/qstandarditemmodel.h>
+#include <QtWidgets/qtreeview.h>
+#include <QtWidgets/qlistview.h>
+#include <QtWidgets/qstackedwidget.h>
+#include <QtGui/qicon.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -69,10 +39,10 @@ class QDESIGNER_SHARED_EXPORT ActionModel: public QStandardItemModel
 {
     Q_OBJECT
 public:
-    enum Columns { NameColumn, UsedColumn, TextColumn, ShortCutColumn, CheckedColumn, ToolTipColumn, NumColumns };
+    enum Columns { NameColumn, UsedColumn, TextColumn, ShortCutColumn, CheckedColumn, ToolTipColumn, MenuRoleColumn, NumColumns };
     enum   { ActionRole = Qt::UserRole + 1000 };
 
-    explicit ActionModel(QWidget *parent = 0);
+    explicit ActionModel(QWidget *parent = nullptr);
     void initialize(QDesignerFormEditorInterface *core) { m_core = core; }
 
     void clearActions();
@@ -87,10 +57,11 @@ public:
 
     QString actionName(int row) const;
     QAction *actionAt(const QModelIndex &index) const;
+    QModelIndex indexOf(QAction *a) const;
 
-    QMimeData *mimeData(const QModelIndexList &indexes) const Q_DECL_OVERRIDE;
-    QStringList mimeTypes() const Q_DECL_OVERRIDE;
-    bool dropMimeData(const QMimeData *data, Qt::DropAction action, int row, int column, const QModelIndex &parent) Q_DECL_OVERRIDE;
+    QMimeData *mimeData(const QModelIndexList &indexes) const override;
+    QStringList mimeTypes() const override;
+    bool dropMimeData(const QMimeData *data, Qt::DropAction action, int row, int column, const QModelIndex &parent) override;
 
     // Find the associated menus and toolbars, ignore toolbuttons
     static QWidgetList associatedWidgets(const QAction *action);
@@ -103,7 +74,7 @@ signals:
     void resourceImageDropped(const QString &path, QAction *action);
 
 private:
-    typedef QList<QStandardItem *> QStandardItemList;
+    using QStandardItemList = QList<QStandardItem *>;
 
     void initializeHeaders();
     static void setItems(QDesignerFormEditorInterface *core, QAction *a,
@@ -112,7 +83,7 @@ private:
 
     const QIcon m_emptyIcon;
 
-    QDesignerFormEditorInterface *m_core;
+    QDesignerFormEditorInterface *m_core = nullptr;
 };
 
 // Internal class that provides the detailed view of actions.
@@ -120,27 +91,27 @@ class  ActionTreeView: public QTreeView
 {
     Q_OBJECT
 public:
-    explicit ActionTreeView(ActionModel *model, QWidget *parent = 0);
+    explicit ActionTreeView(ActionModel *model, QWidget *parent = nullptr);
     QAction *currentAction() const;
 
 public slots:
     void filter(const QString &text);
 
 signals:
-    void contextMenuRequested(QContextMenuEvent *event, QAction *);
-    void currentChanged(QAction *action);
-    void activated(QAction *action);
+    void actionContextMenuRequested(QContextMenuEvent *event, QAction *);
+    void currentActionChanged(QAction *action);
+    void actionActivated(QAction *action, int column);
 
 protected slots:
-    void currentChanged(const QModelIndex &current, const QModelIndex &previous) Q_DECL_OVERRIDE;
+    void currentChanged(const QModelIndex &current, const QModelIndex &previous) override;
 
 protected:
-    void dragEnterEvent(QDragEnterEvent *event) Q_DECL_OVERRIDE;
-    void dragMoveEvent(QDragMoveEvent *event) Q_DECL_OVERRIDE;
-    void dropEvent(QDropEvent *event) Q_DECL_OVERRIDE;
-    void focusInEvent(QFocusEvent *event) Q_DECL_OVERRIDE;
-    void contextMenuEvent(QContextMenuEvent *event) Q_DECL_OVERRIDE;
-    void startDrag(Qt::DropActions supportedActions) Q_DECL_OVERRIDE;
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dragMoveEvent(QDragMoveEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
+    void focusInEvent(QFocusEvent *event) override;
+    void contextMenuEvent(QContextMenuEvent *event) override;
+    void startDrag(Qt::DropActions supportedActions) override;
 
 private slots:
     void slotActivated(const QModelIndex &);
@@ -154,27 +125,27 @@ class ActionListView: public QListView
 {
     Q_OBJECT
 public:
-    explicit ActionListView(ActionModel *model, QWidget *parent = 0);
+    explicit ActionListView(ActionModel *model, QWidget *parent = nullptr);
     QAction *currentAction() const;
 
 public slots:
     void filter(const QString &text);
 
 signals:
-    void contextMenuRequested(QContextMenuEvent *event, QAction *);
-    void currentChanged(QAction *action);
-    void activated(QAction *action);
+    void actionContextMenuRequested(QContextMenuEvent *event, QAction *);
+    void currentActionChanged(QAction *action);
+    void actionActivated(QAction *action);
 
 protected slots:
-    void currentChanged(const QModelIndex &current, const QModelIndex &previous) Q_DECL_OVERRIDE;
+    void currentChanged(const QModelIndex &current, const QModelIndex &previous) override;
 
 protected:
-    void dragEnterEvent(QDragEnterEvent *event) Q_DECL_OVERRIDE;
-    void dragMoveEvent(QDragMoveEvent *event) Q_DECL_OVERRIDE;
-    void dropEvent(QDropEvent *event) Q_DECL_OVERRIDE;
-    void focusInEvent(QFocusEvent *event) Q_DECL_OVERRIDE;
-    void contextMenuEvent(QContextMenuEvent *event) Q_DECL_OVERRIDE;
-    void startDrag(Qt::DropActions supportedActions) Q_DECL_OVERRIDE;
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dragMoveEvent(QDragMoveEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
+    void focusInEvent(QFocusEvent *event) override;
+    void contextMenuEvent(QContextMenuEvent *event) override;
+    void startDrag(Qt::DropActions supportedActions) override;
 
 private slots:
     void slotActivated(const QModelIndex &);
@@ -192,7 +163,7 @@ class ActionView : public  QStackedWidget {
 public:
     // Separate initialize() function takes core argument to make this
     // thing usable as promoted widget.
-    explicit ActionView(QWidget *parent = 0);
+    explicit ActionView(QWidget *parent = nullptr);
     void initialize(QDesignerFormEditorInterface *core) { m_model->initialize(core); }
 
     // View mode
@@ -208,7 +179,7 @@ public:
     QAction *currentAction() const;
     void setCurrentIndex(const QModelIndex &index);
 
-    typedef QList<QAction*> ActionList;
+    using ActionList = QList<QAction *>;
     ActionList selectedActions() const;
     QItemSelection selection() const;
 
@@ -216,11 +187,12 @@ public slots:
     void filter(const QString &text);
     void selectAll();
     void clearSelection();
+    void selectAction(QAction *a);
 
 signals:
     void contextMenuRequested(QContextMenuEvent *event, QAction *);
     void currentChanged(QAction *action);
-    void activated(QAction *action);
+    void activated(QAction *action, int column);
     void selectionChanged(const QItemSelection& selected, const QItemSelection& deselected);
     void resourceImageDropped(const QString &data, QAction *action);
 
@@ -237,13 +209,13 @@ class QDESIGNER_SHARED_EXPORT ActionRepositoryMimeData: public QMimeData
 {
     Q_OBJECT
 public:
-    typedef QList<QAction*> ActionList;
+    using ActionList = QList<QAction *>;
 
     ActionRepositoryMimeData(const ActionList &, Qt::DropAction dropAction);
     ActionRepositoryMimeData(QAction *, Qt::DropAction dropAction);
 
     const ActionList &actionList() const { return m_actionList; }
-    QStringList formats() const Q_DECL_OVERRIDE;
+    QStringList formats() const override;
 
     static QPixmap actionDragPixmap(const QAction *action);
 

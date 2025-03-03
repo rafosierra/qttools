@@ -1,50 +1,22 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #ifndef LUPDATE_H
 #define LUPDATE_H
 
-#include "qglobal.h"
+#include <QtCore/qtcore-config.h>
+#include <QtTools/private/qttools-config_p.h>
 
-#include <QList>
-#include <QString>
-#include <QStringList>
-#include <QHash>
+#include <QtCore/QList>
+#include <QtCore/QHash>
+#include <QtCore/QCoreApplication>
+#include <QtCore/QString>
+#include <QtCore/QStringList>
+#include <QtCore/QTranslator>
 
 QT_BEGIN_NAMESPACE
 
 class ConversionData;
-class QStringList;
 class Translator;
 class TranslatorMessage;
 
@@ -55,12 +27,13 @@ enum UpdateOption {
     NoSort = 8,
     HeuristicSameText = 16,
     HeuristicSimilarText = 32,
-    HeuristicNumber = 64,
     AbsoluteLocations = 256,
     RelativeLocations = 512,
     NoLocations = 1024,
     NoUiLines = 2048,
-    SourceIsUtf16 = 4096
+    SourceIsUtf16 = 4096,
+    Werror = 8192,
+    SortMessages = 16384
 };
 
 Q_DECLARE_FLAGS(UpdateOptions, UpdateOption)
@@ -72,16 +45,22 @@ Translator merge(
 
 void loadCPP(Translator &translator, const QStringList &filenames, ConversionData &cd);
 bool loadJava(Translator &translator, const QString &filename, ConversionData &cd);
+bool loadPython(Translator &translator, const QString &fileName, ConversionData &cd);
 bool loadUI(Translator &translator, const QString &filename, ConversionData &cd);
 
 #ifndef QT_NO_QML
 bool loadQScript(Translator &translator, const QString &filename, ConversionData &cd);
+bool loadJSModule(Translator &translator, const QString &filename, ConversionData &cd);
 bool loadQml(Translator &translator, const QString &filename, ConversionData &cd);
 #endif
 
 #define LUPDATE_FOR_EACH_TR_FUNCTION(UNARY_MACRO) \
     /* from cpp.cpp */ \
     UNARY_MACRO(Q_DECLARE_TR_FUNCTIONS) \
+    UNARY_MACRO(QT_TR_N_NOOP) \
+    UNARY_MACRO(QT_TRID_N_NOOP) \
+    UNARY_MACRO(QT_TRANSLATE_N_NOOP) \
+    UNARY_MACRO(QT_TRANSLATE_N_NOOP3) \
     UNARY_MACRO(QT_TR_NOOP) \
     UNARY_MACRO(QT_TRID_NOOP) \
     UNARY_MACRO(QT_TRANSLATE_NOOP) \
@@ -100,6 +79,11 @@ bool loadQml(Translator &translator, const QString &filename, ConversionData &cd
     UNARY_MACRO(qsTranslate) \
     /*end*/
 
+class ParserTool
+{
+public:
+    static QString transcode(const QString &str);
+};
 
 class TrFunctionAliasManager {
 public:
@@ -114,6 +98,8 @@ public:
         NumTrFunctions
     };
 
+    using NameToTrFunctionMap = QHash<QString, TrFunction>;
+
     enum Operation { AddAlias, SetAlias };
 
     int trFunctionByName(const QString &trFunctionName) const;
@@ -124,13 +110,16 @@ public:
     { return m_trFunctionAliases[trFunction].contains(identifier); }
 
     QStringList availableFunctionsWithAliases() const;
+    QStringList listAliases() const;
+
+    const NameToTrFunctionMap &nameToTrFunctionMap() const;
 
 private:
     void ensureTrFunctionHashUpdated() const;
 
 private:
     QStringList m_trFunctionAliases[NumTrFunctions];
-    mutable QHash<QString,TrFunction> m_nameToTrFunctionMap;
+    mutable NameToTrFunctionMap m_nameToTrFunctionMap;
 };
 
 QT_END_NAMESPACE

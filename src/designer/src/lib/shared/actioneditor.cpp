@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "actioneditor_p.h"
 #include "actionrepository_p.h"
@@ -44,48 +14,50 @@
 #include "formwindowbase_p.h"
 #include "qdesigner_taskmenu_p.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerPropertyEditorInterface>
-#include <QtDesigner/QDesignerPropertySheetExtension>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerMetaDataBaseInterface>
-#include <QtDesigner/QDesignerSettingsInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractpropertyeditor.h>
+#include <QtDesigner/propertysheet.h>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractmetadatabase.h>
+#include <QtDesigner/abstractsettings.h>
 
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QToolBar>
-#include <QtWidgets/QSplitter>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QApplication>
-#ifndef QT_NO_CLIPBOARD
-#include <QtGui/QClipboard>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qtoolbar.h>
+#include <QtWidgets/qsplitter.h>
+#include <QtWidgets/qapplication.h>
+#if QT_CONFIG(clipboard)
+#include <QtGui/qclipboard.h>
 #endif
-#include <QtWidgets/QItemDelegate>
-#include <QtGui/QPainter>
-#include <QtWidgets/QVBoxLayout>
-#include <QtWidgets/QLineEdit>
-#include <QtWidgets/QLabel>
-#include <QtWidgets/QPushButton>
-#include <QtWidgets/QToolButton>
-#include <QtGui/QContextMenuEvent>
-#include <QtCore/QItemSelection>
+#include <QtWidgets/qitemdelegate.h>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qlineedit.h>
+#include <QtWidgets/qlabel.h>
+#include <QtWidgets/qpushbutton.h>
+#include <QtWidgets/qtoolbutton.h>
 
-#include <QtCore/QRegExp>
-#include <QtCore/QDebug>
-#include <QtCore/QSignalMapper>
-#include <QtCore/QBuffer>
+#include <QtGui/qaction.h>
+#include <QtGui/qactiongroup.h>
+#include <QtGui/qevent.h>
+#include <QtGui/qpainter.h>
 
-Q_DECLARE_METATYPE(QAction*)
+#include <QtCore/qitemselectionmodel.h>
+#include <QtCore/qregularexpression.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qbuffer.h>
 
 QT_BEGIN_NAMESPACE
 
-static const char *actionEditorViewModeKey = "ActionEditorViewMode";
+using namespace Qt::StringLiterals;
 
-static const char *iconPropertyC = "icon";
-static const char *shortcutPropertyC = "shortcut";
-static const char *toolTipPropertyC = "toolTip";
-static const char *checkablePropertyC = "checkable";
-static const char *objectNamePropertyC = "objectName";
-static const char *textPropertyC = "text";
+static constexpr auto actionEditorViewModeKey = "ActionEditorViewMode"_L1;
+
+static constexpr auto iconPropertyC = "icon"_L1;
+static constexpr auto shortcutPropertyC = "shortcut"_L1;
+static constexpr auto menuRolePropertyC = "menuRole"_L1;
+static constexpr auto toolTipPropertyC = "toolTip"_L1;
+static constexpr auto checkablePropertyC = "checkable"_L1;
+static constexpr auto objectNamePropertyC = "objectName"_L1;
+static constexpr auto textPropertyC = "text"_L1;
 
 namespace qdesigner_internal {
 //--------  ActionGroupDelegate
@@ -95,7 +67,7 @@ public:
     ActionGroupDelegate(QObject *parent)
         : QItemDelegate(parent) {}
 
-    virtual void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
     {
         if (option.state & QStyle::State_Selected)
             painter->fillRect(option.rect, option.palette.highlight());
@@ -103,19 +75,21 @@ public:
         QItemDelegate::paint(painter, option, index);
     }
 
-    virtual void drawFocus(QPainter * /*painter*/, const QStyleOptionViewItem &/*option*/, const QRect &/*rect*/) const {}
+    void drawFocus(QPainter *, const QStyleOptionViewItem &, const QRect &) const override {}
 };
 
 //--------  ActionEditor
+ObjectNamingMode ActionEditor::m_objectNamingMode = CamelCase;
+
 ActionEditor::ActionEditor(QDesignerFormEditorInterface *core, QWidget *parent, Qt::WindowFlags flags) :
     QDesignerActionEditorInterface(parent, flags),
     m_core(core),
-    m_actionGroups(0),
+    m_actionGroups(nullptr),
     m_actionView(new ActionView),
     m_actionNew(new QAction(tr("New..."), this)),
     m_actionEdit(new QAction(tr("Edit..."), this)),
     m_actionNavigateToSlot(new QAction(tr("Go to slot..."), this)),
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     m_actionCopy(new QAction(tr("Copy"), this)),
     m_actionCut(new QAction(tr("Cut"), this)),
     m_actionPaste(new QAction(tr("Paste"), this)),
@@ -123,17 +97,16 @@ ActionEditor::ActionEditor(QDesignerFormEditorInterface *core, QWidget *parent, 
     m_actionSelectAll(new QAction(tr("Select all"), this)),
     m_actionDelete(new QAction(tr("Delete"), this)),
     m_viewModeGroup(new  QActionGroup(this)),
-    m_iconViewAction(0),
-    m_listViewAction(0),
-    m_filterWidget(0),
-    m_selectAssociatedWidgetsMapper(0)
+    m_iconViewAction(nullptr),
+    m_listViewAction(nullptr),
+    m_filterWidget(nullptr)
 {
     m_actionView->initialize(m_core);
     m_actionView->setSelectionMode(QAbstractItemView::ExtendedSelection);
     setWindowTitle(tr("Actions"));
 
     QVBoxLayout *l = new QVBoxLayout(this);
-    l->setMargin(0);
+    l->setContentsMargins(QMargins());
     l->setSpacing(0);
 
     QToolBar *toolbar = new QToolBar;
@@ -141,41 +114,46 @@ ActionEditor::ActionEditor(QDesignerFormEditorInterface *core, QWidget *parent, 
     toolbar->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
     l->addWidget(toolbar);
     // edit actions
-    QIcon documentNewIcon = QIcon::fromTheme(QStringLiteral("document-new"), createIconSet(QStringLiteral("filenew.png")));
+    QIcon documentNewIcon = createIconSet(QIcon::ThemeIcon::DocumentNew,
+                                          "filenew.png"_L1);
     m_actionNew->setIcon(documentNewIcon);
     m_actionNew->setEnabled(false);
-    connect(m_actionNew, SIGNAL(triggered()), this, SLOT(slotNewAction()));
+    connect(m_actionNew, &QAction::triggered, this, &ActionEditor::slotNewAction);
     toolbar->addAction(m_actionNew);
 
-    connect(m_actionSelectAll, SIGNAL(triggered()), m_actionView, SLOT(selectAll()));
+    connect(m_actionSelectAll, &QAction::triggered, m_actionView, &ActionView::selectAll);
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     m_actionCut->setEnabled(false);
-    connect(m_actionCut, SIGNAL(triggered()), this, SLOT(slotCut()));
-    QIcon editCutIcon = QIcon::fromTheme(QStringLiteral("edit-cut"), createIconSet(QStringLiteral("editcut.png")));
+    connect(m_actionCut, &QAction::triggered, this, &ActionEditor::slotCut);
+    QIcon editCutIcon = createIconSet(QIcon::ThemeIcon::EditCut,
+                                      "editcut.png"_L1);
     m_actionCut->setIcon(editCutIcon);
 
     m_actionCopy->setEnabled(false);
-    connect(m_actionCopy, SIGNAL(triggered()), this, SLOT(slotCopy()));
-    QIcon editCopyIcon = QIcon::fromTheme(QStringLiteral("edit-copy"), createIconSet(QStringLiteral("editcopy.png")));
+    connect(m_actionCopy, &QAction::triggered, this, &ActionEditor::slotCopy);
+    QIcon editCopyIcon = createIconSet(QIcon::ThemeIcon::EditCopy,
+                                       "editcopy.png"_L1);
     m_actionCopy->setIcon(editCopyIcon);
     toolbar->addAction(m_actionCopy);
 
-    connect(m_actionPaste, SIGNAL(triggered()), this, SLOT(slotPaste()));
-    QIcon editPasteIcon = QIcon::fromTheme(QStringLiteral("edit-paste"), createIconSet(QStringLiteral("editpaste.png")));
+    connect(m_actionPaste, &QAction::triggered, this, &ActionEditor::slotPaste);
+    QIcon editPasteIcon = createIconSet(QIcon::ThemeIcon::EditPaste,
+                                        "editpaste.png"_L1);
     m_actionPaste->setIcon(editPasteIcon);
     toolbar->addAction(m_actionPaste);
 #endif
 
     m_actionEdit->setEnabled(false);
-    connect(m_actionEdit, SIGNAL(triggered()), this, SLOT(editCurrentAction()));
+    connect(m_actionEdit, &QAction::triggered, this, &ActionEditor::editCurrentAction);
 
-    connect(m_actionNavigateToSlot, SIGNAL(triggered()), this, SLOT(navigateToSlotCurrentAction()));
+    connect(m_actionNavigateToSlot, &QAction::triggered, this, &ActionEditor::navigateToSlotCurrentAction);
 
-    QIcon editDeleteIcon = QIcon::fromTheme(QStringLiteral("edit-delete"), createIconSet(QStringLiteral("editdelete.png")));
+    QIcon editDeleteIcon = createIconSet(QIcon::ThemeIcon::EditDelete,
+                                         "editdelete.png"_L1);
     m_actionDelete->setIcon(editDeleteIcon);
     m_actionDelete->setEnabled(false);
-    connect(m_actionDelete, SIGNAL(triggered()), this, SLOT(slotDelete()));
+    connect(m_actionDelete, &QAction::triggered, this, &ActionEditor::slotDelete);
     toolbar->addAction(m_actionDelete);
 
     // Toolbutton with menu containing action group for detailed/icon view. Steal the icons from the file dialog.
@@ -183,7 +161,7 @@ ActionEditor::ActionEditor(QDesignerFormEditorInterface *core, QWidget *parent, 
     QMenu *configureMenu;
     toolbar->addWidget(createConfigureMenuButton(tr("Configure Action Editor"), &configureMenu));
 
-    connect(m_viewModeGroup, SIGNAL(triggered(QAction*)), this, SLOT(slotViewMode(QAction*)));
+    connect(m_viewModeGroup, &QActionGroup::triggered, this, &ActionEditor::slotViewMode);
     m_iconViewAction = m_viewModeGroup->addAction(tr("Icon View"));
     m_iconViewAction->setData(QVariant(ActionView::IconView));
     m_iconViewAction->setCheckable(true);
@@ -198,8 +176,9 @@ ActionEditor::ActionEditor(QDesignerFormEditorInterface *core, QWidget *parent, 
     // filter
     m_filterWidget = new QWidget(toolbar);
     QHBoxLayout *filterLayout = new QHBoxLayout(m_filterWidget);
+    filterLayout->setContentsMargins(0, 0, 0, 0);
     QLineEdit *filterLineEdit = new QLineEdit(m_filterWidget);
-    connect(filterLineEdit, SIGNAL(textChanged(QString)), this, SLOT(setFilter(QString)));
+    connect(filterLineEdit, &QLineEdit::textChanged, this, &ActionEditor::setFilter);
     filterLineEdit->setPlaceholderText(tr("Filter"));
     filterLineEdit->setClearButtonEnabled(true);
     filterLayout->addItem(new QSpacerItem(0, 0, QSizePolicy::MinimumExpanding, QSizePolicy::Ignored));
@@ -226,20 +205,20 @@ ActionEditor::ActionEditor(QDesignerFormEditorInterface *core, QWidget *parent, 
     m_actionGroups->setWrapping(false);
 #endif
 
-    connect(m_actionView, SIGNAL(resourceImageDropped(QString,QAction*)),
-            this, SLOT(resourceImageDropped(QString,QAction*)));
+    connect(m_actionView, &ActionView::resourceImageDropped,
+            this, &ActionEditor::resourceImageDropped);
 
-    connect(m_actionView, SIGNAL(currentChanged(QAction*)),this, SLOT(slotCurrentItemChanged(QAction*)));
+    connect(m_actionView, &ActionView::currentChanged,this, &ActionEditor::slotCurrentItemChanged);
     // make it possible for vs integration to reimplement edit action dialog
-    connect(m_actionView, SIGNAL(activated(QAction*)), this, SIGNAL(itemActivated(QAction*)));
+    connect(m_actionView, &ActionView::activated, this, &ActionEditor::itemActivated);
 
-    connect(m_actionView,SIGNAL(selectionChanged(QItemSelection,QItemSelection)),
-            this, SLOT(slotSelectionChanged(QItemSelection,QItemSelection)));
+    connect(m_actionView, &ActionView::selectionChanged,
+            this, &ActionEditor::slotSelectionChanged);
 
-    connect(m_actionView, SIGNAL(contextMenuRequested(QContextMenuEvent*,QAction*)),
-            this, SLOT(slotContextMenuRequested(QContextMenuEvent*,QAction*)));
+    connect(m_actionView, &ActionView::contextMenuRequested,
+            this, &ActionEditor::slotContextMenuRequested);
 
-    connect(this, SIGNAL(itemActivated(QAction*)), this, SLOT(editAction(QAction*)));
+    connect(this, &ActionEditor::itemActivated, this, &ActionEditor::editAction);
 
     restoreSettings();
     updateViewModeActions();
@@ -250,9 +229,10 @@ QToolButton *ActionEditor::createConfigureMenuButton(const QString &t, QMenu **p
 {
     QToolButton *configureButton = new QToolButton;
     QAction *configureAction = new QAction(t, configureButton);
-    QIcon configureIcon = QIcon::fromTheme(QStringLiteral("document-properties"), createIconSet(QStringLiteral("configure.png")));
+    QIcon configureIcon = QIcon::fromTheme(QIcon::ThemeIcon::DocumentProperties,
+                                           createIconSet("configure.png"_L1));
     configureAction->setIcon(configureIcon);
-    QMenu *configureMenu = new QMenu;
+    QMenu *configureMenu = new QMenu(configureButton);
     configureAction->setMenu(configureMenu);
     configureButton->setDefaultAction(configureAction);
     configureButton->setPopupMode(QToolButton::InstantPopup);
@@ -282,17 +262,17 @@ QDesignerFormWindowInterface *ActionEditor::formWindow() const
 
 void ActionEditor::setFormWindow(QDesignerFormWindowInterface *formWindow)
 {
-    if (formWindow != 0 && formWindow->mainContainer() == 0)
-        formWindow = 0;
+    if (formWindow != nullptr && formWindow->mainContainer() == nullptr)
+        formWindow = nullptr;
 
     // we do NOT rely on this function to update the action editor
     if (m_formWindow == formWindow)
         return;
 
-    if (m_formWindow != 0) {
+    if (m_formWindow != nullptr) {
         const ActionList actionList = m_formWindow->mainContainer()->findChildren<QAction*>();
-        foreach (QAction *action, actionList)
-            disconnect(action, SIGNAL(changed()), this, SLOT(slotActionChanged()));
+        for (QAction *action : actionList)
+            disconnect(action, &QAction::changed, this, &ActionEditor::slotActionChanged);
     }
 
     m_formWindow = formWindow;
@@ -300,7 +280,7 @@ void ActionEditor::setFormWindow(QDesignerFormWindowInterface *formWindow)
     m_actionView->model()->clearActions();
 
     m_actionEdit->setEnabled(false);
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     m_actionCopy->setEnabled(false);
     m_actionCut->setEnabled(false);
 #endif
@@ -316,12 +296,12 @@ void ActionEditor::setFormWindow(QDesignerFormWindowInterface *formWindow)
     m_filterWidget->setEnabled(true);
 
     const ActionList actionList = formWindow->mainContainer()->findChildren<QAction*>();
-    foreach (QAction *action, actionList)
-        if (!action->isSeparator() && core()->metaDataBase()->item(action) != 0) {
+    for (QAction *action : actionList)
+        if (!action->isSeparator() && core()->metaDataBase()->item(action) != nullptr) {
             // Show unless it has a menu. However, listen for change on menu actions also as it might be removed
             if (!action->menu())
                 m_actionView->model()->addAction(action);
-            connect(action, SIGNAL(changed()), this, SLOT(slotActionChanged()));
+            connect(action, &QAction::changed, this, &ActionEditor::slotActionChanged);
         }
 
     setFilter(m_filter);
@@ -329,8 +309,8 @@ void ActionEditor::setFormWindow(QDesignerFormWindowInterface *formWindow)
 
 void  ActionEditor::slotSelectionChanged(const QItemSelection& selected, const QItemSelection& /*deselected*/)
 {
-    const bool hasSelection = !selected.indexes().empty();
-#ifndef QT_NO_CLIPBOARD
+    const bool hasSelection = !selected.indexes().isEmpty();
+#if QT_CONFIG(clipboard)
     m_actionCopy->setEnabled(hasSelection);
     m_actionCut->setEnabled(hasSelection);
 #endif
@@ -340,10 +320,10 @@ void  ActionEditor::slotSelectionChanged(const QItemSelection& selected, const Q
 void ActionEditor::slotCurrentItemChanged(QAction *action)
 {
     QDesignerFormWindowInterface *fw = formWindow();
-    if (!fw)
+    if (m_withinSelectAction || fw == nullptr)
         return;
 
-    const bool hasCurrentAction = action != 0;
+    const bool hasCurrentAction = action != nullptr;
     m_actionEdit->setEnabled(hasCurrentAction);
 
     if (!action) {
@@ -353,7 +333,13 @@ void ActionEditor::slotCurrentItemChanged(QAction *action)
 
     QDesignerObjectInspector *oi = qobject_cast<QDesignerObjectInspector *>(core()->objectInspector());
 
-    if (action->associatedWidgets().empty()) {
+    // Check if we have at least one associated QWidget:
+    const auto associatedObjects = action->associatedObjects();
+    auto it = std::find_if(associatedObjects.cbegin(), associatedObjects.cend(),
+                           [](QObject *obj) {
+                               return qobject_cast<QWidget *>(obj) != nullptr;
+                           });
+    if (it == associatedObjects.cend()) {
         // Special case: action not in object tree. Deselect all and set in property editor
         fw->clearSelection(false);
         if (oi)
@@ -368,14 +354,14 @@ void ActionEditor::slotCurrentItemChanged(QAction *action)
 void ActionEditor::slotActionChanged()
 {
     QAction *action = qobject_cast<QAction*>(sender());
-    Q_ASSERT(action != 0);
+    Q_ASSERT(action != nullptr);
 
     ActionModel *model = m_actionView->model();
     const int row = model->findAction(action);
     if (row == -1) {
-        if (action->menu() == 0) // action got its menu deleted, create item
+        if (action->menu() == nullptr) // action got its menu deleted, create item
             model->addAction(action);
-    } else if (action->menu() != 0) { // action got its menu created, remove item
+    } else if (action->menu() != nullptr) { // action got its menu created, remove item
         model->removeRow(row);
     } else {
         // action text or icon changed, update item
@@ -402,7 +388,7 @@ void ActionEditor::setFilter(const QString &f)
 // Set changed state of icon property,  reset when icon is cleared
 static void refreshIconPropertyChanged(const QAction *action, QDesignerPropertySheetExtension *sheet)
 {
-    sheet->setChanged(sheet->indexOf(QLatin1String(iconPropertyC)), !action->icon().isNull());
+    sheet->setChanged(sheet->indexOf(iconPropertyC), !action->icon().isNull());
 }
 
 void ActionEditor::manageAction(QAction *action)
@@ -410,24 +396,24 @@ void ActionEditor::manageAction(QAction *action)
     action->setParent(formWindow()->mainContainer());
     core()->metaDataBase()->add(action);
 
-    if (action->isSeparator() || action->menu() != 0)
+    if (action->isSeparator() || action->menu() != nullptr)
         return;
 
     QDesignerPropertySheetExtension *sheet = qt_extension<QDesignerPropertySheetExtension*>(core()->extensionManager(), action);
-    sheet->setChanged(sheet->indexOf(QLatin1String(objectNamePropertyC)), true);
-    sheet->setChanged(sheet->indexOf(QLatin1String(textPropertyC)), true);
+    sheet->setChanged(sheet->indexOf(objectNamePropertyC), true);
+    sheet->setChanged(sheet->indexOf(textPropertyC), true);
     refreshIconPropertyChanged(action, sheet);
 
     m_actionView->setCurrentIndex(m_actionView->model()->addAction(action));
-    connect(action, SIGNAL(changed()), this, SLOT(slotActionChanged()));
+    connect(action, &QAction::changed, this, &ActionEditor::slotActionChanged);
 }
 
 void ActionEditor::unmanageAction(QAction *action)
 {
     core()->metaDataBase()->remove(action);
-    action->setParent(0);
+    action->setParent(nullptr);
 
-    disconnect(action, SIGNAL(changed()), this, SLOT(slotActionChanged()));
+    disconnect(action, &QAction::changed, this, &ActionEditor::slotActionChanged);
 
     const int row = m_actionView->model()->findAction(action);
     if (row != -1)
@@ -458,15 +444,17 @@ void ActionEditor::slotNewAction()
 
         QDesignerPropertySheetExtension *sheet = qt_extension<QDesignerPropertySheetExtension*>(core()->extensionManager(), action);
         if (!actionData.toolTip.isEmpty())
-            setInitialProperty(sheet, QLatin1String(toolTipPropertyC), actionData.toolTip);
+            setInitialProperty(sheet, toolTipPropertyC, actionData.toolTip);
 
         if (actionData.checkable)
-            setInitialProperty(sheet, QLatin1String(checkablePropertyC), QVariant(true));
+            setInitialProperty(sheet, checkablePropertyC, QVariant(true));
 
         if (!actionData.keysequence.value().isEmpty())
-            setInitialProperty(sheet, QLatin1String(shortcutPropertyC), QVariant::fromValue(actionData.keysequence));
+            setInitialProperty(sheet, shortcutPropertyC, QVariant::fromValue(actionData.keysequence));
 
-        sheet->setProperty(sheet->indexOf(QLatin1String(iconPropertyC)), QVariant::fromValue(actionData.icon));
+        sheet->setProperty(sheet->indexOf(iconPropertyC), QVariant::fromValue(actionData.icon));
+
+        setInitialProperty(sheet, menuRolePropertyC, QVariant::fromValue(actionData.menuRole));
 
         AddActionCommand *cmd = new AddActionCommand(formWindow());
         cmd->init(action);
@@ -479,7 +467,7 @@ void ActionEditor::slotNewAction()
 
 static QDesignerFormWindowCommand *setIconPropertyCommand(const PropertySheetIconValue &newIcon, QAction *action, QDesignerFormWindowInterface *fw)
 {
-    const QString iconProperty = QLatin1String(iconPropertyC);
+    const QString iconProperty = iconPropertyC;
     if (newIcon.isEmpty()) {
         ResetPropertyCommand *cmd = new ResetPropertyCommand(fw);
         cmd->init(action, iconProperty);
@@ -495,7 +483,7 @@ static QDesignerFormWindowCommand *setIconPropertyCommand(const PropertySheetIco
 
 static QDesignerFormWindowCommand *setKeySequencePropertyCommand(const PropertySheetKeySequenceValue &ks, QAction *action, QDesignerFormWindowInterface *fw)
 {
-    const QString shortcutProperty = QLatin1String(shortcutPropertyC);
+    const QString shortcutProperty = shortcutPropertyC;
     if (ks.value().isEmpty()) {
         ResetPropertyCommand *cmd = new ResetPropertyCommand(fw);
         cmd->init(action, shortcutProperty);
@@ -532,7 +520,7 @@ static inline QString textPropertyValue(const QDesignerPropertySheetExtension *s
     return ps.value();
 }
 
-void ActionEditor::editAction(QAction *action)
+void ActionEditor::editAction(QAction *action, int column)
 {
     if (!action)
         return;
@@ -544,11 +532,33 @@ void ActionEditor::editAction(QAction *action)
     QDesignerPropertySheetExtension *sheet = qt_extension<QDesignerPropertySheetExtension*>(core()->extensionManager(), action);
     oldActionData.name = action->objectName();
     oldActionData.text = action->text();
-    oldActionData.toolTip = textPropertyValue(sheet, QLatin1String(toolTipPropertyC));
-    oldActionData.icon = qvariant_cast<PropertySheetIconValue>(sheet->property(sheet->indexOf(QLatin1String(iconPropertyC))));
+    oldActionData.toolTip = textPropertyValue(sheet, toolTipPropertyC);
+    oldActionData.icon = qvariant_cast<PropertySheetIconValue>(sheet->property(sheet->indexOf(iconPropertyC)));
     oldActionData.keysequence = ActionModel::actionShortCut(sheet);
     oldActionData.checkable =  action->isCheckable();
+    oldActionData.menuRole.value = action->menuRole();
     dlg.setActionData(oldActionData);
+
+    switch (column) {
+    case qdesigner_internal::ActionModel::NameColumn:
+        dlg.focusName();
+        break;
+    case qdesigner_internal::ActionModel::TextColumn:
+        dlg.focusText();
+        break;
+    case qdesigner_internal::ActionModel::ShortCutColumn:
+        dlg.focusShortcut();
+        break;
+    case qdesigner_internal::ActionModel::CheckedColumn:
+        dlg.focusCheckable();
+        break;
+    case qdesigner_internal::ActionModel::ToolTipColumn:
+        dlg.focusTooltip();
+        break;
+    case qdesigner_internal::ActionModel::MenuRoleColumn:
+        dlg.focusMenuRole();
+        break;
+    }
 
     if (!dlg.exec())
         return;
@@ -561,30 +571,34 @@ void ActionEditor::editAction(QAction *action)
 
     const bool severalChanges = (changeMask != ActionData::TextChanged)      && (changeMask != ActionData::NameChanged)
                              && (changeMask != ActionData::ToolTipChanged)   && (changeMask != ActionData::IconChanged)
-                             && (changeMask != ActionData::CheckableChanged) && (changeMask != ActionData::KeysequenceChanged);
+                             && (changeMask != ActionData::CheckableChanged) && (changeMask != ActionData::KeysequenceChanged)
+                             && (changeMask != ActionData::MenuRoleChanged);
 
     QDesignerFormWindowInterface *fw = formWindow();
     QUndoStack *undoStack = fw->commandHistory();
     if (severalChanges)
-        fw->beginCommand(QStringLiteral("Edit action"));
+        fw->beginCommand(u"Edit action"_s);
 
     if (changeMask & ActionData::NameChanged)
-        undoStack->push(createTextPropertyCommand(QLatin1String(objectNamePropertyC), newActionData.name, action, fw));
+        undoStack->push(createTextPropertyCommand(objectNamePropertyC, newActionData.name, action, fw));
 
     if (changeMask & ActionData::TextChanged)
-        undoStack->push(createTextPropertyCommand(QLatin1String(textPropertyC), newActionData.text, action, fw));
+        undoStack->push(createTextPropertyCommand(textPropertyC, newActionData.text, action, fw));
 
     if (changeMask & ActionData::ToolTipChanged)
-        undoStack->push(createTextPropertyCommand(QLatin1String(toolTipPropertyC), newActionData.toolTip, action, fw));
+        undoStack->push(createTextPropertyCommand(toolTipPropertyC, newActionData.toolTip, action, fw));
 
     if (changeMask & ActionData::IconChanged)
         undoStack->push(setIconPropertyCommand(newActionData.icon, action, fw));
 
     if (changeMask & ActionData::CheckableChanged)
-        undoStack->push(setPropertyCommand(QLatin1String(checkablePropertyC), newActionData.checkable, false, action, fw));
+        undoStack->push(setPropertyCommand(checkablePropertyC, newActionData.checkable, false, action, fw));
 
     if (changeMask & ActionData::KeysequenceChanged)
         undoStack->push(setKeySequencePropertyCommand(newActionData.keysequence, action, fw));
+
+    if (changeMask & ActionData::MenuRoleChanged)
+        undoStack->push(setPropertyCommand(menuRolePropertyC, static_cast<QAction::MenuRole>(newActionData.menuRole.value), QAction::NoRole, action, fw));
 
     if (severalChanges)
         fw->endCommand();
@@ -599,17 +613,18 @@ void ActionEditor::editCurrentAction()
 void ActionEditor::navigateToSlotCurrentAction()
 {
     if (QAction *a = m_actionView->currentAction())
-        QDesignerTaskMenu::navigateToSlot(m_core, a, QStringLiteral("triggered()"));
+        QDesignerTaskMenu::navigateToSlot(m_core, a, u"triggered()"_s);
 }
 
 void ActionEditor::deleteActions(QDesignerFormWindowInterface *fw, const ActionList &actions)
 {
     // We need a macro even in the case of single action because the commands might cause the
     // scheduling of other commands (signal slots connections)
-    const QString description = actions.size() == 1 ?
-        tr("Remove action '%1'").arg(actions.front()->objectName()) : tr("Remove actions");
+    const QString description = actions.size() == 1
+        ? tr("Remove action '%1'").arg(actions.constFirst()->objectName())
+        : tr("Remove actions");
     fw->beginCommand(description);
-    foreach(QAction *action, actions) {
+    for (QAction *action : actions) {
         RemoveActionCommand *cmd = new RemoveActionCommand(fw);
         cmd->init(action);
         fw->commandHistory()->push(cmd);
@@ -617,7 +632,7 @@ void ActionEditor::deleteActions(QDesignerFormWindowInterface *fw, const ActionL
     fw->endCommand();
 }
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
 void ActionEditor::copyActions(QDesignerFormWindowInterface *fwi, const ActionList &actions)
 {
     FormWindowBase *fw = qobject_cast<FormWindowBase *>(fwi);
@@ -648,10 +663,57 @@ void ActionEditor::slotDelete()
         return;
 
     const ActionView::ActionList selection = m_actionView->selectedActions();
-    if (selection.empty())
+    if (selection.isEmpty())
         return;
 
     deleteActions(fw,  selection);
+}
+
+// UnderScore: "Open file" -> actionOpen_file
+static QString underscore(QString text)
+{
+    static const QRegularExpression nonAsciiPattern(u"[^a-zA-Z_0-9]"_s);
+    Q_ASSERT(nonAsciiPattern.isValid());
+    text.replace(nonAsciiPattern, "_"_L1);
+    static const QRegularExpression multipleSpacePattern(u"__*"_s);
+    Q_ASSERT(multipleSpacePattern.isValid());
+    text.replace(multipleSpacePattern, "_"_L1);
+    if (text.endsWith(u'_'))
+        text.chop(1);
+    return text;
+}
+
+// CamelCase: "Open file" -> actionOpenFile, ignoring non-ASCII letters.
+
+enum CharacterCategory { OtherCharacter, DigitOrAsciiLetter, NonAsciiLetter };
+
+static inline CharacterCategory category(QChar c)
+{
+    if (c.isDigit())
+        return DigitOrAsciiLetter;
+    if (c.isLetter()) {
+        const ushort uc = c.unicode();
+        return (uc >= 'a' && uc <= 'z') || (uc >= 'A' && uc <= 'Z')
+            ? DigitOrAsciiLetter : NonAsciiLetter;
+    }
+    return OtherCharacter;
+}
+
+static QString camelCase(const QString &text)
+{
+    QString result;
+    result.reserve(text.size());
+    bool lastCharAccepted = false;
+    for (QChar c : text) {
+        const CharacterCategory cat = category(c);
+        if (cat != NonAsciiLetter) {
+            const bool acceptable = cat == DigitOrAsciiLetter;
+            if (acceptable)
+                result.append(lastCharAccepted ? c : c.toUpper()); // New word starts
+            lastCharAccepted = acceptable;
+        }
+    }
+    return result;
 }
 
 QString ActionEditor::actionTextToName(const QString &text, const QString &prefix)
@@ -659,16 +721,8 @@ QString ActionEditor::actionTextToName(const QString &text, const QString &prefi
     QString name = text;
     if (name.isEmpty())
         return QString();
+    return prefix + (m_objectNamingMode == CamelCase ? camelCase(text) : underscore(text));
 
-    name[0] = name.at(0).toUpper();
-    name.prepend(prefix);
-    const QString underscore = QString(QLatin1Char('_'));
-    name.replace(QRegExp(QString(QStringLiteral("[^a-zA-Z_0-9]"))), underscore);
-    name.replace(QRegExp(QStringLiteral("__*")), underscore);
-    if (name.endsWith(underscore.at(0)))
-        name.truncate(name.size() - 1);
-
-    return name;
 }
 
 void  ActionEditor::resourceImageDropped(const QString &path, QAction *action)
@@ -679,7 +733,7 @@ void  ActionEditor::resourceImageDropped(const QString &path, QAction *action)
 
     QDesignerPropertySheetExtension *sheet = qt_extension<QDesignerPropertySheetExtension*>(core()->extensionManager(), action);
     const PropertySheetIconValue oldIcon =
-            qvariant_cast<PropertySheetIconValue>(sheet->property(sheet->indexOf(QLatin1String(iconPropertyC))));
+            qvariant_cast<PropertySheetIconValue>(sheet->property(sheet->indexOf(iconPropertyC)));
     PropertySheetIconValue newIcon;
     newIcon.setPixmap(QIcon::Normal, QIcon::Off, PropertySheetPixmapValue(path));
     if (newIcon.paths().isEmpty() || newIcon.paths() == oldIcon.paths())
@@ -692,7 +746,25 @@ void ActionEditor::mainContainerChanged()
 {
     // Invalidate references to objects kept in model
     if (sender() == formWindow())
-        setFormWindow(0);
+        setFormWindow(nullptr);
+}
+
+void ActionEditor::clearSelection()
+{
+    // For use by the menu editor; block the syncing of the object inspector
+    // in slotCurrentItemChanged() since the  menu editor updates it itself.
+    m_withinSelectAction = true;
+    m_actionView->clearSelection();
+    m_withinSelectAction = false;
+}
+
+void ActionEditor::selectAction(QAction *a)
+{
+    // For use by the menu editor; block the syncing of the object inspector
+    // in slotCurrentItemChanged() since the  menu editor updates it itself.
+    m_withinSelectAction = true;
+    m_actionView->selectAction(a);
+    m_withinSelectAction = false;
 }
 
 void ActionEditor::slotViewMode(QAction *a)
@@ -718,14 +790,14 @@ void ActionEditor::slotSelectAssociatedWidget(QWidget *w)
 void ActionEditor::restoreSettings()
 {
     QDesignerSettingsInterface *settings = m_core->settingsManager();
-    m_actionView->setViewMode(settings->value(QLatin1String(actionEditorViewModeKey), 0).toInt());
+    m_actionView->setViewMode(settings->value(actionEditorViewModeKey, 0).toInt());
     updateViewModeActions();
 }
 
 void ActionEditor::saveSettings()
 {
     QDesignerSettingsInterface *settings = m_core->settingsManager();
-    settings->setValue(QLatin1String(actionEditorViewModeKey), m_actionView->viewMode());
+    settings->setValue(actionEditorViewModeKey, m_actionView->viewMode());
 }
 
 void ActionEditor::updateViewModeActions()
@@ -740,7 +812,7 @@ void ActionEditor::updateViewModeActions()
     }
 }
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
 void ActionEditor::slotCopy()
 {
     QDesignerFormWindowInterface *fw = formWindow();
@@ -748,7 +820,7 @@ void ActionEditor::slotCopy()
         return;
 
     const ActionView::ActionList selection = m_actionView->selectedActions();
-    if (selection.empty())
+    if (selection.isEmpty())
         return;
 
     copyActions(fw, selection);
@@ -761,7 +833,7 @@ void ActionEditor::slotCut()
         return;
 
     const ActionView::ActionList selection = m_actionView->selectedActions();
-    if (selection.empty())
+    if (selection.isEmpty())
         return;
 
     copyActions(fw, selection);
@@ -780,12 +852,6 @@ void ActionEditor::slotPaste()
 
 void ActionEditor::slotContextMenuRequested(QContextMenuEvent *e, QAction *item)
 {
-    // set up signal mapper
-    if (!m_selectAssociatedWidgetsMapper) {
-        m_selectAssociatedWidgetsMapper = new QSignalMapper(this);
-        connect(m_selectAssociatedWidgetsMapper, SIGNAL(mapped(QWidget*)), this, SLOT(slotSelectAssociatedWidget(QWidget*)));
-    }
-
     QMenu menu(this);
     menu.addAction(m_actionNew);
     menu.addSeparator();
@@ -796,18 +862,17 @@ void ActionEditor::slotContextMenuRequested(QContextMenuEvent *e, QAction *item)
     // Associated Widgets
     if (QAction *action = m_actionView->currentAction()) {
         const QWidgetList associatedWidgets = ActionModel::associatedWidgets(action);
-        if (!associatedWidgets.empty()) {
+        if (!associatedWidgets.isEmpty()) {
             QMenu *associatedWidgetsSubMenu =  menu.addMenu(tr("Used In"));
-            foreach (QWidget *w, associatedWidgets) {
-                QAction *action = associatedWidgetsSubMenu->addAction(w->objectName());
-                m_selectAssociatedWidgetsMapper->setMapping(action, w);
-                connect(action, SIGNAL(triggered()), m_selectAssociatedWidgetsMapper, SLOT(map()));
+            for (QWidget *w : associatedWidgets) {
+                associatedWidgetsSubMenu->addAction(w->objectName(),
+                                                    this, [this, w] { this->slotSelectAssociatedWidget(w); });
             }
         }
     }
 
     menu.addSeparator();
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     menu.addAction(m_actionCut);
     menu.addAction(m_actionCopy);
     menu.addAction(m_actionPaste);

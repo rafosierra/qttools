@@ -1,51 +1,22 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "spacer_widget_p.h"
 #include "layoutinfo_p.h"
 
 #include <QtDesigner/abstractformwindow.h>
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerPropertySheetExtension>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/propertysheet.h>
+#include <QtDesigner/qextensionmanager.h>
 
-#include <QtWidgets/QLayout>
-#include <QtGui/QPainter>
+#include <QtWidgets/qlayout.h>
+#include <QtGui/qpainter.h>
 #include <QtGui/qevent.h>
 #include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 // The Spacer widget is Designer representation of  QLayoutItem.
 // It uses QLayoutItem's sizeHint property as QWidget
@@ -56,12 +27,7 @@ QT_BEGIN_NAMESPACE
 // should not be applied for  pixel-exact design.
 
 Spacer::Spacer(QWidget *parent) :
-    QWidget(parent),
-    m_SizeOffset(3, 3), // A small offset to ensure the spacer is still visible when reset to size 0,0
-    m_orientation(Qt::Vertical),
-    m_interactive(true),
-    m_layoutState(UnknownLayoutState),
-    m_sizeHint(0, 0)
+    QWidget(parent)
 {
     setAttribute(Qt::WA_MouseNoMask);
     m_formWindow = QDesignerFormWindowInterface::findFormWindow(this);
@@ -98,7 +64,7 @@ bool Spacer::isInLayout() const
 void Spacer::paintEvent(QPaintEvent *)
 {
     // Only draw spacers when we're editting widgets
-    if (m_formWindow != 0 && m_formWindow->currentTool() != 0)
+    if (m_formWindow != nullptr && m_formWindow->currentTool() != 0)
         return;
 
     QPainter p(this);
@@ -163,7 +129,7 @@ void Spacer::resizeEvent(QResizeEvent* e)
         const QSize oldSize = e->oldSize();
         if (oldSize.isNull() || oldSize.width() <= m_SizeOffset.width() || oldSize.height() <= m_SizeOffset.height())
             if (QDesignerPropertySheetExtension *sheet = qt_extension<QDesignerPropertySheetExtension*>(m_formWindow->core()->extensionManager(), this))
-                sheet->setChanged(sheet->indexOf(QStringLiteral("sizeHint")), true);
+                sheet->setChanged(sheet->indexOf(u"sizeHint"_s), true);
     }
 
     updateMask();

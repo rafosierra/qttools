@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "translator.h"
 
@@ -44,20 +14,18 @@
 
 QT_USE_NAMESPACE
 
-class LC {
-    Q_DECLARE_TR_FUNCTIONS(LConvert)
-};
+using namespace Qt::Literals::StringLiterals;
 
 static int usage(const QStringList &args)
 {
     Q_UNUSED(args);
 
     QString loaders;
-    QString line(QLatin1String("    %1 - %2\n"));
-    foreach (Translator::FileFormat format, Translator::registeredFileFormats())
-        loaders += line.arg(format.extension, -5).arg(format.description);
+    QString line("    %1 - %2\n"_L1);
+    for (const Translator::FileFormat &format : std::as_const(Translator::registeredFileFormats()))
+        loaders += line.arg(format.extension, -5).arg(format.description());
 
-    std::cout << qPrintable(LC::tr("\nUsage:\n"
+    std::cout << qPrintable(QStringLiteral("\nUsage:\n"
         "    lconvert [options] <infile> [<infile>...]\n\n"
         "lconvert is part of Qt's Linguist tool chain. It can be used as a\n"
         "stand-alone tool to convert and filter translation data files.\n"
@@ -99,13 +67,19 @@ static int usage(const QStringList &args)
         "           Drop obsolete messages.\n\n"
         "    -no-finished\n"
         "           Drop finished messages.\n\n"
+        "    -no-untranslated\n"
+        "           Drop untranslated messages.\n\n"
         "    -sort-contexts\n"
         "           Sort contexts in output TS file alphabetically.\n\n"
+        "    -sort-messages\n"
+        "           Sort messages in a context alphabetically in TS files.\n\n"
         "    -locations {absolute|relative|none}\n"
         "           Override how source code references are saved in TS files.\n"
         "           Default is absolute.\n\n"
         "    -no-ui-lines\n"
         "           Drop line numbers from references to UI files.\n\n"
+        "    -pluralonly\n"
+        "           Drop non-plural form messages.\n\n"
         "    -verbose\n"
         "           be a bit more verbose\n\n"
         "Long options can be specified with only one leading dash, too.\n\n"
@@ -130,10 +104,9 @@ int main(int argc, char *argv[])
 #ifndef Q_OS_WIN32
     QTranslator translator;
     QTranslator qtTranslator;
-    QString sysLocale = QLocale::system().name();
-    QString resourceDir = QLibraryInfo::location(QLibraryInfo::TranslationsPath);
-    if (translator.load(QLatin1String("linguist_") + sysLocale, resourceDir)
-        && qtTranslator.load(QLatin1String("qt_") + sysLocale, resourceDir)) {
+    QString resourceDir = QLibraryInfo::path(QLibraryInfo::TranslationsPath);
+    if (translator.load("linguist_en"_L1, resourceDir)
+        && qtTranslator.load("qt_en"_L1, resourceDir)) {
         app.installTranslator(&translator);
         app.installTranslator(&qtTranslator);
     }
@@ -142,86 +115,91 @@ int main(int argc, char *argv[])
 
     QStringList args = app.arguments();
     QList<File> inFiles;
-    QString inFormat(QLatin1String("auto"));
+    QString inFormat("auto"_L1);
     QString outFileName;
-    QString outFormat(QLatin1String("auto"));
+    QString outFormat("auto"_L1);
     QString targetLanguage;
     QString sourceLanguage;
     bool dropTranslations = false;
     bool noObsolete = false;
     bool noFinished = false;
+    bool noUntranslated = false;
     bool verbose = false;
     bool noUiLines = false;
+    bool pluralOnly = false;
     Translator::LocationsType locations = Translator::DefaultLocations;
 
     ConversionData cd;
     Translator tr;
 
     for (int i = 1; i < args.size(); ++i) {
-        if (args[i].startsWith(QLatin1String("--")))
+        const QString &arg = args.at(i);
+        if (arg.startsWith("--"_L1))
             args[i].remove(0, 1);
-        if (args[i] == QLatin1String("-o")
-         || args[i] == QLatin1String("-output-file")) {
+        if (arg == "-o"_L1 || arg == "-output-file"_L1) {
             if (++i >= args.size())
                 return usage(args);
             outFileName = args[i];
-        } else if (args[i] == QLatin1String("-of")
-                || args[i] == QLatin1String("-output-format")) {
+        } else if (arg == "-of"_L1 || arg == "-output-format"_L1) {
             if (++i >= args.size())
                 return usage(args);
             outFormat = args[i];
-        } else if (args[i] == QLatin1String("-i")
-                || args[i] == QLatin1String("-input-file")) {
+        } else if (arg == "-i"_L1 || arg == "-input-file"_L1) {
             if (++i >= args.size())
                 return usage(args);
             File file;
             file.name = args[i];
             file.format = inFormat;
             inFiles.append(file);
-        } else if (args[i] == QLatin1String("-if")
-                || args[i] == QLatin1String("-input-format")) {
+        } else if (arg == "-if"_L1 || arg == "-input-format"_L1) {
             if (++i >= args.size())
                 return usage(args);
             inFormat = args[i];
-        } else if (args[i] == QLatin1String("-drop-tag") || args[i] == QLatin1String("-drop-tags")) {
+        } else if (arg == "-drop-tag"_L1 || arg == "-drop-tags"_L1) {
             if (++i >= args.size())
                 return usage(args);
             cd.m_dropTags.append(args[i]);
-        } else if (args[i] == QLatin1String("-drop-translations")) {
+        } else if (arg == "-drop-translations"_L1) {
             dropTranslations = true;
-        } else if (args[i] == QLatin1String("-target-language")) {
+        } else if (arg == "-target-language"_L1) {
             if (++i >= args.size())
                 return usage(args);
             targetLanguage = args[i];
-        } else if (args[i] == QLatin1String("-source-language")) {
+        } else if (arg == "-source-language"_L1) {
             if (++i >= args.size())
                 return usage(args);
             sourceLanguage = args[i];
-        } else if (args[i].startsWith(QLatin1String("-h"))) {
+        } else if (arg.startsWith("-h"_L1)) {
             usage(args);
             return 0;
-        } else if (args[i] == QLatin1String("-no-obsolete")) {
+        } else if (arg == "-no-obsolete"_L1) {
             noObsolete = true;
-        } else if (args[i] == QLatin1String("-no-finished")) {
+        } else if (arg == "-no-finished"_L1) {
             noFinished = true;
-        } else if (args[i] == QLatin1String("-sort-contexts")) {
+        } else if (arg == "-no-untranslated"_L1) {
+            noUntranslated = true;
+        } else if (arg == "-sort-contexts"_L1) {
             cd.m_sortContexts = true;
-        } else if (args[i] == QLatin1String("-locations")) {
+        } else if (arg == "-sort-messages"_L1) {
+            cd.m_sortMessages = true;
+        } else if (arg == "-locations"_L1) {
             if (++i >= args.size())
                 return usage(args);
-            if (args[i] == QLatin1String("none"))
+            if (args[i] == "none"_L1)
                 locations = Translator::NoLocations;
-            else if (args[i] == QLatin1String("relative"))
+            else if (args[i] == "relative"_L1)
                 locations = Translator::RelativeLocations;
-            else if (args[i] == QLatin1String("absolute"))
+            else if (args[i] == "absolute"_L1)
                 locations = Translator::AbsoluteLocations;
             else
                 return usage(args);
-        } else if (args[i] == QLatin1String("-no-ui-lines")) {
+        } else if (arg == "-no-ui-lines"_L1) {
             noUiLines = true;
-        } else if (args[i] == QLatin1String("-verbose")) {
+        } else if (arg == "-pluralonly"_L1) {
+            pluralOnly = true;
+        } else if (arg == "-verbose"_L1) {
             verbose = true;
-        } else if (args[i].startsWith(QLatin1Char('-'))) {
+        } else if (arg.startsWith(u'-')) {
             return usage(args);
         } else {
             File file;
@@ -251,6 +229,12 @@ int main(int argc, char *argv[])
         tr2.reportDuplicates(tr2.resolveDuplicates(), inFiles[i].name, verbose);
         for (int j = 0; j < tr2.messageCount(); ++j)
             tr.replaceSorted(tr2.message(j));
+
+        tr.appendDependencies(tr2.dependencies());
+    }
+
+    for (const auto &file: inFiles) {
+        tr.satisfyDependency(file.name, file.format);
     }
 
     if (!targetLanguage.isEmpty())
@@ -261,10 +245,14 @@ int main(int argc, char *argv[])
         tr.stripObsoleteMessages();
     if (noFinished)
         tr.stripFinishedMessages();
+    if (noUntranslated)
+        tr.stripUntranslatedMessages();
     if (dropTranslations)
         tr.dropTranslations();
     if (noUiLines)
         tr.dropUiLines();
+    if (pluralOnly)
+        tr.stripNonPluralForms();
     if (locations != Translator::DefaultLocations)
         tr.setLocationsType(locations);
 

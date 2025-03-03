@@ -1,42 +1,12 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "buddyeditor.h"
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerPropertySheetExtension>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/propertysheet.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/qextensionmanager.h>
 
 #include <qdesigner_command_p.h>
 #include <qdesigner_propertycommand_p.h>
@@ -45,15 +15,22 @@
 #include <connectionedit_p.h>
 #include <metadatabase_p.h>
 
+#include <QtWidgets/qlabel.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qapplication.h>
+
+#include <QtGui/qaction.h>
+
 #include <QtCore/qdebug.h>
-#include <QtWidgets/QLabel>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QApplication>
+#include <QtCore/qlist.h>
+
+#include <algorithm>
 
 QT_BEGIN_NAMESPACE
 
-static const char *buddyPropertyC = "buddy";
+using namespace Qt::StringLiterals;
+
+static constexpr auto buddyPropertyC = "buddy"_L1;
 
 static bool canBeBuddy(QWidget *w, QDesignerFormWindowInterface *form)
 {
@@ -64,7 +41,7 @@ static bool canBeBuddy(QWidget *w, QDesignerFormWindowInterface *form)
 
     QExtensionManager *ext = form->core()->extensionManager();
     if (QDesignerPropertySheetExtension *sheet = qt_extension<QDesignerPropertySheetExtension*>(ext, w)) {
-        const int index = sheet->indexOf(QStringLiteral("focusPolicy"));
+        const int index = sheet->indexOf(u"focusPolicy"_s);
         if (index != -1) {
             bool ok = false;
             const Qt::FocusPolicy q = static_cast<Qt::FocusPolicy>(qdesigner_internal::Utils::valueOf(sheet->property(index), &ok));
@@ -78,15 +55,13 @@ static bool canBeBuddy(QWidget *w, QDesignerFormWindowInterface *form)
 static QString buddy(QLabel *label, QDesignerFormEditorInterface *core)
 {
     QDesignerPropertySheetExtension *sheet = qt_extension<QDesignerPropertySheetExtension*>(core->extensionManager(), label);
-    if (sheet == 0)
+    if (sheet == nullptr)
         return QString();
-    const int prop_idx = sheet->indexOf(QLatin1String(buddyPropertyC));
+    const int prop_idx = sheet->indexOf(buddyPropertyC);
     if (prop_idx == -1)
         return QString();
     return sheet->property(prop_idx).toString();
 }
-
-typedef QList<QLabel*> LabelList;
 
 namespace qdesigner_internal {
 
@@ -106,24 +81,24 @@ QWidget *BuddyEditor::widgetAt(const QPoint &pos) const
 {
     QWidget *w = ConnectionEdit::widgetAt(pos);
 
-    while (w != 0 && !m_formWindow->isManaged(w))
+    while (w != nullptr && !m_formWindow->isManaged(w))
         w = w->parentWidget();
     if (!w)
         return w;
 
     if (state() == Editing) {
         QLabel *label = qobject_cast<QLabel*>(w);
-        if (label == 0)
-            return 0;
+        if (label == nullptr)
+            return nullptr;
         const int cnt = connectionCount();
         for (int i = 0; i < cnt; ++i) {
             Connection *con = connection(i);
             if (con->widget(EndPoint::Source) == w)
-                return 0;
+                return nullptr;
         }
     } else {
         if (!canBeBuddy(w, m_formWindow))
-            return 0;
+            return nullptr;
     }
 
     return w;
@@ -141,39 +116,30 @@ QDesignerFormWindowInterface *BuddyEditor::formWindow() const
 
 void BuddyEditor::updateBackground()
 {
-    if (m_updating || background() == 0)
+    if (m_updating || background() == nullptr)
         return;
     ConnectionEdit::updateBackground();
 
     m_updating = true;
     QList<Connection *> newList;
-    const LabelList label_list = background()->findChildren<QLabel*>();
-    foreach (QLabel *label, label_list) {
+    const auto label_list = background()->findChildren<QLabel*>();
+    for (QLabel *label : label_list) {
         const QString buddy_name = buddy(label, m_formWindow->core());
         if (buddy_name.isEmpty())
             continue;
 
-        const QList<QWidget *> targets = background()->findChildren<QWidget*>(buddy_name);
+        const QWidgetList targets = background()->findChildren<QWidget*>(buddy_name);
         if (targets.isEmpty())
             continue;
 
-        QWidget *target = 0;
-
-        QListIterator<QWidget *> it(targets);
-        while (it.hasNext()) {
-            QWidget *widget = it.next();
-            if (widget && !widget->isHidden()) {
-                target = widget;
-                break;
-            }
-        }
-
-        if (target == 0)
+        const auto wit = std::find_if(targets.cbegin(), targets.cend(),
+                                      [] (const QWidget *w) { return !w->isHidden(); });
+        if (wit == targets.cend())
             continue;
 
         Connection *con = new Connection(this);
         con->setEndPoint(EndPoint::Source, label, widgetRect(label).center());
-        con->setEndPoint(EndPoint::Target, target, widgetRect(target).center());
+        con->setEndPoint(EndPoint::Target, *wit, widgetRect(*wit).center());
         newList.append(con);
     }
 
@@ -184,29 +150,21 @@ void BuddyEditor::updateBackground()
         Connection *con = connection(i);
         QObject *source = con->object(EndPoint::Source);
         QObject *target = con->object(EndPoint::Target);
-        bool found = false;
-        QListIterator<Connection *> it(newList);
-        while (it.hasNext()) {
-            Connection *newConn = it.next();
-            if (newConn->object(EndPoint::Source) == source && newConn->object(EndPoint::Target) == target) {
-                found = true;
-                break;
-            }
-        }
-        if (found == false)
+        const bool found =
+            std::any_of(newList.cbegin(), newList.cend(),
+                        [source, target] (const Connection *nc)
+                        { return nc->object(EndPoint::Source) == source && nc->object(EndPoint::Target) == target; });
+        if (!found)
             toRemove.append(con);
     }
     if (!toRemove.isEmpty()) {
         DeleteConnectionsCommand command(this, toRemove);
         command.redo();
-        foreach (Connection *con, toRemove)
+        for (Connection *con : std::as_const(toRemove))
             delete takeConnection(con);
     }
 
-    QListIterator<Connection *> it(newList);
-    while (it.hasNext()) {
-        Connection *newConn = it.next();
-
+    for (Connection *newConn : std::as_const(newList)) {
         bool found = false;
         const int c = connectionCount();
         for (int i = 0; i < c; i++) {
@@ -217,11 +175,11 @@ void BuddyEditor::updateBackground()
                 break;
             }
         }
-        if (found == false) {
+        if (found) {
+            delete newConn;
+        } else {
             AddConnectionCommand command(this, newConn);
             command.redo();
-        } else {
-            delete newConn;
         }
     }
     m_updating = false;
@@ -231,14 +189,16 @@ void BuddyEditor::setBackground(QWidget *background)
 {
     clear();
     ConnectionEdit::setBackground(background);
+    if (background == nullptr)
+        return;
 
-    const LabelList label_list = background->findChildren<QLabel*>();
-    foreach (QLabel *label, label_list) {
+    const auto label_list = background->findChildren<QLabel*>();
+    for (QLabel *label : label_list) {
         const QString buddy_name = buddy(label, m_formWindow->core());
         if (buddy_name.isEmpty())
             continue;
         QWidget *target = background->findChild<QWidget*>(buddy_name);
-        if (target == 0)
+        if (target == nullptr)
             continue;
 
         Connection *con = new Connection(this);
@@ -251,7 +211,7 @@ void BuddyEditor::setBackground(QWidget *background)
 static QUndoCommand *createBuddyCommand(QDesignerFormWindowInterface *fw, QLabel *label, QWidget *buddy)
 {
     SetPropertyCommand *command = new SetPropertyCommand(fw);
-    command->init(label, QLatin1String(buddyPropertyC), buddy->objectName());
+    command->init(label, buddyPropertyC, buddy->objectName());
     command->setText(BuddyEditor::tr("Add buddy"));
     return command;
 }
@@ -259,17 +219,17 @@ static QUndoCommand *createBuddyCommand(QDesignerFormWindowInterface *fw, QLabel
 void BuddyEditor::endConnection(QWidget *target, const QPoint &pos)
 {
     Connection *tmp_con = newlyAddedConnection();
-    Q_ASSERT(tmp_con != 0);
+    Q_ASSERT(tmp_con != nullptr);
 
     tmp_con->setEndPoint(EndPoint::Target, target, pos);
 
     QWidget *source = tmp_con->widget(EndPoint::Source);
-    Q_ASSERT(source != 0);
-    Q_ASSERT(target != 0);
+    Q_ASSERT(source != nullptr);
+    Q_ASSERT(target != nullptr);
     setEnabled(false);
     Connection *new_con = createConnection(source, target);
     setEnabled(true);
-    if (new_con != 0) {
+    if (new_con != nullptr) {
         new_con->setEndPoint(EndPoint::Source, source, tmp_con->endPointPos(EndPoint::Source));
         new_con->setEndPoint(EndPoint::Target, target, tmp_con->endPointPos(EndPoint::Target));
 
@@ -291,13 +251,13 @@ void BuddyEditor::endConnection(QWidget *target, const QPoint &pos)
 
 void BuddyEditor::widgetRemoved(QWidget *widget)
 {
-    QList<QWidget*> child_list = widget->findChildren<QWidget*>();
+    QWidgetList child_list = widget->findChildren<QWidget*>();
     child_list.prepend(widget);
 
     ConnectionSet remove_set;
-    foreach (QWidget *w, child_list) {
+    for (QWidget *w : std::as_const(child_list)) {
         const ConnectionList &cl = connectionList();
-        foreach (Connection *con, cl) {
+        for (Connection *con : cl) {
             if (con->widget(EndPoint::Source) == w || con->widget(EndPoint::Target) == w)
                 remove_set.insert(con, con);
         }
@@ -305,7 +265,7 @@ void BuddyEditor::widgetRemoved(QWidget *widget)
 
     if (!remove_set.isEmpty()) {
         undoStack()->beginMacro(tr("Remove buddies"));
-        foreach (Connection *con, remove_set) {
+        for (Connection *con : std::as_const(remove_set)) {
             setSelected(con, false);
             con->update();
             QWidget *source = con->widget(EndPoint::Source);
@@ -313,7 +273,7 @@ void BuddyEditor::widgetRemoved(QWidget *widget)
                 qDebug("BuddyConnection::widgetRemoved(): not a label");
             } else {
                 ResetPropertyCommand *command = new ResetPropertyCommand(formWindow());
-                command->init(source, QLatin1String(buddyPropertyC));
+                command->init(source, buddyPropertyC);
                 undoStack()->push(command);
             }
             delete takeConnection(con);
@@ -328,8 +288,8 @@ void BuddyEditor::deleteSelected()
     if (selectedConnections.isEmpty())
         return;
 
-    undoStack()->beginMacro(tr("Remove %n buddies", 0, selectedConnections.size()));
-    foreach (Connection *con, selectedConnections) {
+    undoStack()->beginMacro(tr("Remove %n buddies", nullptr, selectedConnections.size()));
+    for (Connection *con : selectedConnections) {
         setSelected(con, false);
         con->update();
         QWidget *source = con->widget(EndPoint::Source);
@@ -337,7 +297,7 @@ void BuddyEditor::deleteSelected()
             qDebug("BuddyConnection::deleteSelected(): not a label");
         } else {
             ResetPropertyCommand *command = new ResetPropertyCommand(formWindow());
-            command->init(source, QLatin1String(buddyPropertyC));
+            command->init(source, buddyPropertyC);
             undoStack()->push(command);
         }
         delete takeConnection(con);
@@ -348,19 +308,19 @@ void BuddyEditor::deleteSelected()
 void BuddyEditor::autoBuddy()
 {
     // Any labels?
-    LabelList labelList = background()->findChildren<QLabel*>();
-    if (labelList.empty())
+    auto labelList = background()->findChildren<QLabel*>();
+    if (labelList.isEmpty())
         return;
     // Find already used buddies
     QWidgetList usedBuddies;
     const ConnectionList &beforeConnections = connectionList();
-    foreach (const Connection *c, beforeConnections)
+    for (const Connection *c : beforeConnections)
         usedBuddies.push_back(c->widget(EndPoint::Target));
     // Find potential new buddies, keep lists in sync
     QWidgetList buddies;
-    for (LabelList::iterator it = labelList.begin(); it != labelList.end(); ) {
+    for (auto it = labelList.begin(); it != labelList.end(); ) {
         QLabel *label = *it;
-        QWidget *newBuddy = 0;
+        QWidget *newBuddy = nullptr;
         if (m_formWindow->isManaged(label)) {
             const QString buddy_name = buddy(label, m_formWindow->core());
             if (buddy_name.isEmpty())
@@ -375,17 +335,17 @@ void BuddyEditor::autoBuddy()
         }
     }
     // Add the list in one go.
-    if (labelList.empty())
+    if (labelList.isEmpty())
         return;
-    const int count = labelList.size();
+    const auto count = labelList.size();
     Q_ASSERT(count == buddies.size());
-    undoStack()->beginMacro(tr("Add %n buddies", 0, count));
-    for (int i = 0; i < count; i++)
+    undoStack()->beginMacro(tr("Add %n buddies", nullptr, count));
+    for (qsizetype i = 0; i < count; ++i)
         undoStack()->push(createBuddyCommand(m_formWindow, labelList.at(i), buddies.at(i)));
     undoStack()->endMacro();
     // Now select all new ones
     const ConnectionList &connections = connectionList();
-    foreach (Connection *con, connections)
+    for (Connection *con : connections)
         setSelected(con, buddies.contains(con->widget(EndPoint::Target)));
 }
 
@@ -397,7 +357,7 @@ QWidget *BuddyEditor::findBuddy(QLabel *l, const QWidgetList &existingBuddies) c
     // Try to find next managed neighbour on horizontal line
     const QRect geom = l->geometry();
     const int y = geom.center().y();
-    QWidget *neighbour = 0;
+    QWidget *neighbour = nullptr;
     switch (l->layoutDirection()) {
     case Qt::LayoutDirectionAuto:
     case Qt::LeftToRight: { // Walk right to find next managed neighbour
@@ -422,13 +382,13 @@ QWidget *BuddyEditor::findBuddy(QLabel *l, const QWidgetList &existingBuddies) c
     if (neighbour && !existingBuddies.contains(neighbour) && canBeBuddy(neighbour, m_formWindow))
         return neighbour;
 
-    return 0;
+    return nullptr;
 }
 
 void BuddyEditor::createContextMenu(QMenu &menu)
 {
     QAction *autoAction = menu.addAction(tr("Set automatically"));
-    connect(autoAction, SIGNAL(triggered()), this, SLOT(autoBuddy()));
+    connect(autoAction, &QAction::triggered, this, &BuddyEditor::autoBuddy);
     menu.addSeparator();
     ConnectionEdit::createContextMenu(menu);
 }

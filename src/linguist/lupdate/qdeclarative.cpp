@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "lupdate.h"
 
@@ -38,6 +8,7 @@
 #include <QtCore/QDebug>
 #include <QtCore/QFile>
 #include <QtCore/QString>
+#include <QtCore/QTextStream>
 
 #include <private/qqmljsengine_p.h>
 #include <private/qqmljsparser_p.h>
@@ -57,13 +28,9 @@
 
 QT_BEGIN_NAMESPACE
 
-class LU {
-    Q_DECLARE_TR_FUNCTIONS(LUpdate)
-};
-
 using namespace QQmlJS;
 
-static QString MagicComment(QLatin1String("TRANSLATOR"));
+using namespace Qt::StringLiterals;
 
 class FindTrCalls: protected AST::Visitor
 {
@@ -91,21 +58,60 @@ protected:
     using AST::Visitor::endVisit;
 
     void accept(AST::Node *node)
-    { AST::Node::acceptChild(node, this); }
+    { AST::Node::accept(node, this); }
 
-    void endVisit(AST::CallExpression *node)
+    bool visit(AST::UiPragma *node) override
     {
-        if (AST::IdentifierExpression *idExpr = AST::cast<AST::IdentifierExpression *>(node->base)) {
+        if (!node->name.isNull()) {
+            if (node->name == "Translator"_L1) {
+                m_component = node->values->value.toString();
+            }
+        }
+        return false;
+    }
+
+    void endVisit(AST::TemplateLiteral *node) override
+    {
+        do {
+            if (auto *expr = AST::cast<AST::CallExpression *>(node->expression))
+                endVisit(expr);
+            node = node->next;
+        } while (node);
+    }
+
+    void endVisit(AST::CallExpression *node) override
+    {
+        QString name;
+        AST::ExpressionNode *base = node->base;
+
+        while (base && base->kind == AST::Node::Kind_FieldMemberExpression) {
+            auto memberExpr = static_cast<AST::FieldMemberExpression *>(base);
+            name.prepend(memberExpr->name);
+            name.prepend(u'.');
+            base = memberExpr->base;
+        }
+
+        if (AST::IdentifierExpression *idExpr = AST::cast<AST::IdentifierExpression *>(base)) {
             processComments(idExpr->identifierToken.begin());
 
-            const QString name = idExpr->name.toString();
+            name = idExpr->name.toString() + name;
             const int identLineNo = idExpr->identifierToken.startLine;
             switch (trFunctionAliasManager.trFunctionByName(name)) {
             case TrFunctionAliasManager::Function_qsTr:
             case TrFunctionAliasManager::Function_QT_TR_NOOP: {
                 if (!node->arguments) {
-                    yyMsg(identLineNo) << qPrintable(LU::tr("%1() requires at least one argument.\n").arg(name));
+                    yyMsg(identLineNo)
+                        << qPrintable(QStringLiteral("%1() requires at least one argument.\n")
+                                      .arg(name));
                     return;
+                }
+                if (auto expr = AST::cast<AST::TemplateLiteral *>(node->arguments->expression)) {
+                    if (expr->next) {
+                        yyMsg(identLineNo)
+                        << qPrintable(QStringLiteral("%1() template strings with "
+                                    "arguments are not supported for translation.\n").arg(name));
+                        return;
+                    }
                 }
 
                 QString source;
@@ -123,13 +129,13 @@ protected:
                 }
 
                 if (!sourcetext.isEmpty())
-                    yyMsg(identLineNo) << qPrintable(LU::tr("//% cannot be used with %1(). Ignoring\n").arg(name));
+                    yyMsg(identLineNo) << qPrintable(QStringLiteral("//% cannot be used with %1(). Ignoring\n").arg(name));
 
-                TranslatorMessage msg(m_component, source,
+                TranslatorMessage msg(m_component, ParserTool::transcode(source),
                     comment, QString(), m_fileName,
                     node->firstSourceLocation().startLine, QStringList(),
                     TranslatorMessage::Unfinished, plural);
-                msg.setExtraComment(extracomment.simplified());
+                msg.setExtraComment(ParserTool::transcode(extracomment.simplified()));
                 msg.setId(msgid);
                 msg.setExtras(extra);
                 m_translator->extend(msg, m_cd);
@@ -138,7 +144,7 @@ protected:
             case TrFunctionAliasManager::Function_qsTranslate:
             case TrFunctionAliasManager::Function_QT_TRANSLATE_NOOP: {
                 if (! (node->arguments && node->arguments->next)) {
-                    yyMsg(identLineNo) << qPrintable(LU::tr("%1() requires at least two arguments.\n").arg(name));
+                    yyMsg(identLineNo) << qPrintable(QStringLiteral("%1() requires at least two arguments.\n").arg(name));
                     return;
                 }
 
@@ -153,7 +159,7 @@ protected:
                     return;
 
                 if (!sourcetext.isEmpty())
-                    yyMsg(identLineNo) << qPrintable(LU::tr("//% cannot be used with %1(). Ignoring\n").arg(name));
+                    yyMsg(identLineNo) << qPrintable(QStringLiteral("//% cannot be used with %1(). Ignoring\n").arg(name));
 
                 QString comment;
                 bool plural = false;
@@ -166,11 +172,11 @@ protected:
                         plural = true;
                 }
 
-                TranslatorMessage msg(context, source,
+                TranslatorMessage msg(context, ParserTool::transcode(source),
                     comment, QString(), m_fileName,
                     node->firstSourceLocation().startLine, QStringList(),
                     TranslatorMessage::Unfinished, plural);
-                msg.setExtraComment(extracomment.simplified());
+                msg.setExtraComment(ParserTool::transcode(extracomment.simplified()));
                 msg.setId(msgid);
                 msg.setExtras(extra);
                 m_translator->extend(msg, m_cd);
@@ -179,7 +185,7 @@ protected:
             case TrFunctionAliasManager::Function_qsTrId:
             case TrFunctionAliasManager::Function_QT_TRID_NOOP: {
                 if (!node->arguments) {
-                    yyMsg(identLineNo) << qPrintable(LU::tr("%1() requires at least one argument.\n").arg(name));
+                    yyMsg(identLineNo) << qPrintable(QStringLiteral("%1() requires at least one argument.\n").arg(name));
                     return;
                 }
 
@@ -188,17 +194,17 @@ protected:
                     return;
 
                 if (!msgid.isEmpty()) {
-                    yyMsg(identLineNo) << qPrintable(LU::tr("//= cannot be used with %1(). Ignoring\n").arg(name));
+                    yyMsg(identLineNo) << qPrintable(QStringLiteral("//= cannot be used with %1(). Ignoring\n").arg(name));
                     return;
                 }
 
                 bool plural = node->arguments->next;
 
-                TranslatorMessage msg(QString(), sourcetext,
+                TranslatorMessage msg(QString(), ParserTool::transcode(sourcetext),
                     QString(), QString(), m_fileName,
                     node->firstSourceLocation().startLine, QStringList(),
                     TranslatorMessage::Unfinished, plural);
-                msg.setExtraComment(extracomment.simplified());
+                msg.setExtraComment(ParserTool::transcode(extracomment.simplified()));
                 msg.setId(id);
                 msg.setExtras(extra);
                 m_translator->extend(msg, m_cd);
@@ -208,7 +214,7 @@ protected:
         }
     }
 
-    virtual void postVisit(AST::Node *node);
+    void postVisit(AST::Node *node) override;
 
 private:
     std::ostream &yyMsg(int line)
@@ -216,8 +222,15 @@ private:
         return std::cerr << qPrintable(m_fileName) << ':' << line << ": ";
     }
 
+    void throwRecursionDepthError() final
+    {
+        std::cerr << qPrintable(m_fileName) << ": "
+                  << "Maximum statement or expression depth exceeded";
+    }
+
+
     void processComments(quint32 offset, bool flush = false);
-    void processComment(const AST::SourceLocation &loc);
+    void processComment(const SourceLocation &loc);
     void consumeComment();
 
     bool createString(AST::ExpressionNode *ast, QString *out)
@@ -230,6 +243,9 @@ private:
                 if (createString(binop->right, out))
                     return true;
             }
+        } else if (AST::TemplateLiteral *templit = AST::cast<AST::TemplateLiteral *>(ast)) {
+            out->append(templit->value);
+            return true;
         }
 
         return false;
@@ -247,47 +263,37 @@ private:
     TranslatorMessage::ExtraData extra;
     QString sourcetext;
     QString trcontext;
-    QList<AST::SourceLocation> m_todo;
+    QList<SourceLocation> m_todo;
 };
 
 QString createErrorString(const QString &filename, const QString &code, Parser &parser)
 {
     // print out error
-    QStringList lines = code.split(QLatin1Char('\n'));
-    lines.append(QLatin1String("\n")); // sentinel.
+    QStringList lines = code.split(u'\n');
+    lines.append("\n"_L1); // sentinel.
     QString errorString;
 
-    foreach (const DiagnosticMessage &m, parser.diagnosticMessages()) {
+    const auto messages = parser.diagnosticMessages();
+    for (const DiagnosticMessage &m : messages) {
 
         if (m.isWarning())
             continue;
 
-        QString error = filename + QLatin1Char(':') + QString::number(m.loc.startLine)
-                        + QLatin1Char(':') + QString::number(m.loc.startColumn) + QLatin1String(": error: ")
-                        + m.message + QLatin1Char('\n');
+        const int line = m.loc.startLine;
+        const int column = m.loc.startColumn;
+        QString error = filename + u':' + QString::number(line) + u':' + QString::number(column)
+                + ": error: "_L1 + m.message + u'\n';
 
-        int line = 0;
-        if (m.loc.startLine > 0)
-            line = m.loc.startLine - 1;
-
-        const QString textLine = lines.at(line);
-
-        error += textLine + QLatin1Char('\n');
-
-        int column = m.loc.startColumn - 1;
-        if (column < 0)
-            column = 0;
-
-        column = qMin(column, textLine.length());
-
-        for (int i = 0; i < column; ++i) {
+        const QString textLine = lines.at(line > 0 ? line - 1 : 0);
+        error += textLine + u'\n';
+        for (int i = 0, end = qMin(column > 0 ? column - 1 : 0, textLine.size()); i < end; ++i) {
             const QChar ch = textLine.at(i);
             if (ch.isSpace())
-                error += ch.unicode();
+                error += ch;
             else
-                error += QLatin1Char(' ');
+                error += u' ';
         }
-        error += QLatin1String("^\n");
+        error += "^\n"_L1;
         errorString += error;
     }
     return errorString;
@@ -299,7 +305,7 @@ void FindTrCalls::postVisit(AST::Node *node)
         processComments(node->lastSourceLocation().end());
 
         if (!sourcetext.isEmpty() || !extracomment.isEmpty() || !msgid.isEmpty() || !extra.isEmpty()) {
-            yyMsg(node->lastSourceLocation().startLine) << qPrintable(LU::tr("Discarding unconsumed meta data\n"));
+            yyMsg(node->lastSourceLocation().startLine) << "Discarding unconsumed meta data\n";
             consumeComment();
         }
     }
@@ -308,7 +314,7 @@ void FindTrCalls::postVisit(AST::Node *node)
 void FindTrCalls::processComments(quint32 offset, bool flush)
 {
     for (; !m_todo.isEmpty(); m_todo.removeFirst()) {
-        AST::SourceLocation loc = m_todo.first();
+        SourceLocation loc = m_todo.first();
         if (! flush && (loc.begin() >= offset))
             break;
 
@@ -325,30 +331,36 @@ void FindTrCalls::consumeComment()
     sourcetext.clear();
 }
 
-void FindTrCalls::processComment(const AST::SourceLocation &loc)
+void FindTrCalls::processComment(const SourceLocation &loc)
 {
     if (!loc.length)
         return;
 
-    const QStringRef commentStr = engine->midRef(loc.begin(), loc.length);
+    const QStringView commentStr = engine->midRef(loc.begin(), loc.length);
     const QChar *chars = commentStr.constData();
-    const int length = commentStr.length();
+    const int length = commentStr.size();
 
     // Try to match the logic of the C++ parser.
-    if (*chars == QLatin1Char(':') && chars[1].isSpace()) {
+    if (*chars == u':' && chars[1].isSpace()) {
         if (!extracomment.isEmpty())
-            extracomment += QLatin1Char(' ');
+            extracomment += u' ';
         extracomment += QString(chars+2, length-2);
-    } else if (*chars == QLatin1Char('=') && chars[1].isSpace()) {
+    } else if (*chars == u'=' && chars[1].isSpace()) {
         msgid = QString(chars+2, length-2).simplified();
-    } else if (*chars == QLatin1Char('~') && chars[1].isSpace()) {
+    } else if (*chars == u'~' && chars[1].isSpace()) {
         QString text = QString(chars+2, length-2).trimmed();
-        int k = text.indexOf(QLatin1Char(' '));
-        if (k > -1)
-            extra.insert(text.left(k), text.mid(k + 1).trimmed());
-    } else if (*chars == QLatin1Char('%') && chars[1].isSpace()) {
-        sourcetext.reserve(sourcetext.length() + length-2);
-        ushort *ptr = (ushort *)sourcetext.data() + sourcetext.length();
+        int k = text.indexOf(u' ');
+        if (k > -1) {
+            QString commentvalue = text.mid(k + 1).trimmed();
+            if (commentvalue.startsWith(u'"') && commentvalue.endsWith(u'"')
+                && commentvalue.size() != 1) {
+                commentvalue = commentvalue.sliced(1, commentvalue.size() - 2);
+            }
+            extra.insert(text.left(k), commentvalue);
+        }
+    } else if (*chars == u'%' && chars[1].isSpace()) {
+        sourcetext.reserve(sourcetext.size() + length-2);
+        ushort *ptr = (ushort *)sourcetext.data() + sourcetext.size();
         int p = 2, c;
         forever {
             if (p >= length)
@@ -357,13 +369,13 @@ void FindTrCalls::processComment(const AST::SourceLocation &loc)
             if (std::isspace(c))
                 continue;
             if (c != '"') {
-                yyMsg(loc.startLine) << qPrintable(LU::tr("Unexpected character in meta string\n"));
+                yyMsg(loc.startLine) << "Unexpected character in meta string\n";
                 break;
             }
             forever {
                 if (p >= length) {
                   whoops:
-                    yyMsg(loc.startLine) << qPrintable(LU::tr("Unterminated meta string\n"));
+                    yyMsg(loc.startLine) << "Unterminated meta string\n";
                     break;
                 }
                 c = chars[p++].unicode();
@@ -386,29 +398,6 @@ void FindTrCalls::processComment(const AST::SourceLocation &loc)
         ushort c;
         while ((c = chars[idx].unicode()) == ' ' || c == '\t' || c == '\r' || c == '\n')
             ++idx;
-        if (!memcmp(chars + idx, MagicComment.unicode(), MagicComment.length() * 2)) {
-            idx += MagicComment.length();
-            QString comment = QString(chars + idx, length - idx).simplified();
-            int k = comment.indexOf(QLatin1Char(' '));
-            if (k == -1) {
-                trcontext = comment;
-            } else {
-                trcontext = comment.left(k);
-                comment.remove(0, k + 1);
-                TranslatorMessage msg(
-                        trcontext, QString(),
-                        comment, QString(),
-                        m_fileName, loc.startLine, QStringList(),
-                        TranslatorMessage::Finished, /*plural=*/false);
-                msg.setExtraComment(extracomment.simplified());
-                extracomment.clear();
-                m_translator->append(msg);
-                m_translator->setExtras(extra);
-                extra.clear();
-            }
-
-            m_component = trcontext;
-        }
     }
 }
 
@@ -424,9 +413,9 @@ public:
     bool operator()() const { return directives != 0; }
     int end() const { return lastOffset; }
 
-    void pragmaLibrary() Q_DECL_OVERRIDE { consumeDirective(); }
-    void importFile(const QString &, const QString &, int, int) Q_DECL_OVERRIDE { consumeDirective(); }
-    void importModule(const QString &, const QString &, const QString &, int, int) Q_DECL_OVERRIDE { consumeDirective(); }
+    void pragmaLibrary() override { consumeDirective(); }
+    void importFile(const QString &, const QString &, int, int) override { consumeDirective(); }
+    void importModule(const QString &, const QString &, const QString &, int, int) override { consumeDirective(); }
 
 private:
     void consumeDirective()
@@ -441,22 +430,26 @@ private:
     int lastOffset;
 };
 
-static bool load(Translator &translator, const QString &filename, ConversionData &cd, bool qmlMode)
+enum CodeType {
+    QMLCode,
+    JSCode,
+    MJSCode,
+};
+
+static bool load(Translator &translator, const QString &filename, ConversionData &cd, CodeType mode)
 {
     cd.m_sourceFileName = filename;
     QFile file(filename);
     if (!file.open(QIODevice::ReadOnly)) {
-        cd.appendError(LU::tr("Cannot open %1: %2").arg(filename, file.errorString()));
+        cd.appendError(QStringLiteral("Cannot open %1: %2").arg(filename, file.errorString()));
         return false;
     }
 
     QString code;
-    if (!qmlMode) {
+    if (mode != QMLCode) {
         code = QTextStream(&file).readAll();
     } else {
         QTextStream ts(&file);
-        ts.setCodec("UTF-8");
-        ts.setAutoDetectUnicode(true);
         code = ts.readAll();
     }
 
@@ -464,10 +457,18 @@ static bool load(Translator &translator, const QString &filename, ConversionData
     Parser parser(&driver);
 
     Lexer lexer(&driver);
-    lexer.setCode(code, /*line = */ 1, qmlMode);
+    lexer.setCode(code, /*line = */ 1, mode == QMLCode);
     driver.setLexer(&lexer);
 
-    if (qmlMode ? parser.parse() : parser.parseProgram()) {
+    bool rc;
+    if (mode == QMLCode)
+        rc = parser.parse();
+    else if (mode == JSCode)
+        rc = parser.parseProgram();
+    else
+        rc = parser.parseModule();
+
+    if (rc) {
         FindTrCalls trCalls(&driver, cd);
 
         //find all tr calls in the code
@@ -482,12 +483,17 @@ static bool load(Translator &translator, const QString &filename, ConversionData
 
 bool loadQml(Translator &translator, const QString &filename, ConversionData &cd)
 {
-    return load(translator, filename, cd, /*qmlMode=*/ true);
+    return load(translator, filename, cd, /*qmlMode=*/ QMLCode);
 }
 
 bool loadQScript(Translator &translator, const QString &filename, ConversionData &cd)
 {
-    return load(translator, filename, cd, /*qmlMode=*/ false);
+    return load(translator, filename, cd, /*qmlMode=*/ JSCode);
+}
+
+bool loadJSModule(Translator &translator, const QString &filename, ConversionData &cd)
+{
+    return load(translator, filename, cd, /*qmlMode=*/ MJSCode);
 }
 
 QT_END_NAMESPACE

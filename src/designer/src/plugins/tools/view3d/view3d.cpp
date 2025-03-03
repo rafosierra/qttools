@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "abstractformeditor.h"
 #include "abstractmetadatabase.h"
@@ -57,7 +27,7 @@ class QView3DWidget : public QGLWidget
 public:
     QView3DWidget(QWidget *parent);
     virtual void initializeGL();
-    void resizeGL(int w, int h) Q_DECL_OVERRIDE;
+    void resizeGL(int w, int h) override;
     virtual void paintGL();
     void clear();
 
@@ -157,7 +127,7 @@ void QView3DWidget::addTexture(QWidget *w, const QPixmap &pm)
 
 void QView3DWidget::addWidget(int depth, QWidget *widget)
 {
-    TextureMap::const_iterator it = m_texture_map.find(widget);
+    const auto it = m_texture_map.find(widget);
     Q_ASSERT(it != m_texture_map.end());
 
     makeCurrent();
@@ -193,8 +163,8 @@ void QView3DWidget::clear()
 {
     makeCurrent();
     glDeleteLists(m_form_list_id, 1);
-    foreach (GLuint id, m_texture_map)
-        glDeleteTextures(1, &id);
+    for (auto it = m_texture_map.begin(), end = m_texture_map.end(); it != end; ++it)
+        glDeleteTextures(1, &(it.value()));
     m_texture_map.clear();
     m_widget_name_map.clear();
     m_next_widget_name = 0;
@@ -222,7 +192,7 @@ void QView3DWidget::initializeGL()
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
 
-    qglClearColor(palette().color(QPalette::Window).dark());
+    qglClearColor(palette().color(QPalette::Window).darker());
     glColor3f (1.0, 1.0, 1.0);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
@@ -383,8 +353,8 @@ static void walkWidgetTree(QDesignerFormEditorInterface *core, int depth, QWidge
     if (!skipWidget(core, widget))
         func(depth++, widget);
 
-    QObjectList child_obj_list = widget->children();
-    foreach (QObject *child_obj, child_obj_list) {
+    const QObjectList child_obj_list = widget->children();
+    for (QObject *child_obj : child_obj_list) {
         QWidget *child = qobject_cast<QWidget*>(child_obj);
         if (child != 0)
             walkWidgetTree(core, depth, child, func);
@@ -404,9 +374,8 @@ static void grabWidget_helper(QWidget *widget, QPixmap &res, QPixmap &buf,
         pt.drawPixmap(offset.x(), offset.y(), buf, 0, 0, r.width(), r.height());
     }
 
-    const QObjectList children = widget->children();
-    for (int i = 0; i < children.size(); ++i) {
-        QWidget *child = qobject_cast<QWidget*>(children.at(i));
+    for (auto *o : widget->children()) {
+        QWidget *child = qobject_cast<QWidget*>(o);
         if (child == 0 || child->isWindow())
             continue;
         if (child->isHidden() || !child->geometry().intersects(r))
@@ -466,7 +435,7 @@ QView3D::QView3D(QDesignerFormWindowInterface *form_window, QWidget *parent)
     connect(m_3d_widget, SIGNAL(updateForm()), this, SLOT(updateForm()));
 
     QGridLayout *layout = new QGridLayout(this);
-    layout->setMargin(0);
+    layout->setContentsMargins(QMargins());
     layout->addWidget(m_3d_widget, 0, 0, 1, 1);
 
     updateForm();

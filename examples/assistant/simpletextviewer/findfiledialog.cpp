@@ -1,64 +1,28 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the examples of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:BSD$
-** You may use this file under the terms of the BSD license as follows:
-**
-** "Redistribution and use in source and binary forms, with or without
-** modification, are permitted provided that the following conditions are
-** met:
-**   * Redistributions of source code must retain the above copyright
-**     notice, this list of conditions and the following disclaimer.
-**   * Redistributions in binary form must reproduce the above copyright
-**     notice, this list of conditions and the following disclaimer in
-**     the documentation and/or other materials provided with the
-**     distribution.
-**   * Neither the name of The Qt Company Ltd nor the names of its
-**     contributors may be used to endorse or promote products derived
-**     from this software without specific prior written permission.
-**
-**
-** THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-** "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-** LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-** A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-** OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-** SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-** LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-** DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-** THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-** (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-** OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2017 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
 
-#include <QtCore/QDir>
-#include <QtWidgets/QLayout>
-#include <QtWidgets/QComboBox>
-#include <QtWidgets/QTreeWidget>
-#include <QtWidgets/QLayout>
-#include <QtWidgets/QFileDialog>
-#include <QtWidgets/QDialogButtonBox>
-#include <QtWidgets/QToolButton>
-#include <QtWidgets/QPushButton>
-#include <QtWidgets/QLabel>
-
-#include "findfiledialog.h"
 #include "assistant.h"
+#include "findfiledialog.h"
 #include "textedit.h"
+
+#include <QComboBox>
+#include <QDialogButtonBox>
+#include <QDir>
+#include <QFileDialog>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QPushButton>
+#include <QRegularExpression>
+#include <QToolButton>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
 
 //! [0]
 FindFileDialog::FindFileDialog(TextEdit *editor, Assistant *assistant)
     : QDialog(editor)
+    , currentEditor(editor)
+    , currentAssistant(assistant)
 {
-    currentAssistant = assistant;
-    currentEditor = editor;
 //! [0]
 
     createButtons();
@@ -78,8 +42,8 @@ FindFileDialog::FindFileDialog(TextEdit *editor, Assistant *assistant)
 
 void FindFileDialog::browse()
 {
-    QString currentDirectory = directoryComboBox->currentText();
-    QString newDirectory = QFileDialog::getExistingDirectory(this,
+    const QString currentDirectory = directoryComboBox->currentText();
+    const QString newDirectory = QFileDialog::getExistingDirectory(this,
                                tr("Select Directory"), currentDirectory);
     if (!newDirectory.isEmpty()) {
         directoryComboBox->addItem(QDir::toNativeSeparators(newDirectory));
@@ -95,40 +59,39 @@ void FindFileDialog::help()
 }
 //! [2]
 
-void FindFileDialog::openFile(QTreeWidgetItem *item)
+void FindFileDialog::openFile()
 {
-    if (!item) {
-        item = foundFilesTree->currentItem();
-        if (!item)
-            return;
-    }
+    QTreeWidgetItem *item = foundFilesTree->currentItem();
+    if (!item)
+        return;
 
-    QString fileName = item->text(0);
-    QString path = directoryComboBox->currentText() + QDir::separator();
+    const QString fileName = item->text(0);
+    const QString path = QDir(directoryComboBox->currentText()).filePath(fileName);
 
-    currentEditor->setContents(path + fileName);
+    currentEditor->setContents(path);
     close();
 }
 
 void FindFileDialog::update()
 {
     findFiles();
-    buttonBox->button(QDialogButtonBox::Open)->setEnabled(
-            foundFilesTree->topLevelItemCount() > 0);
+    buttonBox->button(QDialogButtonBox::Open)->setEnabled(foundFilesTree->topLevelItemCount() > 0);
 }
 
 void FindFileDialog::findFiles()
 {
-    QRegExp filePattern(fileNameComboBox->currentText() + "*");
-    filePattern.setPatternSyntax(QRegExp::Wildcard);
+    QString wildCard = fileNameComboBox->currentText();
+    if (!wildCard.endsWith('*'))
+        wildCard += '*';
+    const QRegularExpression filePattern(QRegularExpression::wildcardToRegularExpression(wildCard));
 
-    QDir directory(directoryComboBox->currentText());
+    const QDir directory(directoryComboBox->currentText());
 
-    QStringList allFiles = directory.entryList(QDir::Files | QDir::NoSymLinks);
+    const QStringList allFiles = directory.entryList(QDir::Files | QDir::NoSymLinks);
     QStringList matchingFiles;
 
-    foreach (QString file, allFiles) {
-        if (filePattern.exactMatch(file))
+    for (const QString &file : allFiles) {
+        if (filePattern.match(file).hasMatch())
             matchingFiles << file;
     }
     showFiles(matchingFiles);
@@ -138,10 +101,8 @@ void FindFileDialog::showFiles(const QStringList &files)
 {
     foundFilesTree->clear();
 
-    for (int i = 0; i < files.count(); ++i) {
-        QTreeWidgetItem *item = new QTreeWidgetItem(foundFilesTree);
-        item->setText(0, files[i]);
-    }
+    for (const QString &file : files)
+        new QTreeWidgetItem(foundFilesTree, {file});
 
     if (files.count() > 0)
         foundFilesTree->setCurrentItem(foundFilesTree->topLevelItem(0));
@@ -151,14 +112,14 @@ void FindFileDialog::createButtons()
 {
     browseButton = new QToolButton;
     browseButton->setText(tr("..."));
-    connect(browseButton, SIGNAL(clicked()), this, SLOT(browse()));
+    connect(browseButton, &QAbstractButton::clicked, this, &FindFileDialog::browse);
 
     buttonBox = new QDialogButtonBox(QDialogButtonBox::Open
                                      | QDialogButtonBox::Cancel
                                      | QDialogButtonBox::Help);
-    connect(buttonBox, SIGNAL(accepted()), this, SLOT(openFile()));
-    connect(buttonBox, SIGNAL(rejected()), this, SLOT(reject()));
-    connect(buttonBox, SIGNAL(helpRequested()), this, SLOT(help()));
+    connect(buttonBox, &QDialogButtonBox::accepted, this, &FindFileDialog::openFile);
+    connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    connect(buttonBox, &QDialogButtonBox::helpRequested, this, &FindFileDialog::help);
 }
 
 void FindFileDialog::createComboBoxes()
@@ -167,19 +128,14 @@ void FindFileDialog::createComboBoxes()
     fileNameComboBox = new QComboBox;
 
     fileNameComboBox->setEditable(true);
-    fileNameComboBox->setSizePolicy(QSizePolicy::Expanding,
-                                    QSizePolicy::Preferred);
+    fileNameComboBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 
     directoryComboBox->setMinimumContentsLength(30);
-    directoryComboBox->setSizeAdjustPolicy(
-            QComboBox::AdjustToMinimumContentsLength);
-    directoryComboBox->setSizePolicy(QSizePolicy::Expanding,
-                                     QSizePolicy::Preferred);
+    directoryComboBox->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+    directoryComboBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 
-    connect(fileNameComboBox, SIGNAL(editTextChanged(QString)),
-            this, SLOT(update()));
-    connect(directoryComboBox, SIGNAL(currentIndexChanged(QString)),
-            this, SLOT(update()));
+    connect(fileNameComboBox, &QComboBox::editTextChanged, this, &FindFileDialog::update);
+    connect(directoryComboBox, &QComboBox::currentTextChanged, this, &FindFileDialog::update);
 }
 
 void FindFileDialog::createFilesTree()
@@ -190,8 +146,7 @@ void FindFileDialog::createFilesTree()
     foundFilesTree->setRootIsDecorated(false);
     foundFilesTree->setSelectionMode(QAbstractItemView::SingleSelection);
 
-    connect(foundFilesTree, SIGNAL(itemActivated(QTreeWidgetItem*,int)),
-            this, SLOT(openFile(QTreeWidgetItem*)));
+    connect(foundFilesTree, &QTreeWidget::itemActivated, this, &FindFileDialog::openFile);
 }
 
 void FindFileDialog::createLabels()

@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 //
 //  W A R N I N G
@@ -47,12 +17,12 @@
 
 #include "shared_global_p.h"
 
-#include <QtDesigner/QDesignerLayoutDecorationExtension>
+#include <QtDesigner/layoutdecoration.h>
 
-#include <QtCore/QPointer>
-#include <QtCore/QVariant>
-#include <QtWidgets/QWidget>
-#include <QtWidgets/QLayout>
+#include <QtCore/qpointer.h>
+#include <QtCore/qvariant.h>
+#include <QtWidgets/qwidget.h>
+#include <QtWidgets/qlayout.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -136,6 +106,8 @@ protected:
     LayoutHelper();
 
 public:
+    Q_DISABLE_COPY(LayoutHelper)
+
     virtual ~LayoutHelper();
 
     static LayoutHelper *createLayoutHelper(int type);
@@ -170,10 +142,10 @@ class QDESIGNER_SHARED_EXPORT QLayoutSupport: public QObject, public QDesignerLa
     Q_INTERFACES(QDesignerLayoutDecorationExtension)
 
 protected:
-    QLayoutSupport(QDesignerFormWindowInterface *formWindow, QWidget *widget, LayoutHelper *helper, QObject *parent = 0);
+    QLayoutSupport(QDesignerFormWindowInterface *formWindow, QWidget *widget, LayoutHelper *helper, QObject *parent = nullptr);
 
 public:
-    virtual ~QLayoutSupport();
+    ~QLayoutSupport() override;
 
     inline QDesignerFormWindowInterface *formWindow() const   { return m_formWindow; }
 
@@ -181,19 +153,19 @@ public:
     LayoutHelper* helper() const                              { return m_helper; }
 
     // DecorationExtension
-    virtual int currentIndex() const                          { return m_currentIndex; }
+    int currentIndex() const override                  { return m_currentIndex; }
 
-    virtual InsertMode currentInsertMode() const              { return m_currentInsertMode; }
+    InsertMode currentInsertMode() const override      { return m_currentInsertMode; }
 
-    virtual QPair<int, int> currentCell() const               { return m_currentCell; }
+    std::pair<int, int> currentCell() const  override      { return m_currentCell; }
 
-    int findItemAt(const QPoint &pos) const Q_DECL_OVERRIDE;
-    int indexOf(QWidget *widget) const Q_DECL_OVERRIDE;
-    int indexOf(QLayoutItem *item) const Q_DECL_OVERRIDE;
+    int findItemAt(const QPoint &pos) const override;
+    int indexOf(QWidget *widget) const override;
+    int indexOf(QLayoutItem *item) const override;
 
-    void adjustIndicator(const QPoint &pos, int index) Q_DECL_OVERRIDE;
+    void adjustIndicator(const QPoint &pos, int index) override;
 
-    QList<QWidget*> widgets(QLayout *layout) const Q_DECL_OVERRIDE;
+    QWidgetList widgets(QLayout *layout) const override;
 
     // Pad empty cells with dummy spacers. Called by layouting commands.
     static void createEmptyCells(QGridLayout *gridLayout);
@@ -204,11 +176,12 @@ public:
 
     // grid helpers: find item index
     static int findItemAt(QGridLayout *, int row, int column);
+    using QDesignerLayoutDecorationExtension::findItemAt;
     // grid helpers: Quick check whether simplify should be enabled for grids. May return false positives.
     static bool canSimplifyQuickCheck(const QGridLayout *);
     static bool canSimplifyQuickCheck(const QFormLayout *fl);
     // Factory function, create layout support according to layout type of widget
-    static QLayoutSupport *createLayoutSupport(QDesignerFormWindowInterface *formWindow, QWidget *widget, QObject *parent = 0);
+    static QLayoutSupport *createLayoutSupport(QDesignerFormWindowInterface *formWindow, QWidget *widget, QObject *parent = nullptr);
 
 protected:
     // figure out insertion position and mode from indicator on empty cell if supported
@@ -221,13 +194,13 @@ protected:
     virtual QRect extendedGeometry(int index) const = 0;
     virtual bool supportsIndicatorOrientation(Qt::Orientation indicatorOrientation) const = 0;
 
-    QRect itemInfo(int index) const;
+    QRect itemInfo(int index) const override;
     QLayout *layout() const;
     QGridLayout *gridLayout() const;
     QWidget *widget() const              { return m_widget; }
 
     void setInsertMode(InsertMode im);
-    void setCurrentCell(const QPair<int, int> &cell);
+    void setCurrentCell(const std::pair<int, int> &cell);
 
 private:
     enum Indicator { LeftIndicator, TopIndicator, RightIndicator, BottomIndicator, NumIndicators };
@@ -242,7 +215,7 @@ private:
     QPointer<QWidget> m_indicators[NumIndicators];
     int m_currentIndex;
     InsertMode m_currentInsertMode;
-    QPair<int, int> m_currentCell;
+    std::pair<int, int> m_currentCell;
 };
 } // namespace qdesigner_internal
 
@@ -251,7 +224,7 @@ class QDESIGNER_SHARED_EXPORT QLayoutWidget: public QWidget
 {
     Q_OBJECT
 public:
-    explicit QLayoutWidget(QDesignerFormWindowInterface *formWindow, QWidget *parent = 0);
+    explicit QLayoutWidget(QDesignerFormWindowInterface *formWindow, QWidget *parent = nullptr);
 
     int layoutLeftMargin() const;
     void setLayoutLeftMargin(int layoutMargin);
@@ -268,8 +241,8 @@ public:
     inline QDesignerFormWindowInterface *formWindow() const    { return m_formWindow; }
 
 protected:
-    bool event(QEvent *e) Q_DECL_OVERRIDE;
-    void paintEvent(QPaintEvent *e) Q_DECL_OVERRIDE;
+    bool event(QEvent *e) override;
+    void paintEvent(QPaintEvent *e) override;
 
 private:
     QDesignerFormWindowInterface *m_formWindow;

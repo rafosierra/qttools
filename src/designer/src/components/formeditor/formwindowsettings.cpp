@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "formwindowsettings.h"
 #include "ui_formwindowsettings.h"
@@ -37,29 +7,30 @@
 #include <formwindowbase_p.h>
 #include <grid_p.h>
 
-#include <QtWidgets/QStyle>
+#include <QtWidgets/qstyle.h>
 
-#include <QtCore/QRegExp>
-#include <QtCore/QDebug>
+#include <QtCore/qcompare.h>
+#include <QtCore/qregularexpression.h>
+#include <QtCore/qdebug.h>
+
+#include <algorithm>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 namespace qdesigner_internal {
 
 // Data structure containing form dialog data providing comparison
 struct FormWindowData {
-    FormWindowData();
-
-    bool equals(const FormWindowData&) const;
-
     void fromFormWindow(FormWindowBase* fw);
     void applyToFormWindow(FormWindowBase* fw) const;
 
-    bool layoutDefaultEnabled;
-    int defaultMargin;
-    int defaultSpacing;
+    bool layoutDefaultEnabled{false};
+    int defaultMargin{0};
+    int defaultSpacing{0};
 
-    bool layoutFunctionsEnabled;
+    bool layoutFunctionsEnabled{false};
     QString marginFunction;
     QString spacingFunction;
 
@@ -69,12 +40,15 @@ struct FormWindowData {
 
     QStringList includeHints;
 
-    bool hasFormGrid;
+    bool hasFormGrid{false};
     Grid grid;
-};
+    bool idBasedTranslations{false};
+    bool connectSlotsByName{true};
 
-inline bool operator==(const FormWindowData &fd1, const FormWindowData &fd2) { return fd1.equals(fd2); }
-inline bool operator!=(const FormWindowData &fd1, const FormWindowData &fd2) { return !fd1.equals(fd2); }
+    friend bool comparesEqual(const FormWindowData &lhs,
+                              const FormWindowData &rhs) noexcept;
+    Q_DECLARE_EQUALITY_COMPARABLE(FormWindowData)
+};
 
 QDebug operator<<(QDebug str, const  FormWindowData &d)
 {
@@ -82,32 +56,28 @@ QDebug operator<<(QDebug str, const  FormWindowData &d)
         <<  ',' << d.defaultSpacing << " LayoutFunctions=" << d.layoutFunctionsEnabled << ','
         << d.marginFunction << ',' << d.spacingFunction << " PixFunction="
         << d.pixFunction << " Author=" << d.author << " Hints=" << d.includeHints
-        << " Grid=" << d.hasFormGrid << d.grid.deltaX() << d.grid.deltaY() << '\n';
+        << " Grid=" << d.hasFormGrid << d.grid.deltaX() << d.grid.deltaY()
+        << " ID-based translations" << d.idBasedTranslations
+        << " Connect slots by name" << d.connectSlotsByName
+        << '\n';
     return str;
 }
 
-FormWindowData::FormWindowData() :
-    layoutDefaultEnabled(false),
-    defaultMargin(0),
-    defaultSpacing(0),
-    layoutFunctionsEnabled(false),
-    hasFormGrid(false)
+bool comparesEqual(const FormWindowData &lhs, const FormWindowData &rhs) noexcept
 {
-}
-
-bool FormWindowData::equals(const FormWindowData &rhs) const
-{
-    return layoutDefaultEnabled   == rhs.layoutDefaultEnabled &&
-           defaultMargin          == rhs.defaultMargin &&
-           defaultSpacing         == rhs.defaultSpacing &&
-           layoutFunctionsEnabled == rhs.layoutFunctionsEnabled &&
-           marginFunction         == rhs.marginFunction &&
-           spacingFunction        == rhs.spacingFunction &&
-           pixFunction            == rhs.pixFunction  &&
-           author                 == rhs.author &&
-           includeHints           == rhs.includeHints &&
-           hasFormGrid            == rhs.hasFormGrid &&
-           grid                   == rhs.grid;
+    return lhs.layoutDefaultEnabled   == rhs.layoutDefaultEnabled &&
+           lhs.defaultMargin          == rhs.defaultMargin &&
+           lhs.defaultSpacing         == rhs.defaultSpacing &&
+           lhs.layoutFunctionsEnabled == rhs.layoutFunctionsEnabled &&
+           lhs.marginFunction         == rhs.marginFunction &&
+           lhs.spacingFunction        == rhs.spacingFunction &&
+           lhs.pixFunction            == rhs.pixFunction  &&
+           lhs.author                 == rhs.author &&
+           lhs.includeHints           == rhs.includeHints &&
+           lhs.hasFormGrid            == rhs.hasFormGrid &&
+           lhs.grid                   == rhs.grid &&
+           lhs.idBasedTranslations    == rhs.idBasedTranslations &&
+           lhs.connectSlotsByName     == rhs.connectSlotsByName;
 }
 
 void FormWindowData::fromFormWindow(FormWindowBase* fw)
@@ -115,12 +85,13 @@ void FormWindowData::fromFormWindow(FormWindowBase* fw)
     defaultMargin =  defaultSpacing = INT_MIN;
     fw->layoutDefault(&defaultMargin, &defaultSpacing);
 
-    QStyle *style = fw->formContainer()->style();
-    layoutDefaultEnabled = defaultMargin != INT_MIN || defaultMargin != INT_MIN;
+    auto container = fw->formContainer();
+    QStyle *style = container->style();
+    layoutDefaultEnabled = defaultMargin != INT_MIN || defaultSpacing != INT_MIN;
     if (defaultMargin == INT_MIN)
-        defaultMargin = style->pixelMetric(QStyle::PM_DefaultChildMargin, 0);
+        defaultMargin = style->pixelMetric(QStyle::PM_LayoutLeftMargin, nullptr, container);
     if (defaultSpacing == INT_MIN)
-        defaultSpacing = style->pixelMetric(QStyle::PM_DefaultLayoutSpacing, 0);
+        defaultSpacing = style->pixelMetric(QStyle::PM_LayoutHorizontalSpacing, nullptr);
 
 
     marginFunction.clear();
@@ -137,6 +108,8 @@ void FormWindowData::fromFormWindow(FormWindowBase* fw)
 
     hasFormGrid = fw->hasFormGrid();
     grid = hasFormGrid ? fw->designerGrid() : FormWindowBase::defaultDesignerGrid();
+    idBasedTranslations = fw->useIdBasedTranslations();
+    connectSlotsByName = fw->connectSlotsByName();
 }
 
 void FormWindowData::applyToFormWindow(FormWindowBase* fw) const
@@ -162,13 +135,15 @@ void FormWindowData::applyToFormWindow(FormWindowBase* fw) const
     fw->setHasFormGrid(hasFormGrid);
     if (hasFormGrid || hadFormGrid != hasFormGrid)
         fw->setDesignerGrid(hasFormGrid ? grid : FormWindowBase::defaultDesignerGrid());
+    fw->setUseIdBasedTranslations(idBasedTranslations);
+    fw->setConnectSlotsByName(connectSlotsByName);
 }
 
 // -------------------------- FormWindowSettings
 
 FormWindowSettings::FormWindowSettings(QDesignerFormWindowInterface *parent) :
     QDialog(parent),
-    m_ui(new ::Ui::FormWindowSettings),
+    m_ui(new QT_PREPEND_NAMESPACE(Ui)::FormWindowSettings),
     m_formWindow(qobject_cast<FormWindowBase*>(parent)),
     m_oldData(new FormWindowData)
 {
@@ -177,8 +152,6 @@ FormWindowSettings::FormWindowSettings(QDesignerFormWindowInterface *parent) :
     m_ui->setupUi(this);
     m_ui->gridPanel->setCheckable(true);
     m_ui->gridPanel->setResetButtonVisible(false);
-
-    setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
     QString deviceProfileName = m_formWindow->deviceProfileName();
     if (deviceProfileName.isEmpty())
@@ -216,21 +189,19 @@ FormWindowData FormWindowSettings::data() const
 
     const QString hints = m_ui->includeHintsTextEdit->toPlainText();
     if (!hints.isEmpty()) {
-        rc.includeHints = hints.split(QString(QLatin1Char('\n')));
+        rc.includeHints = hints.split(u'\n');
         // Purge out any lines consisting of blanks only
-        QRegExp blankLine = QRegExp(QStringLiteral("^\\s*$"));
+        const QRegularExpression blankLine(u"^\\s*$"_s);
         Q_ASSERT(blankLine.isValid());
-        for (QStringList::iterator it = rc.includeHints.begin(); it != rc.includeHints.end(); )
-            if (blankLine.exactMatch(*it)) {
-                it = rc.includeHints.erase(it);
-            } else {
-                ++it;
-            }
-        rc.includeHints.removeAll(QString());
+        rc.includeHints.erase(std::remove_if(rc.includeHints.begin(), rc.includeHints.end(),
+                                             [blankLine](const QString &hint){ return blankLine.match(hint).hasMatch(); }),
+                              rc.includeHints.end());
     }
 
     rc.hasFormGrid = m_ui->gridPanel->isChecked();
     rc.grid = m_ui->gridPanel->grid();
+    rc.idBasedTranslations = m_ui->idBasedTranslationsCheckBox->isChecked();
+    rc.connectSlotsByName = m_ui->connectSlotsByNameCheckBox->isChecked();
     return rc;
 }
 
@@ -249,14 +220,16 @@ void FormWindowSettings::setData(const FormWindowData &data)
 
     m_ui->authorLineEdit->setText(data.author);
 
-    if (data.includeHints.empty()) {
+    if (data.includeHints.isEmpty()) {
         m_ui->includeHintsTextEdit->clear();
     } else {
-        m_ui->includeHintsTextEdit->setText(data.includeHints.join(QStringLiteral("\n")));
+        m_ui->includeHintsTextEdit->setText(data.includeHints.join(u'\n'));
     }
 
     m_ui->gridPanel->setChecked(data.hasFormGrid);
     m_ui->gridPanel->setGrid(data.grid);
+    m_ui->idBasedTranslationsCheckBox->setChecked(data.idBasedTranslations);
+    m_ui->connectSlotsByNameCheckBox->setChecked(data.connectSlotsByName);
 }
 
 void FormWindowSettings::accept()

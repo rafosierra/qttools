@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 //
 //  W A R N I N G
@@ -48,9 +18,9 @@
 #include "shared_global_p.h"
 #include <QtDesigner/abstractdnditem.h>
 
-#include <QtCore/QPoint>
-#include <QtCore/QList>
-#include <QtCore/QMimeData>
+#include <QtCore/qpoint.h>
+#include <QtCore/qlist.h>
+#include <QtCore/qmimedata.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -63,16 +33,16 @@ namespace qdesigner_internal {
 class QDESIGNER_SHARED_EXPORT QDesignerDnDItem: public QDesignerDnDItemInterface
 {
 public:
-    explicit QDesignerDnDItem(DropType type, QWidget *source = 0);
-    virtual ~QDesignerDnDItem();
+    explicit QDesignerDnDItem(DropType type, QWidget *source = nullptr);
+    ~QDesignerDnDItem() override;
 
-    DomUI *domUi() const Q_DECL_OVERRIDE;
-    QWidget *decoration() const Q_DECL_OVERRIDE;
-    QWidget *widget() const Q_DECL_OVERRIDE;
-    QPoint hotSpot() const Q_DECL_OVERRIDE;
-    QWidget *source() const Q_DECL_OVERRIDE;
+    DomUI *domUi() const override;
+    QWidget *decoration() const override;
+    QWidget *widget() const override;
+    QPoint hotSpot() const override;
+    QWidget *source() const override;
 
-    DropType type() const Q_DECL_OVERRIDE;
+    DropType type() const override;
 
 protected:
     void setDomUi(DomUI *dom_ui);
@@ -87,7 +57,7 @@ private:
     QWidget *m_decoration;
     QPoint m_hot_spot;
 
-    Q_DISABLE_COPY(QDesignerDnDItem)
+    Q_DISABLE_COPY_MOVE(QDesignerDnDItem)
 };
 
 // Mime data for use with designer drag and drop operations.
@@ -96,9 +66,9 @@ class  QDESIGNER_SHARED_EXPORT QDesignerMimeData : public QMimeData {
     Q_OBJECT
 
 public:
-    typedef QList<QDesignerDnDItemInterface *> QDesignerDnDItems;
+    using QDesignerDnDItems = QList<QDesignerDnDItemInterface *>;
 
-    virtual ~QDesignerMimeData();
+    ~QDesignerMimeData() override;
 
     const QDesignerDnDItems &items() const { return m_items; }
 

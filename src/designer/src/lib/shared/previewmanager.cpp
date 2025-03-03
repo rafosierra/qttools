@@ -1,71 +1,44 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
+#include "formwindowbase_p.h"
 #include "previewmanager_p.h"
 #include "qdesigner_formbuilder_p.h"
 #include "shared_settings_p.h"
-#include "shared_settings_p.h"
-#include "zoomwidget_p.h"
-#include "formwindowbase_p.h"
 #include "widgetfactory_p.h"
+#include "zoomwidget_p.h"
 
-#include <deviceskin.h>
+#include <deviceskin_p.h>
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerFormWindowManagerInterface>
-#include <QtDesigner/QDesignerSettingsInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformwindowmanager.h>
+#include <QtDesigner/abstractsettings.h>
 
-#include <QtWidgets/QWidget>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qdialog.h>
+#include <QtWidgets/qdockwidget.h>
+#include <QtWidgets/qmainwindow.h>
+#include <QtWidgets/qmenu.h>
+
+#include <QtGui/qaction.h>
+#include <QtGui/qactiongroup.h>
+#include <QtGui/qcursor.h>
 #include <QtGui/qevent.h>
-#include <QtWidgets/QDesktopWidget>
-#include <QtWidgets/QMainWindow>
-#include <QtWidgets/QDockWidget>
-#include <QtWidgets/QApplication>
-#include <QtGui/QPixmap>
-#include <QtWidgets/QVBoxLayout>
-#include <QtWidgets/QDialog>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QActionGroup>
-#include <QtGui/QCursor>
-#include <QtGui/QMatrix>
+#include <QtGui/qpixmap.h>
+#include <QtGui/qscreen.h>
+#include <QtGui/qtransform.h>
 
-#include <QtCore/QMap>
-#include <QtCore/QDebug>
-#include <QtCore/QSharedData>
+#include <QtCore/qdebug.h>
+#include <QtCore/qlist.h>
+#include <QtCore/qmap.h>
+#include <QtCore/qpointer.h>
+#include <QtCore/qshareddata.h>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 static inline int compare(const qdesigner_internal::PreviewConfiguration &pc1, const qdesigner_internal::PreviewConfiguration &pc2)
 {
@@ -78,7 +51,7 @@ static inline int compare(const qdesigner_internal::PreviewConfiguration &pc1, c
     return pc1.deviceSkin().compare(pc2.deviceSkin());
 }
 
-namespace {
+namespace qdesigner_internal {
     // ------ PreviewData (data associated with a preview window)
     struct PreviewData {
         PreviewData(const QPointer<QWidget> &widget, const  QDesignerFormWindowInterface *formWindow, const qdesigner_internal::PreviewConfiguration &pc);
@@ -95,20 +68,17 @@ namespace {
         m_configuration(pc)
     {
     }
-}
-
-namespace qdesigner_internal {
 
 /* In designer, we have the situation that laid-out maincontainers have
  * a geometry set (which might differ from their sizeHint()). The QGraphicsItem
  * should return that in its size hint, else such cases won't work */
 
 class DesignerZoomProxyWidget : public ZoomProxyWidget  {
-    Q_DISABLE_COPY(DesignerZoomProxyWidget)
+    Q_DISABLE_COPY_MOVE(DesignerZoomProxyWidget)
 public:
-    DesignerZoomProxyWidget(QGraphicsItem *parent = 0, Qt::WindowFlags wFlags = 0);
+    DesignerZoomProxyWidget(QGraphicsItem *parent = nullptr, Qt::WindowFlags wFlags = {});
 protected:
-    QSizeF sizeHint(Qt::SizeHint which, const QSizeF & constraint = QSizeF() ) const Q_DECL_OVERRIDE;
+    QSizeF sizeHint(Qt::SizeHint which, const QSizeF & constraint = QSizeF() ) const override;
 };
 
 DesignerZoomProxyWidget::DesignerZoomProxyWidget(QGraphicsItem *parent, Qt::WindowFlags wFlags) :
@@ -125,11 +95,12 @@ QSizeF DesignerZoomProxyWidget::sizeHint(Qt::SizeHint which, const QSizeF & cons
 
 // DesignerZoomWidget which returns DesignerZoomProxyWidget in its factory function
 class DesignerZoomWidget : public ZoomWidget {
-    Q_DISABLE_COPY(DesignerZoomWidget)
+    Q_DISABLE_COPY_MOVE(DesignerZoomWidget)
 public:
-    DesignerZoomWidget(QWidget *parent = 0);
+    DesignerZoomWidget(QWidget *parent = nullptr);
 private:
-    QGraphicsProxyWidget *createProxyWidget(QGraphicsItem *parent = 0, Qt::WindowFlags wFlags = 0) const Q_DECL_OVERRIDE;
+    QGraphicsProxyWidget *createProxyWidget(QGraphicsItem *parent = nullptr,
+                                            Qt::WindowFlags wFlags = {}) const override;
 };
 
 DesignerZoomWidget::DesignerZoomWidget(QWidget *parent) :
@@ -172,7 +143,7 @@ protected:
     virtual void fitWidget(const QSize &size);
     //  Calculate the complete transformation for the skin
     // (base class implementation provides rotation).
-    virtual QMatrix skinTransform() const;
+    virtual QTransform skinTransform() const;
 
 private:
     const QSize m_screenSize;
@@ -188,16 +159,16 @@ PreviewDeviceSkin::PreviewDeviceSkin(const DeviceSkinParameters &parameters, QWi
     DeviceSkin(parameters, parent),
     m_screenSize(parameters.screenSize()),
     m_direction(DirectionUp),
-    m_directionUpAction(0),
-    m_directionLeftAction(0),
-    m_directionRightAction(0),
-    m_closeAction(0)
+    m_directionUpAction(nullptr),
+    m_directionLeftAction(nullptr),
+    m_directionRightAction(nullptr),
+    m_closeAction(nullptr)
 {
-    connect(this, SIGNAL(skinKeyPressEvent(int,QString,bool)),
-            this, SLOT(slotSkinKeyPressEvent(int,QString,bool)));
-    connect(this, SIGNAL(skinKeyReleaseEvent(int,QString,bool)),
-            this, SLOT(slotSkinKeyReleaseEvent(int,QString,bool)));
-    connect(this, SIGNAL(popupMenu()), this, SLOT(slotPopupMenu()));
+    connect(this, &PreviewDeviceSkin::skinKeyPressEvent,
+            this, &PreviewDeviceSkin::slotSkinKeyPressEvent);
+    connect(this, &PreviewDeviceSkin::skinKeyReleaseEvent,
+            this, &PreviewDeviceSkin::slotSkinKeyReleaseEvent);
+    connect(this, &PreviewDeviceSkin::popupMenu, this, &PreviewDeviceSkin::slotPopupMenu);
 }
 
 void PreviewDeviceSkin::setPreview(QWidget *formWidget)
@@ -211,7 +182,7 @@ void PreviewDeviceSkin::setPreview(QWidget *formWidget)
 void PreviewDeviceSkin::slotSkinKeyPressEvent(int code, const QString& text, bool autorep)
 {
     if (QWidget *focusWidget =  QApplication::focusWidget()) {
-        QKeyEvent e(QEvent::KeyPress,code,0,text,autorep);
+        QKeyEvent e(QEvent::KeyPress, code, {}, text, autorep);
         QApplication::sendEvent(focusWidget, &e);
     }
 }
@@ -219,7 +190,7 @@ void PreviewDeviceSkin::slotSkinKeyPressEvent(int code, const QString& text, boo
 void PreviewDeviceSkin::slotSkinKeyReleaseEvent(int code, const QString& text, bool autorep)
 {
     if (QWidget *focusWidget =  QApplication::focusWidget()) {
-        QKeyEvent e(QEvent::KeyRelease,code,0,text,autorep);
+        QKeyEvent e(QEvent::KeyRelease, code, {}, text, autorep);
         QApplication::sendEvent(focusWidget, &e);
     }
 }
@@ -246,7 +217,7 @@ void PreviewDeviceSkin::slotPopupMenu()
     // Create actions
     if (!m_directionUpAction) {
         QActionGroup *directionGroup = new QActionGroup(this);
-        connect(directionGroup, SIGNAL(triggered(QAction*)), this, SLOT(slotDirection(QAction*)));
+        connect(directionGroup, &QActionGroup::triggered, this, &PreviewDeviceSkin::slotDirection);
         directionGroup->setExclusive(true);
         m_directionUpAction = createCheckableActionIntData(tr("&Portrait"), DirectionUp, m_direction, directionGroup, this);
         //: Rotate form preview counter-clockwise
@@ -254,7 +225,7 @@ void PreviewDeviceSkin::slotPopupMenu()
         //: Rotate form preview clockwise
         m_directionRightAction = createCheckableActionIntData(tr("&Landscape (CW)"), DirectionRight, m_direction, directionGroup, this);
         m_closeAction = new QAction(tr("&Close"), this);
-        connect(m_closeAction, SIGNAL(triggered()), parentWidget(), SLOT(close()));
+        connect(m_closeAction, &QAction::triggered, parentWidget(), &QWidget::close);
     }
     menu.addAction(m_directionUpAction);
     menu.addAction(m_directionLeftAction);
@@ -289,9 +260,9 @@ void PreviewDeviceSkin::fitWidget(const QSize &size)
     view()->setFixedSize(size);
 }
 
-QMatrix PreviewDeviceSkin::skinTransform() const
+QTransform PreviewDeviceSkin::skinTransform() const
 {
-    QMatrix newTransform;
+    QTransform newTransform;
     switch (m_direction)  {
         case DirectionUp:
             break;
@@ -308,7 +279,7 @@ QMatrix PreviewDeviceSkin::skinTransform() const
 // ------------ PreviewConfigurationPrivate
 class PreviewConfigurationData : public QSharedData {
 public:
-    PreviewConfigurationData() {}
+    PreviewConfigurationData() = default;
     explicit PreviewConfigurationData(const QString &style, const QString &applicationStyleSheet, const QString &deviceSkin);
 
     QString m_style;
@@ -333,7 +304,7 @@ class ZoomablePreviewDeviceSkin : public PreviewDeviceSkin
     Q_OBJECT
 public:
     explicit ZoomablePreviewDeviceSkin(const DeviceSkinParameters &parameters, QWidget *parent);
-    void setPreview(QWidget *w) Q_DECL_OVERRIDE;
+    void setPreview(QWidget *w) override;
 
     int zoomPercent() const; // Device Skins have a double 'zoom' property
 
@@ -344,9 +315,9 @@ signals:
     void zoomPercentChanged(int);
 
 protected:
-    void populateContextMenu(QMenu *m) Q_DECL_OVERRIDE;
-    QMatrix skinTransform() const Q_DECL_OVERRIDE;
-    void fitWidget(const QSize &size) Q_DECL_OVERRIDE;
+    void populateContextMenu(QMenu *m) override;
+    QTransform skinTransform() const override;
+    void fitWidget(const QSize &size) override;
 
 private:
     ZoomMenu *m_zoomMenu;
@@ -357,11 +328,11 @@ private:
 ZoomablePreviewDeviceSkin::ZoomablePreviewDeviceSkin(const DeviceSkinParameters &parameters, QWidget *parent) :
     PreviewDeviceSkin(parameters, parent),
     m_zoomMenu(new ZoomMenu(this)),
-    m_zoomSubMenuAction(0),
+    m_zoomSubMenuAction(nullptr),
     m_zoomWidget(new DesignerZoomWidget)
 {
-    connect(m_zoomMenu, SIGNAL(zoomChanged(int)), this, SLOT(setZoomPercent(int)));
-    connect(m_zoomMenu, SIGNAL(zoomChanged(int)), this, SIGNAL(zoomPercentChanged(int)));
+    connect(m_zoomMenu, &ZoomMenu::zoomChanged, this, &ZoomablePreviewDeviceSkin::setZoomPercent);
+    connect(m_zoomMenu, &ZoomMenu::zoomChanged, this, &ZoomablePreviewDeviceSkin::zoomPercentChanged);
     m_zoomWidget->setZoomContextMenuEnabled(false);
     m_zoomWidget->setWidgetZoomContextMenuEnabled(false);
     m_zoomWidget->resize(screenSize());
@@ -418,10 +389,10 @@ void ZoomablePreviewDeviceSkin::populateContextMenu(QMenu *menu)
     menu->addSeparator();
 }
 
-QMatrix ZoomablePreviewDeviceSkin::skinTransform() const
+QTransform ZoomablePreviewDeviceSkin::skinTransform() const
 {
     // Complete transformation consisting of base class rotation and zoom.
-    QMatrix rc = PreviewDeviceSkin::skinTransform();
+    QTransform rc = PreviewDeviceSkin::skinTransform();
     const int zp = zoomPercent();
     if (zp != 100) {
         const qreal factor = zoomFactor(zp);
@@ -437,9 +408,9 @@ void ZoomablePreviewDeviceSkin::fitWidget(const QSize &size)
 
 // ------------- PreviewConfiguration
 
-static const char *styleKey = "Style";
-static const char *appStyleSheetKey = "AppStyleSheet";
-static const char *skinKey = "Skin";
+static constexpr auto styleKey = "Style"_L1;
+static constexpr auto appStyleSheetKey = "AppStyleSheet"_L1;
+static constexpr auto skinKey = "Skin"_L1;
 
 PreviewConfiguration::PreviewConfiguration() :
     m_d(new PreviewConfigurationData)
@@ -462,9 +433,7 @@ PreviewConfiguration &PreviewConfiguration::operator=(const PreviewConfiguration
     return *this;
 }
 
-PreviewConfiguration::~PreviewConfiguration()
-{
-}
+PreviewConfiguration::~PreviewConfiguration() = default;
 
 void PreviewConfiguration::clear()
 {
@@ -509,30 +478,29 @@ void PreviewConfiguration::toSettings(const QString &prefix, QDesignerSettingsIn
 {
     const PreviewConfigurationData &d = *m_d;
     settings->beginGroup(prefix);
-    settings->setValue(QLatin1String(styleKey),  d.m_style);
-    settings->setValue(QLatin1String(appStyleSheetKey), d.m_applicationStyleSheet);
-    settings->setValue(QLatin1String(skinKey), d.m_deviceSkin);
+    settings->setValue(styleKey, d.m_style);
+    settings->setValue(appStyleSheetKey, d.m_applicationStyleSheet);
+    settings->setValue(skinKey, d.m_deviceSkin);
     settings->endGroup();
 }
 
 void PreviewConfiguration::fromSettings(const QString &prefix, const QDesignerSettingsInterface *settings)
 {
     clear();
-    QString key = prefix;
-    key += QLatin1Char('/');
-    const int prefixSize = key.size();
+    QString key = prefix + u'/';
+    const auto prefixSize = key.size();
 
     PreviewConfigurationData &d = *m_d;
 
     const QVariant emptyString = QVariant(QString());
 
-    key += QLatin1String(styleKey);
+    key += styleKey;
     d.m_style = settings->value(key, emptyString).toString();
 
-    key.replace(prefixSize, key.size() - prefixSize, QLatin1String(appStyleSheetKey));
+    key.replace(prefixSize, key.size() - prefixSize, appStyleSheetKey);
     d.m_applicationStyleSheet = settings->value(key, emptyString).toString();
 
-    key.replace(prefixSize, key.size() - prefixSize, QLatin1String(skinKey));
+    key.replace(prefixSize, key.size() - prefixSize, skinKey);
     d.m_deviceSkin = settings->value(key, emptyString).toString();
 }
 
@@ -561,12 +529,11 @@ public:
 
     QPointer<QWidget> m_activePreview;
 
-    typedef QList<PreviewData> PreviewDataList;
+    using PreviewDataList = QList<PreviewData>;
 
     PreviewDataList m_previews;
 
-    typedef QMap<QString, DeviceSkinParameters> DeviceSkinConfigCache;
-    DeviceSkinConfigCache m_deviceSkinConfigCache;
+    QMap<QString, DeviceSkinParameters> m_deviceSkinConfigCache;
 
     QDesignerFormEditorInterface *m_core;
     bool m_updateBlocked;
@@ -574,7 +541,7 @@ public:
 
 PreviewManagerPrivate::PreviewManagerPrivate(PreviewManager::PreviewMode mode) :
     m_mode(mode),
-    m_core(0),
+    m_core(nullptr),
     m_updateBlocked(false)
 {
 }
@@ -600,7 +567,7 @@ Qt::WindowFlags PreviewManager::previewWindowFlags(const QWidget *widget) const
                                   Qt::Window | Qt::WindowMaximizeButtonHint | Qt::WindowCloseButtonHint :
                                   Qt::WindowFlags(Qt::Dialog);
 #else
-    Q_UNUSED(widget)
+    Q_UNUSED(widget);
     // Only Dialogs have close buttons on Mac.
     // On Linux, we don't want an additional task bar item and we don't want a minimize button;
     // we want the preview to be on top.
@@ -628,10 +595,9 @@ static QWidget *fakeContainer(QWidget *w)
         dock->setFeatures(dock->features() & ~(QDockWidget::DockWidgetFloatable|QDockWidget::DockWidgetMovable|QDockWidget::DockWidgetClosable));
         dock->setAllowedAreas(Qt::LeftDockWidgetArea);
         QMainWindow *mw = new QMainWindow;
-        int leftMargin, topMargin, rightMargin, bottomMargin;
-        mw->getContentsMargins(&leftMargin, &topMargin, &rightMargin, &bottomMargin);
+        const QMargins cm = mw->contentsMargins();
         mw->addDockWidget(Qt::LeftDockWidgetArea, dock);
-        mw->resize(size + QSize(leftMargin + rightMargin, topMargin + bottomMargin));
+        mw->resize(size + QSize(cm.left() + cm.right(), cm.top() + cm.bottom()));
         return mw;
     }
     return w;
@@ -679,7 +645,7 @@ QWidget *PreviewManager::createPreview(const QDesignerFormWindowInterface *fw,
     // Create
     QWidget *formWidget = QDesignerFormBuilder::createPreview(fw, pc.style(), pc.applicationStyleSheet(), deviceProfile, errorMessage);
     if (!formWidget)
-        return 0;
+        return nullptr;
 
     const QString title = tr("%1 - [Preview]").arg(formWidget->windowTitle());
     formWidget = fakeContainer(formWidget);
@@ -692,7 +658,7 @@ QWidget *PreviewManager::createPreview(const QDesignerFormWindowInterface *fw,
     if (deviceSkin.isEmpty()) {
         if (zoomable) { // Embed into ZoomWidget
             ZoomWidget *zw = new DesignerZoomWidget;
-            connect(zw->zoomMenu(), SIGNAL(zoomChanged(int)), this, SLOT(slotZoomChanged(int)));
+            connect(zw->zoomMenu(), &ZoomMenu::zoomChanged, this, &PreviewManager::slotZoomChanged);
             zw->setWindowTitle(title);
             zw->setWidget(formWidget);
             // Keep any widgets' context menus working, do not use global menu
@@ -700,7 +666,7 @@ QWidget *PreviewManager::createPreview(const QDesignerFormWindowInterface *fw,
             zw->setParent(fw->window(), previewWindowFlags(formWidget));
             // Make preview close when Widget closes (Dialog/accept, etc)
             formWidget->setAttribute(Qt::WA_DeleteOnClose, true);
-            connect(formWidget, SIGNAL(destroyed()), zw, SLOT(close()));
+            connect(formWidget, &QObject::destroyed, zw, &QWidget::close);
             zw->setZoom(initialZoom);
             zw->setProperty(WidgetFactory::disableStyleCustomPaintingPropertyC, QVariant(true));
             return zw;
@@ -710,22 +676,23 @@ QWidget *PreviewManager::createPreview(const QDesignerFormWindowInterface *fw,
         return formWidget;
     }
     // Embed into skin. find config in cache
-    PreviewManagerPrivate::DeviceSkinConfigCache::iterator it = d->m_deviceSkinConfigCache.find(deviceSkin);
+    auto it = d->m_deviceSkinConfigCache.find(deviceSkin);
     if (it == d->m_deviceSkinConfigCache.end()) {
         DeviceSkinParameters parameters;
         if (!parameters.read(deviceSkin, DeviceSkinParameters::ReadAll, errorMessage)) {
             formWidget->deleteLater();
-            return 0;
+            return nullptr;
           }
         it = d->m_deviceSkinConfigCache.insert(deviceSkin, parameters);
     }
 
     QWidget *skinContainer = createDeviceSkinContainer(fw);
-    PreviewDeviceSkin *skin = 0;
+    PreviewDeviceSkin *skin = nullptr;
     if (zoomable) {
         ZoomablePreviewDeviceSkin *zds = new ZoomablePreviewDeviceSkin(it.value(), skinContainer);
         zds->setZoomPercent(initialZoom);
-        connect(zds, SIGNAL(zoomPercentChanged(int)), this, SLOT(slotZoomChanged(int)));
+        connect(zds, &ZoomablePreviewDeviceSkin::zoomPercentChanged,
+                this, &PreviewManager::slotZoomChanged);
         skin = zds;
     }  else {
         skin = new PreviewDeviceSkin(it.value(), skinContainer);
@@ -733,7 +700,7 @@ QWidget *PreviewManager::createPreview(const QDesignerFormWindowInterface *fw,
     skin->setPreview(formWidget);
     // Make preview close when Widget closes (Dialog/accept, etc)
     formWidget->setAttribute(Qt::WA_DeleteOnClose, true);
-    connect(formWidget, SIGNAL(destroyed()), skinContainer, SLOT(close()));
+    connect(formWidget, &QObject::destroyed, skinContainer, &QWidget::close);
     skinContainer->setWindowTitle(title);
     skinContainer->setProperty(WidgetFactory::disableStyleCustomPaintingPropertyC, QVariant(true));
     return skinContainer;
@@ -753,7 +720,7 @@ QWidget *PreviewManager::showPreview(const QDesignerFormWindowInterface *fw,
 
     QWidget *widget = createPreview(fw, pc, deviceProfileIndex, errorMessage, initialZoom);
     if (!widget)
-        return 0;
+        return nullptr;
     // Install filter for Escape key
     widget->setAttribute(Qt::WA_DeleteOnClose, true);
     widget->installEventFilter(this);
@@ -766,24 +733,25 @@ QWidget *PreviewManager::showPreview(const QDesignerFormWindowInterface *fw,
     case SingleFormNonModalPreview:
     case MultipleFormNonModalPreview:
         widget->setWindowModality(Qt::NonModal);
-        connect(fw, SIGNAL(changed()), widget, SLOT(close()));
-        connect(fw, SIGNAL(destroyed()), widget, SLOT(close()));
-        if (d->m_mode == SingleFormNonModalPreview)
-            connect(fw->core()->formWindowManager(), SIGNAL(activeFormWindowChanged(QDesignerFormWindowInterface*)), widget, SLOT(close()));
+        connect(fw, &QDesignerFormWindowInterface::changed, widget, &QWidget::close);
+        connect(fw, &QObject::destroyed, widget, &QWidget::close);
+        if (d->m_mode == SingleFormNonModalPreview) {
+            connect(fw->core()->formWindowManager(), &QDesignerFormWindowManagerInterface::activeFormWindowChanged,
+                    widget, &QWidget::close);
+        }
         break;
     }
     // Semi-smart algorithm to position previews:
     // If its the first one, position relative to form.
     // 2nd, attempt to tile right (for comparing styles) or cascade
     const QSize size = widget->size();
-    const bool firstPreview = d->m_previews.empty();
+    const bool firstPreview = d->m_previews.isEmpty();
     if (firstPreview) {
         widget->move(fw->mapToGlobal(QPoint(Spacing, Spacing)));
     } else {
-        if (QWidget *lastPreview = d->m_previews.back().m_widget) {
-            QDesktopWidget *desktop = qApp->desktop();
+        if (QWidget *lastPreview = d->m_previews.constLast().m_widget) {
             const QRect lastPreviewGeometry = lastPreview->frameGeometry();
-            const QRect availGeometry = desktop->availableGeometry(desktop->screenNumber(lastPreview));
+            const QRect availGeometry = lastPreview->screen()->availableGeometry();
             const QPoint newPos = lastPreviewGeometry.topRight() + QPoint(Spacing, 0);
             if (newPos.x() +  size.width() < availGeometry.right())
                 widget->move(newPos);
@@ -801,33 +769,29 @@ QWidget *PreviewManager::showPreview(const QDesignerFormWindowInterface *fw,
 
 QWidget *PreviewManager::raise(const QDesignerFormWindowInterface *fw, const PreviewConfiguration &pc)
 {
-    typedef PreviewManagerPrivate::PreviewDataList PreviewDataList;
-    if (d->m_previews.empty())
-        return 0;
+    if (d->m_previews.isEmpty())
+        return nullptr;
 
     // find matching window
-    const PreviewDataList::const_iterator cend =  d->m_previews.constEnd();
-    for (PreviewDataList::const_iterator it = d->m_previews.constBegin(); it !=  cend ;++it) {
-        QWidget * w = it->m_widget;
-        if (w && it->m_formWindow == fw && it->m_configuration == pc) {
+    for (const auto &pd : std::as_const(d->m_previews)) {
+        QWidget *w = pd.m_widget;
+        if (w && pd.m_formWindow == fw && pd.m_configuration == pc) {
             w->raise();
             w->activateWindow();
             return w;
         }
     }
-    return 0;
+    return nullptr;
 }
 
 void PreviewManager::closeAllPreviews()
 {
-    typedef PreviewManagerPrivate::PreviewDataList PreviewDataList;
-    if (!d->m_previews.empty()) {
+    if (!d->m_previews.isEmpty()) {
         d->m_updateBlocked = true;
-        d->m_activePreview = 0;
-        const PreviewDataList::iterator cend =  d->m_previews.end();
-        for (PreviewDataList::iterator it = d->m_previews.begin(); it !=  cend ;++it) {
-            if (it->m_widget)
-                it->m_widget->close();
+        d->m_activePreview = nullptr;
+        for (const auto &pd : std::as_const(d->m_previews)) {
+            if (pd.m_widget)
+                pd.m_widget->close();
         }
         d->m_previews.clear();
         d->m_updateBlocked = false;
@@ -837,19 +801,18 @@ void PreviewManager::closeAllPreviews()
 
 void PreviewManager::updatePreviewClosed(QWidget *w)
 {
-    typedef PreviewManagerPrivate::PreviewDataList PreviewDataList;
     if (d->m_updateBlocked)
         return;
     // Purge out all 0 or widgets to be deleted
-    for (PreviewDataList::iterator it = d->m_previews.begin(); it != d->m_previews.end() ; ) {
+    for (auto it = d->m_previews.begin(); it != d->m_previews.end() ; ) {
         QWidget *iw = it->m_widget; // Might be 0 when catching QEvent::Destroyed
-        if (iw == 0 || iw == w) {
+        if (iw == nullptr || iw == w) {
             it = d->m_previews.erase(it);
         } else {
             ++it;
         }
     }
-    if (d->m_previews.empty())
+    if (d->m_previews.isEmpty())
         emit lastPreviewClosed();
 }
 
@@ -869,7 +832,7 @@ bool PreviewManager::eventFilter(QObject *watched, QEvent *event)
             const  QKeyEvent *keyEvent = static_cast<const QKeyEvent *>(event);
             const int key = keyEvent->key();
             if ((key == Qt::Key_Escape
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
                  || (keyEvent->modifiers() == Qt::ControlModifier && key == Qt::Key_Period)
 #endif
                  )) {

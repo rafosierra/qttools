@@ -1,54 +1,23 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qdesigner_widgetitem_p.h"
 #include "qdesigner_widget_p.h"
 #include "widgetfactory_p.h"
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerContainerExtension>
-#include <QtDesigner/QDesignerWidgetDataBaseInterface>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/container.h>
+#include <QtDesigner/abstractwidgetdatabase.h>
 
-#include <QtWidgets/QVBoxLayout>
-#include <QtWidgets/QHBoxLayout>
-#include <QtWidgets/QGridLayout>
-#include <QtWidgets/QFormLayout>
-#include <QtWidgets/QApplication>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qgridlayout.h>
+#include <QtWidgets/qformlayout.h>
+#include <QtWidgets/qapplication.h>
 
-#include <QtCore/QTextStream>
-#include <QtCore/QDebug>
+#include <QtCore/qtextstream.h>
+#include <QtCore/qdebug.h>
 #include <private/qlayout_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -69,7 +38,7 @@ static QWidgetItem *createDesignerWidgetItem(const QLayout *layout, QWidget *wid
     if (DebugWidgetItem)
         qDebug() << "QDesignerWidgetItem: Noncontainer: " << layout << widget;
 
-    return 0;
+    return nullptr;
 }
 
 static QString sizePolicyToString(const QSizePolicy &p)
@@ -99,7 +68,7 @@ static const QLayout *findLayoutOfItem(const QLayout *haystack, const QLayoutIte
             if (const QLayout *containing = findLayoutOfItem(childLayout, needle))
                 return containing;
     }
-    return 0;
+    return nullptr;
 }
 
 
@@ -121,7 +90,7 @@ QDesignerWidgetItem::QDesignerWidgetItem(const QLayout *containingLayout, QWidge
     expand(&m_nonLaidOutMinSize);
     expand(&m_nonLaidOutSizeHint);
     w->installEventFilter(this);
-    connect(containingLayout, SIGNAL(destroyed()), this, SLOT(layoutChanged()));
+    connect(containingLayout, &QObject::destroyed, this, &QDesignerWidgetItem::layoutChanged);
     if (DebugWidgetItem )
         qDebug() << "QDesignerWidgetItem"  << w <<  sizePolicyToString(w->sizePolicy()) << m_nonLaidOutMinSize << m_nonLaidOutSizeHint;
 }
@@ -230,7 +199,7 @@ bool QDesignerWidgetItem::check(const QLayout *layout, QWidget *w, Qt::Orientati
     // well. Avoid nested layouts (as the effective stretch cannot be easily
     // computed and may mess things up).
     if (ptrToOrientations)
-        *ptrToOrientations = 0;
+        *ptrToOrientations = {};
 
     const QObject *layoutParent = layout->parent();
     if (!layoutParent || !layoutParent->isWidgetType() || !WidgetFactory::isFormEditorObject(layoutParent))
@@ -278,7 +247,7 @@ void QDesignerWidgetItem::install()
 
 void QDesignerWidgetItem::deinstall()
 {
-    QLayoutPrivate::widgetItemFactoryMethod = 0;
+    QLayoutPrivate::widgetItemFactoryMethod = nullptr;
 }
 
 const QLayout *QDesignerWidgetItem::containingLayout() const
@@ -287,8 +256,10 @@ const QLayout *QDesignerWidgetItem::containingLayout() const
         if (QWidget *parentWidget = constWidget()->parentWidget())
             if (QLayout *parentLayout = parentWidget->layout()) {
                 m_cachedContainingLayout = findLayoutOfItem(parentLayout, this);
-                if (m_cachedContainingLayout)
-                    connect(m_cachedContainingLayout, SIGNAL(destroyed()), this, SLOT(layoutChanged()));
+                if (m_cachedContainingLayout) {
+                    connect(m_cachedContainingLayout, &QObject::destroyed,
+                            this, &QDesignerWidgetItem::layoutChanged);
+                }
             }
         if (DebugWidgetItem)
             qDebug() << Q_FUNC_INFO << " found " << m_cachedContainingLayout << " after reparenting " << constWidget();
@@ -300,7 +271,7 @@ void QDesignerWidgetItem::layoutChanged()
 {
     if (DebugWidgetItem)
         qDebug() << Q_FUNC_INFO;
-    m_cachedContainingLayout = 0;
+    m_cachedContainingLayout = nullptr;
 }
 
 bool QDesignerWidgetItem::eventFilter(QObject * /* watched */, QEvent *event)

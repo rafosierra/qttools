@@ -1,60 +1,38 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the tools applications of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qdbusviewer.h"
 #include "qdbusmodel.h"
+#include "servicesproxymodel.h"
 #include "propertydialog.h"
 #include "logviewer.h"
 
-#include <QtWidgets/QTreeWidget>
-#include <QtCore/QStringListModel>
-#include <QtCore/QSortFilterProxyModel>
-#include <QtCore/QMetaProperty>
-#include <QtCore/QSettings>
 #include <QtWidgets/QLineEdit>
-#include <QtWidgets/QListView>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QShortcut>
 #include <QtWidgets/QVBoxLayout>
 #include <QtWidgets/QSplitter>
 #include <QtWidgets/QInputDialog>
 #include <QtWidgets/QMessageBox>
 #include <QtWidgets/QMenu>
+#include <QtWidgets/QTableWidget>
+#include <QtWidgets/QTreeWidget>
+#include <QtWidgets/QHeaderView>
+
 #include <QtDBus/QDBusConnectionInterface>
 #include <QtDBus/QDBusInterface>
 #include <QtDBus/QDBusMetaType>
+#include <QtDBus/QDBusServiceWatcher>
+
+#include <QtGui/QAction>
+#include <QtGui/QKeyEvent>
+#include <QtGui/QShortcut>
+
+#include <QtCore/QStringListModel>
+#include <QtCore/QMetaProperty>
+#include <QtCore/QSettings>
 
 #include <private/qdbusutil_p.h>
+
+using namespace Qt::StringLiterals;
 
 class QDBusViewModel: public QDBusModel
 {
@@ -63,7 +41,7 @@ public:
         : QDBusModel(service, connection)
     {}
 
-    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override
     {
         if (role == Qt::FontRole && itemType(index) == InterfaceItem) {
             QFont f;
@@ -74,47 +52,72 @@ public:
     }
 };
 
-QDBusViewer::QDBusViewer(const QDBusConnection &connection, QWidget *parent)  :
-    QWidget(parent),
-    c(connection),
-    objectPathRegExp(QLatin1String("\\[ObjectPath: (.*)\\]"))
+class ServicesModel : public QStringListModel
 {
-    servicesModel = new QStringListModel(this);
-    servicesFilterModel = new QSortFilterProxyModel(this);
-    servicesFilterModel->setSourceModel(servicesModel);
-    servicesFilterModel->setFilterCaseSensitivity(Qt::CaseInsensitive);
+public:
+    explicit ServicesModel(QObject *parent = nullptr)
+        : QStringListModel(parent)
+    {}
+
+    Qt::ItemFlags flags(const QModelIndex &index) const override
+    {
+        return QStringListModel::flags(index) & ~Qt::ItemIsEditable;
+    }
+};
+
+QDBusViewer::QDBusViewer(const QDBusConnection &connection, QWidget *parent)
+    : QWidget(parent), c(connection), objectPathRegExp("\\[ObjectPath: (.*)\\]"_L1)
+{
     serviceFilterLine = new QLineEdit(this);
     serviceFilterLine->setPlaceholderText(tr("Search..."));
-    servicesView = new QListView(this);
-    servicesView->setModel(servicesFilterModel);
 
-    connect(serviceFilterLine, SIGNAL(textChanged(QString)), servicesFilterModel, SLOT(setFilterFixedString(QString)));
+    // Create model for services list
+    servicesModel = new ServicesModel(this);
+    // Wrap service list model in proxy for easy filtering and interactive sorting
+    servicesProxyModel = new ServicesProxyModel(this);
+    servicesProxyModel->setSourceModel(servicesModel);
+    servicesProxyModel->setFilterCaseSensitivity(Qt::CaseInsensitive);
+
+    servicesView = new QTableView(this);
+    servicesView->installEventFilter(this);
+    servicesView->setModel(servicesProxyModel);
+    // Make services grid view behave like a list view with headers
+    servicesView->verticalHeader()->hide();
+    servicesView->horizontalHeader()->setStretchLastSection(true);
+    servicesView->setShowGrid(false);
+    // Sort service list by default
+    servicesView->setSortingEnabled(true);
+    servicesView->sortByColumn(0, Qt::AscendingOrder);
+
+    connect(serviceFilterLine, &QLineEdit::textChanged, servicesProxyModel, &QSortFilterProxyModel::setFilterFixedString);
+    connect(serviceFilterLine, &QLineEdit::returnPressed, this, &QDBusViewer::serviceFilterReturnPressed);
 
     tree = new QTreeView;
     tree->setContextMenuPolicy(Qt::CustomContextMenu);
 
-    connect(tree, SIGNAL(activated(QModelIndex)), this, SLOT(activate(QModelIndex)));
+    connect(tree, &QAbstractItemView::activated, this, &QDBusViewer::activate);
 
     refreshAction = new QAction(tr("&Refresh"), tree);
     refreshAction->setData(42); // increase the amount of 42 used as magic number by one
     refreshAction->setShortcut(QKeySequence::Refresh);
-    connect(refreshAction, SIGNAL(triggered()), this, SLOT(refreshChildren()));
+    connect(refreshAction, &QAction::triggered, this, &QDBusViewer::refreshChildren);
 
     QShortcut *refreshShortcut = new QShortcut(QKeySequence::Refresh, tree);
-    connect(refreshShortcut, SIGNAL(activated()), this, SLOT(refreshChildren()));
+    connect(refreshShortcut, &QShortcut::activated, this, &QDBusViewer::refreshChildren);
 
     QVBoxLayout *layout = new QVBoxLayout(this);
     topSplitter = new QSplitter(Qt::Vertical, this);
     layout->addWidget(topSplitter);
 
     log = new LogViewer;
-    connect(log, SIGNAL(anchorClicked(QUrl)), this, SLOT(anchorClicked(QUrl)));
+    connect(log, &QTextBrowser::anchorClicked, this, &QDBusViewer::anchorClicked);
 
     splitter = new QSplitter(topSplitter);
     splitter->addWidget(servicesView);
 
     QWidget *servicesWidget = new QWidget;
     QVBoxLayout *servicesLayout = new QVBoxLayout(servicesWidget);
+    servicesLayout->setContentsMargins(QMargins());
     servicesLayout->addWidget(serviceFilterLine);
     servicesLayout->addWidget(servicesView);
     splitter->addWidget(servicesWidget);
@@ -123,32 +126,33 @@ QDBusViewer::QDBusViewer(const QDBusConnection &connection, QWidget *parent)  :
     topSplitter->addWidget(splitter);
     topSplitter->addWidget(log);
 
-    connect(servicesView->selectionModel(), SIGNAL(currentChanged(QModelIndex,QModelIndex)),
-            this, SLOT(serviceChanged(QModelIndex)));
-    connect(tree, SIGNAL(customContextMenuRequested(QPoint)),
-            this, SLOT(showContextMenu(QPoint)));
+    connect(servicesView->selectionModel(), &QItemSelectionModel::currentChanged, this, &QDBusViewer::serviceChanged);
+    connect(tree, &QWidget::customContextMenuRequested, this, &QDBusViewer::showContextMenu);
 
-    QMetaObject::invokeMethod(this, "refresh", Qt::QueuedConnection);
+    QMetaObject::invokeMethod(this, &QDBusViewer::refresh, Qt::QueuedConnection);
 
     if (c.isConnected()) {
-        logMessage(QLatin1String("Connected to D-Bus."));
-        QDBusConnectionInterface *iface = c.interface();
-        connect(iface, SIGNAL(serviceRegistered(QString)),
-                this, SLOT(serviceRegistered(QString)));
-        connect(iface, SIGNAL(serviceUnregistered(QString)),
-                this, SLOT(serviceUnregistered(QString)));
-        connect(iface, SIGNAL(serviceOwnerChanged(QString,QString,QString)),
-                this, SLOT(serviceOwnerChanged(QString,QString,QString)));
+        QDBusServiceWatcher *watcher =
+                new QDBusServiceWatcher("*", c, QDBusServiceWatcher::WatchForOwnerChange, this);
+        connect(watcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
+                &QDBusViewer::serviceOwnerChanged);
+        logMessage(tr("Connected to D-Bus."));
     } else {
-        logError(QLatin1String("Cannot connect to D-Bus: ") + c.lastError().message());
+        logError(tr("Cannot connect to D-Bus: %1").arg(c.lastError().message()));
     }
 
-    objectPathRegExp.setMinimal(true);
-
+    objectPathRegExp.setPatternOptions(QRegularExpression::InvertedGreedinessOption);
 }
 
-static inline QString topSplitterStateKey() { return QStringLiteral("topSplitterState"); }
-static inline QString splitterStateKey() { return QStringLiteral("splitterState"); }
+static inline QString topSplitterStateKey()
+{
+    return u"topSplitterState"_s;
+}
+
+static inline QString splitterStateKey()
+{
+    return u"splitterState"_s;
+}
 
 void QDBusViewer::saveState(QSettings *settings) const
 {
@@ -164,12 +168,32 @@ void QDBusViewer::restoreState(const QSettings *settings)
 
 void QDBusViewer::logMessage(const QString &msg)
 {
-    log->append(msg + QLatin1Char('\n'));
+    log->append(msg + '\n'_L1);
+}
+
+void QDBusViewer::showEvent(QShowEvent *)
+{
+    serviceFilterLine->setFocus();
+}
+
+bool QDBusViewer::eventFilter(QObject *obj, QEvent *event)
+{
+    if (obj == servicesView) {
+        if (event->type() == QEvent::KeyPress) {
+            QKeyEvent *keyEvent = static_cast<QKeyEvent*>(event);
+            if (keyEvent->modifiers() == Qt::NoModifier) {
+                if (keyEvent->key() == Qt::Key_Enter || keyEvent->key() == Qt::Key_Return) {
+                    tree->setFocus();
+                }
+            }
+        }
+    }
+    return false;
 }
 
 void QDBusViewer::logError(const QString &msg)
 {
-    log->append(QLatin1String("<font color=\"red\">Error: </font>") + msg.toHtmlEscaped() + QLatin1String("<br>"));
+    log->append(tr("<font color=\"red\">Error: </font>%1<br>").arg(msg.toHtmlEscaped()));
 }
 
 void QDBusViewer::refresh()
@@ -213,11 +237,12 @@ void QDBusViewer::activate(const QModelIndex &item)
 
 void QDBusViewer::getProperty(const BusSignature &sig)
 {
-    QDBusMessage message = QDBusMessage::createMethodCall(sig.mService, sig.mPath, QLatin1String("org.freedesktop.DBus.Properties"), QLatin1String("Get"));
+    QDBusMessage message = QDBusMessage::createMethodCall(
+            sig.mService, sig.mPath, "org.freedesktop.DBus.Properties"_L1, "Get"_L1);
     QList<QVariant> arguments;
     arguments << sig.mInterface << sig.mName;
     message.setArguments(arguments);
-    c.callWithCallback(message, this, SLOT(dumpMessage(QDBusMessage)));
+    c.callWithCallback(message, this, SLOT(dumpMessage(QDBusMessage)), SLOT(dumpError(QDBusError)));
 }
 
 void QDBusViewer::setProperty(const BusSignature &sig)
@@ -234,28 +259,26 @@ void QDBusViewer::setProperty(const BusSignature &sig)
         return;
 
     QVariant value = input;
-    if (!value.convert(prop.type())) {
+    if (!value.convert(prop.metaType())) {
         QMessageBox::warning(this, tr("Unable to marshall"),
                 tr("Value conversion failed, unable to set property"));
         return;
     }
 
-    QDBusMessage message = QDBusMessage::createMethodCall(sig.mService, sig.mPath, QLatin1String("org.freedesktop.DBus.Properties"), QLatin1String("Set"));
+    QDBusMessage message = QDBusMessage::createMethodCall(
+            sig.mService, sig.mPath, "org.freedesktop.DBus.Properties"_L1, "Set"_L1);
     QList<QVariant> arguments;
     arguments << sig.mInterface << sig.mName << QVariant::fromValue(QDBusVariant(value));
     message.setArguments(arguments);
-    c.callWithCallback(message, this, SLOT(dumpMessage(QDBusMessage)));
-
+    c.callWithCallback(message, this, SLOT(dumpMessage(QDBusMessage)), SLOT(dumpError(QDBusError)));
 }
 
 static QString getDbusSignature(const QMetaMethod& method)
 {
     // create a D-Bus type signature from QMetaMethod's parameters
     QString sig;
-    for (int i = 0; i < method.parameterTypes().count(); ++i) {
-        int type = QMetaType::type(method.parameterTypes().at(i));
-        sig.append(QString::fromLatin1(QDBusMetaType::typeToSignature(type)));
-    }
+    for (const auto &type : method.parameterTypes())
+        sig.append(QString::fromLatin1(QDBusMetaType::typeToSignature(QMetaType::fromName(type))));
     return sig;
 }
 
@@ -268,7 +291,7 @@ void QDBusViewer::callMethod(const BusSignature &sig)
     QMetaMethod method;
     for (int i = 0; i < mo->methodCount(); ++i) {
         const QString signature = QString::fromLatin1(mo->method(i).methodSignature());
-        if (signature.startsWith(sig.mName) && signature.at(sig.mName.length()) == QLatin1Char('('))
+        if (signature.startsWith(sig.mName) && signature.at(sig.mName.size()) == '('_L1)
             if (getDbusSignature(mo->method(i)) == sig.mTypeSig)
                 method = mo->method(i);
     }
@@ -285,12 +308,12 @@ void QDBusViewer::callMethod(const BusSignature &sig)
     const QList<QByteArray> paramTypes = method.parameterTypes();
     const QList<QByteArray> paramNames = method.parameterNames();
     QList<int> types; // remember the low-level D-Bus type
-    for (int i = 0; i < paramTypes.count(); ++i) {
+    for (int i = 0; i < paramTypes.size(); ++i) {
         const QByteArray paramType = paramTypes.at(i);
         if (paramType.endsWith('&'))
             continue; // ignore OUT parameters
 
-        int type = QMetaType::type(paramType);
+        const int type = QMetaType::fromName(paramType).id();
         dialog.addProperty(QString::fromLatin1(paramNames.value(i)), type);
         types.append(type);
     }
@@ -306,12 +329,13 @@ void QDBusViewer::callMethod(const BusSignature &sig)
 
     // Try to convert the values we got as closely as possible to the
     // dbus signature. This is especially important for those input as strings
-    for (int i = 0; i < args.count(); ++i) {
+    for (int i = 0; i < args.size(); ++i) {
         QVariant a = args.at(i);
         int desttype = types.at(i);
-        if (desttype < int(QMetaType::User) && desttype != int(QVariant::Map)
-            && a.canConvert(desttype)) {
-            args[i].convert(desttype);
+        if (desttype < int(QMetaType::User) && desttype != qMetaTypeId<QVariantMap>()) {
+            const QMetaType metaType(desttype);
+            if (a.canConvert(metaType))
+                args[i].convert(metaType);
         }
         // Special case - convert a value to a QDBusVariant if the
         // interface wants a variant
@@ -322,7 +346,7 @@ void QDBusViewer::callMethod(const BusSignature &sig)
     QDBusMessage message = QDBusMessage::createMethodCall(sig.mService, sig.mPath, sig.mInterface,
             sig.mName);
     message.setArguments(args);
-    c.callWithCallback(message, this, SLOT(dumpMessage(QDBusMessage)));
+    c.callWithCallback(message, this, SLOT(dumpMessage(QDBusMessage)), SLOT(dumpError(QDBusError)));
 }
 
 void QDBusViewer::showContextMenu(const QPoint &point)
@@ -355,9 +379,13 @@ void QDBusViewer::showContextMenu(const QPoint &point)
         menu.addAction(action);
         break; }
     case QDBusModel::PropertyItem: {
+        QDBusInterface iface(sig.mService, sig.mPath, sig.mInterface, c);
+        QMetaProperty prop = iface.metaObject()->property(iface.metaObject()->indexOfProperty(sig.mName.toLatin1()));
         QAction *actionSet = new QAction(tr("&Set value"), &menu);
         actionSet->setData(3);
+        actionSet->setEnabled(prop.isWritable());
         QAction *actionGet = new QAction(tr("&Get value"), &menu);
+        actionGet->setEnabled(prop.isReadable());
         actionGet->setData(4);
         menu.addAction(actionSet);
         menu.addAction(actionGet);
@@ -388,57 +416,66 @@ void QDBusViewer::showContextMenu(const QPoint &point)
 
 void QDBusViewer::connectionRequested(const BusSignature &sig)
 {
-    if (!c.connect(sig.mService, QString(), sig.mInterface, sig.mName, this,
+    if (c.connect(sig.mService, QString(), sig.mInterface, sig.mName, this,
               SLOT(dumpMessage(QDBusMessage)))) {
+        logMessage(tr("Connected to service %1, path %2, interface %3, signal %4").arg(
+                    sig.mService, sig.mPath, sig.mInterface, sig.mName));
+    } else {
         logError(tr("Unable to connect to service %1, path %2, interface %3, signal %4").arg(
-                    sig.mService).arg(sig.mPath).arg(sig.mInterface).arg(sig.mName));
+                    sig.mService, sig.mPath, sig.mInterface, sig.mName));
     }
 }
 
 void QDBusViewer::dumpMessage(const QDBusMessage &message)
 {
     QList<QVariant> args = message.arguments();
-    QString out = QLatin1String("Received ");
 
+    QString messageType;
     switch (message.type()) {
     case QDBusMessage::SignalMessage:
-        out += QLatin1String("signal ");
+        messageType = tr("signal");
         break;
     case QDBusMessage::ErrorMessage:
-        out += QLatin1String("error message ");
+        messageType = tr("error message");
         break;
     case QDBusMessage::ReplyMessage:
-        out += QLatin1String("reply ");
+        messageType = tr("reply");
         break;
     default:
-        out += QLatin1String("message ");
+        messageType = tr("message");
         break;
     }
 
-    out += QLatin1String("from ");
-    out += message.service();
+    QString out = tr("Received %1 from %2").arg(messageType).arg(message.service());
+
     if (!message.path().isEmpty())
-        out += QLatin1String(", path ") + message.path();
+        out += tr(", path %1").arg(message.path());
     if (!message.interface().isEmpty())
-        out += QLatin1String(", interface <i>") + message.interface() + QLatin1String("</i>");
+        out += tr(", interface <i>%1</i>").arg(message.interface());
     if (!message.member().isEmpty())
-        out += QLatin1String(", member ") + message.member();
-    out += QLatin1String("<br>");
+        out += tr(", member %1").arg(message.member());
+    out += "<br>"_L1;
     if (args.isEmpty()) {
-        out += QLatin1String("&nbsp;&nbsp;(no arguments)");
+        out += tr("&nbsp;&nbsp;(no arguments)");
     } else {
-        out += QLatin1String("&nbsp;&nbsp;Arguments: ");
-        foreach (QVariant arg, args) {
+        QStringList argStrings;
+        for (const QVariant &arg : std::as_const(args)) {
             QString str = QDBusUtil::argumentToString(arg).toHtmlEscaped();
             // turn object paths into clickable links
-            str.replace(objectPathRegExp, QLatin1String("[ObjectPath: <a href=\"qdbus://bus\\1\">\\1</a>]"));
-            out += str;
-            out += QLatin1String(", ");
+            str.replace(objectPathRegExp, tr("[ObjectPath: <a href=\"qdbus://bus\\1\">\\1</a>]"));
+            // convert new lines from command to proper HTML line breaks
+            str.replace("\n"_L1, "<br/>"_L1);
+            argStrings.append(str);
         }
-        out.chop(2);
+        out += tr("&nbsp;&nbsp;Arguments: %1").arg(argStrings.join(tr(", ")));
     }
 
     log->append(out);
+}
+
+void QDBusViewer::dumpError(const QDBusError &error)
+{
+    logError(error.message());
 }
 
 void QDBusViewer::serviceChanged(const QModelIndex &index)
@@ -450,8 +487,9 @@ void QDBusViewer::serviceChanged(const QModelIndex &index)
         return;
     currentService = index.data().toString();
 
-    tree->setModel(new QDBusViewModel(currentService, c));
-    connect(tree->model(), SIGNAL(busError(QString)), this, SLOT(logError(QString)));
+    QDBusViewModel *model = new QDBusViewModel(currentService, c);
+    tree->setModel(model);
+    connect(model, &QDBusModel::busError, this, &QDBusViewer::logError);
 }
 
 void QDBusViewer::serviceRegistered(const QString &service)
@@ -472,14 +510,6 @@ static QModelIndex findItem(QStringListModel *servicesModel, const QString &name
     return hits.first();
 }
 
-void QDBusViewer::serviceUnregistered(const QString &name)
-{
-    QModelIndex hit = findItem(servicesModel, name);
-    if (!hit.isValid())
-        return;
-    servicesModel->removeRows(hit.row(), 1);
-}
-
 void QDBusViewer::serviceOwnerChanged(const QString &name, const QString &oldOwner,
                                       const QString &newOwner)
 {
@@ -495,6 +525,15 @@ void QDBusViewer::serviceOwnerChanged(const QString &name, const QString &oldOwn
     }
 }
 
+void QDBusViewer::serviceFilterReturnPressed()
+{
+    if (servicesProxyModel->rowCount() <= 0)
+        return;
+
+    servicesView->selectRow(0);
+    servicesView->setFocus();
+}
+
 void QDBusViewer::refreshChildren()
 {
     QDBusModel *model = qobject_cast<QDBusModel *>(tree->model());
@@ -505,7 +544,7 @@ void QDBusViewer::refreshChildren()
 
 void QDBusViewer::anchorClicked(const QUrl &url)
 {
-    if (url.scheme() != QLatin1String("qdbus"))
+    if (url.scheme() != "qdbus"_L1)
         // not ours
         return;
 

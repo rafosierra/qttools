@@ -1,55 +1,32 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "formbuilderextra_p.h"
 #include "abstractformbuilder.h"
+#include "properties_p.h"
 #include "resourcebuilder_p.h"
 #include "textbuilder_p.h"
 #include "ui4_p.h"
 
-#include <QtWidgets/QLabel>
-#include <QtWidgets/QBoxLayout>
-#include <QtWidgets/QGridLayout>
+#include <QtWidgets/qlabel.h>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qgridlayout.h>
+#if QT_CONFIG(fontcombobox)
+#  include <QtWidgets/qfontcombobox.h>
+#endif
 
-#include <QtCore/QVariant>
+#include <QtCore/qvariant.h>
 #include <QtCore/qdebug.h>
-#include <QtCore/QTextStream>
-#include <QtCore/QStringList>
-#include <QtCore/QCoreApplication>
+#include <QtCore/qtextstream.h>
+#include <QtCore/qstringlist.h>
+#include <QtCore/qcoreapplication.h>
+#include <QtCore/qversionnumber.h>
 
 #include <limits.h>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 #ifdef QFORMINTERNAL_NAMESPACE
 namespace QFormInternal {
@@ -59,11 +36,7 @@ void uiLibWarning(const QString &message) {
     qWarning("Designer: %s", qPrintable(message));
 }
 
-
-QFormBuilderExtra::CustomWidgetData::CustomWidgetData() :
-    isContainer(false)
-{
-}
+QFormBuilderExtra::CustomWidgetData::CustomWidgetData() = default;
 
 QFormBuilderExtra::CustomWidgetData::CustomWidgetData(const DomCustomWidget *dcw) :
     addPageMethod(dcw->elementAddPageMethod()),
@@ -75,10 +48,7 @@ QFormBuilderExtra::CustomWidgetData::CustomWidgetData(const DomCustomWidget *dcw
 QFormBuilderExtra::QFormBuilderExtra() :
     m_defaultMargin(INT_MIN),
     m_defaultSpacing(INT_MIN),
-    m_language(QStringLiteral("c++")),
-    m_layoutWidget(false),
-    m_resourceBuilder(0),
-    m_textBuilder(0)
+    m_language(u"c++"_s)
 {
 }
 
@@ -91,18 +61,100 @@ QFormBuilderExtra::~QFormBuilderExtra()
 void QFormBuilderExtra::clear()
 {
     m_buddies.clear();
-    m_parentWidget = 0;
+    m_parentWidget = nullptr;
     m_parentWidgetIsSet = false;
     m_customWidgetDataHash.clear();
     m_buttonGroups.clear();
 }
 
+static inline QString msgXmlError(const QXmlStreamReader &reader)
+{
+    return QCoreApplication::translate("QAbstractFormBuilder",
+                                       "An error has occurred while reading the UI file at line %1, column %2: %3")
+                                       .arg(reader.lineNumber()).arg(reader.columnNumber())
+                                       .arg(reader.errorString());
+}
+
+// Read and check the  version and the (optional) language attribute
+// of an <ui> element and leave reader positioned at <ui>.
+static bool inline readUiAttributes(QXmlStreamReader &reader, const QString &language,
+                                    QString *errorMessage)
+{
+    // Read up to first element
+    while (!reader.atEnd()) {
+        switch (reader.readNext()) {
+        case QXmlStreamReader::Invalid:
+            *errorMessage = msgXmlError(reader);
+            return false;
+        case QXmlStreamReader::StartElement:
+            if (reader.name().compare("ui"_L1, Qt::CaseInsensitive) == 0) {
+                const QString versionAttribute = u"version"_s;
+                const QString languageAttribute = u"language"_s;
+                const QXmlStreamAttributes attributes = reader.attributes();
+                if (attributes.hasAttribute(versionAttribute)) {
+                    const QVersionNumber version =
+                        QVersionNumber::fromString(attributes.value(versionAttribute));
+                    if (version < QVersionNumber(4)) {
+                        *errorMessage =
+                            QCoreApplication::translate("QAbstractFormBuilder",
+                                                        "This file was created using Designer from Qt-%1 and cannot be read.")
+                                                        .arg(attributes.value(versionAttribute));
+                        return false;
+                    } // version error
+                }     // has version
+                if (attributes.hasAttribute(languageAttribute)) {
+                    // Check on optional language (Jambi)
+                    const QString formLanguage = attributes.value(languageAttribute).toString();
+                    if (!formLanguage.isEmpty() && formLanguage.compare(language, Qt::CaseInsensitive)) {
+                        *errorMessage =
+                            QCoreApplication::translate("QAbstractFormBuilder",
+                                                        "This file cannot be read because it was created using %1.")
+                                                        .arg(formLanguage);
+                        return false;
+                    } // language error
+                }    // has language
+                return true;
+            }  // <ui> matched
+            break;
+        default:
+            break;
+        }
+    }
+    // No <ui> found.
+    *errorMessage = QCoreApplication::translate("QAbstractFormBuilder",
+                                                "Invalid UI file: The root element <ui> is missing.");
+    return false;
+}
+
+DomUI *QFormBuilderExtra::readUi(QIODevice *dev)
+{
+    QXmlStreamReader reader(dev);
+    m_errorString.clear();
+    if (!readUiAttributes(reader, m_language, &m_errorString)) {
+        uiLibWarning(m_errorString);
+        return nullptr;
+    }
+    DomUI *ui = new DomUI;
+    ui->read(reader);
+    if (reader.hasError()) {
+        m_errorString = msgXmlError(reader);
+        uiLibWarning(m_errorString);
+        delete ui;
+        return nullptr;
+    }
+    return ui;
+}
+
+QString QFormBuilderExtra::msgInvalidUiFile()
+{
+    return QCoreApplication::translate("QAbstractFormBuilder", "Invalid UI file");
+}
 
 bool QFormBuilderExtra::applyPropertyInternally(QObject *o, const QString &propertyName, const QVariant &value)
 {
     // Store buddies and apply them later on as the widgets might not exist yet.
     QLabel *label = qobject_cast<QLabel*>(o);
-    if (!label || propertyName != QFormBuilderStrings::instance().buddyProperty)
+    if (label == nullptr || propertyName != "buddy"_L1)
         return false;
 
     m_buddies.insert(label, value.toString());
@@ -111,36 +163,31 @@ bool QFormBuilderExtra::applyPropertyInternally(QObject *o, const QString &prope
 
 void QFormBuilderExtra::applyInternalProperties() const
 {
-    if (m_buddies.empty())
-        return;
-
-    const BuddyHash::const_iterator cend = m_buddies.constEnd();
-    for (BuddyHash::const_iterator it = m_buddies.constBegin(); it != cend; ++it )
+    for (auto it = m_buddies.cbegin(), cend = m_buddies.cend(); it != cend; ++it )
         applyBuddy(it.value(), BuddyApplyAll, it.key());
 }
 
 bool QFormBuilderExtra::applyBuddy(const QString &buddyName, BuddyMode applyMode, QLabel *label)
 {
     if (buddyName.isEmpty()) {
-        label->setBuddy(0);
+        label->setBuddy(nullptr);
         return false;
     }
 
     const QWidgetList widgets = label->topLevelWidget()->findChildren<QWidget*>(buddyName);
-    if (widgets.empty()) {
-        label->setBuddy(0);
+    if (widgets.isEmpty()) {
+        label->setBuddy(nullptr);
         return false;
     }
 
-    const QWidgetList::const_iterator cend = widgets.constEnd();
-    for ( QWidgetList::const_iterator it =  widgets.constBegin(); it !=  cend; ++it) {
-        if (applyMode == BuddyApplyAll || !(*it)->isHidden()) {
-            label->setBuddy(*it);
+    for (auto *w : widgets) {
+        if (applyMode == BuddyApplyAll || !w->isHidden()) {
+            label->setBuddy(w);
             return true;
         }
     }
 
-    label->setBuddy(0);
+    label->setBuddy(nullptr);
     return false;
 }
 
@@ -169,15 +216,15 @@ void QFormBuilderExtra::storeCustomWidgetData(const QString &className, const Do
 
 QString QFormBuilderExtra::customWidgetBaseClass(const QString &className) const
 {
-    const QHash<QString, CustomWidgetData>::const_iterator it = m_customWidgetDataHash.constFind(className);
+    const auto it = m_customWidgetDataHash.constFind(className);
     if (it != m_customWidgetDataHash.constEnd())
-            return it.value().baseClass;
+        return it.value().baseClass;
     return QString();
 }
 
 QString QFormBuilderExtra::customWidgetAddPageMethod(const QString &className) const
 {
-    const QHash<QString, CustomWidgetData>::const_iterator it = m_customWidgetDataHash.constFind(className);
+    const auto it = m_customWidgetDataHash.constFind(className);
     if (it != m_customWidgetDataHash.constEnd())
         return it.value().addPageMethod;
     return QString();
@@ -185,7 +232,7 @@ QString QFormBuilderExtra::customWidgetAddPageMethod(const QString &className) c
 
 bool QFormBuilderExtra::isCustomWidgetContainer(const QString &className) const
 {
-    const QHash<QString, CustomWidgetData>::const_iterator it = m_customWidgetDataHash.constFind(className);
+    const auto it = m_customWidgetDataHash.constFind(className);
     if (it != m_customWidgetDataHash.constEnd())
         return it.value().isContainer;
     return false;
@@ -217,7 +264,7 @@ void QFormBuilderExtra::clearResourceBuilder()
 {
     if (m_resourceBuilder) {
         delete m_resourceBuilder;
-        m_resourceBuilder = 0;
+        m_resourceBuilder = nullptr;
     }
 }
 
@@ -238,19 +285,15 @@ void QFormBuilderExtra::clearTextBuilder()
 {
     if (m_textBuilder) {
         delete m_textBuilder;
-        m_textBuilder = 0;
+        m_textBuilder = nullptr;
     }
 }
 
 void QFormBuilderExtra::registerButtonGroups(const DomButtonGroups *domGroups)
 {
-    typedef QList<DomButtonGroup*> DomButtonGroupList;
-    const DomButtonGroupList domGroupList = domGroups->elementButtonGroup();
-    const DomButtonGroupList::const_iterator cend = domGroupList.constEnd();
-    for (DomButtonGroupList::const_iterator it = domGroupList.constBegin(); it != cend; ++it) {
-        DomButtonGroup *domGroup = *it;
-        m_buttonGroups.insert(domGroup->attributeName(), ButtonGroupEntry(domGroup, 0));
-    }
+    const auto &domGroupList = domGroups->elementButtonGroup();
+    for (DomButtonGroup *domGroup : domGroupList)
+        m_buttonGroups.insert(domGroup->attributeName(), ButtonGroupEntry(domGroup, nullptr));
 }
 
 // Utilities for parsing per-cell integer properties that have setters and
@@ -269,7 +312,7 @@ inline QString perCellPropertyToString(const Layout *l, int count, int (Layout::
         QTextStream str(&rc);
         for (int i = 0; i < count; i++) {
             if (i)
-                str << QLatin1Char(',');
+                str << ',';
             str << (l->*getter)(i);
         }
     }
@@ -294,8 +337,8 @@ inline bool parsePerCellProperty(Layout *l, int count, void (Layout::*setter)(in
         clearPerCellValue(l, count, setter, defaultValue);
         return true;
     }
-    const QStringList list = s.split(QLatin1Char(','));
-    if (list.empty()) {
+    const auto list = QStringView{s}.split(u',');
+    if (list.isEmpty()) {
         clearPerCellValue(l, count, setter, defaultValue);
         return true;
     }
@@ -320,6 +363,29 @@ static QString msgInvalidStretch(const QString &objectName, const QString &stret
 {
     //: Parsing layout stretch values
     return QCoreApplication::translate("FormBuilder", "Invalid stretch value for '%1': '%2'").arg(objectName, stretch);
+}
+
+void QFormBuilderExtra::getLayoutMargins(const QList<DomProperty*> &properties,
+                                         int *left, int *top, int *right, int *bottom)
+{
+    if (const auto *p = propertyByName(properties, "leftMargin"))
+        *left = p->elementNumber();
+    if (const auto *p = propertyByName(properties, "topMargin"))
+        *top = p->elementNumber();
+    if (const auto *p = propertyByName(properties, "rightMargin"))
+        *right = p->elementNumber();
+    if (const auto *p = propertyByName(properties, "bottomMargin"))
+        *bottom = p->elementNumber();
+}
+
+bool QFormBuilderExtra::isQFontComboBox(const QWidget *w)
+{
+#if QT_CONFIG(fontcombobox)
+    return qobject_cast<const QFontComboBox*>(w) != nullptr;
+#else
+    Q_UNUSED(w);
+    return false;
+#endif
 }
 
 QString QFormBuilderExtra::boxLayoutStretch(const QBoxLayout *box)
@@ -420,71 +486,265 @@ void QFormBuilderExtra::clearGridLayoutColumnMinimumWidth(QGridLayout *grid)
     clearPerCellValue(grid, grid->columnCount(), &QGridLayout::setColumnMinimumWidth);
 }
 
+void QFormBuilderExtra::setPixmapProperty(DomProperty *p, const std::pair<QString, QString> &ip)
+{
+    DomResourcePixmap *pix = new DomResourcePixmap;
+    if (!ip.second.isEmpty())
+        pix->setAttributeResource(ip.second);
+
+    pix->setText(ip.first);
+
+    p->setAttributeName("pixmap"_L1);
+    p->setElementPixmap(pix);
+}
+
+void QFormBuilderExtra::setupColorGroup(QPalette *palette, QPalette::ColorGroup colorGroup,
+                                        const DomColorGroup *group)
+{
+    // old format
+    const auto &colors = group->elementColor();
+    for (int role = 0; role < colors.size(); ++role) {
+        const DomColor *color = colors.at(role);
+        const QColor c(color->elementRed(), color->elementGreen(), color->elementBlue());
+        palette->setColor(colorGroup, QPalette::ColorRole(role), c);
+    }
+
+    // new format
+    const QMetaEnum colorRole_enum = metaEnum<QAbstractFormBuilderGadget>("colorRole");
+
+    const auto colorRoles = group->elementColorRole();
+    for (const DomColorRole *colorRole : colorRoles) {
+        if (colorRole->hasAttributeRole()) {
+            const int r = colorRole_enum.keyToValue(colorRole->attributeRole().toLatin1());
+            if (r != -1) {
+                const QBrush br = setupBrush(colorRole->elementBrush());
+                palette->setBrush(colorGroup, static_cast<QPalette::ColorRole>(r), br);
+            }
+        }
+    }
+}
+
+DomColorGroup *QFormBuilderExtra::saveColorGroup(const QPalette &palette,
+                                                 QPalette::ColorGroup colorGroup)
+{
+
+    const QMetaEnum colorRole_enum = metaEnum<QAbstractFormBuilderGadget>("colorRole");
+
+    DomColorGroup *group = new DomColorGroup();
+    QList<DomColorRole *> colorRoles;
+
+    for (int r = QPalette::WindowText; r < QPalette::NColorRoles; ++r) {
+        const auto role = static_cast<QPalette::ColorRole>(r);
+        if (palette.isBrushSet(colorGroup, role)) {
+            const QBrush &br = palette.brush(colorGroup, role);
+            DomColorRole *colorRole = new DomColorRole();
+            colorRole->setElementBrush(saveBrush(br));
+            colorRole->setAttributeRole(QLatin1StringView(colorRole_enum.valueToKey(role)));
+            colorRoles.append(colorRole);
+        }
+    }
+
+    group->setElementColorRole(colorRoles);
+    return group;
+}
+
+DomPalette *QFormBuilderExtra::savePalette(const QPalette &palette)
+{
+    DomPalette *dom = new DomPalette();
+    dom->setElementActive(QFormBuilderExtra::saveColorGroup(palette, QPalette::Active));
+    dom->setElementInactive(QFormBuilderExtra::saveColorGroup(palette, QPalette::Inactive));
+    dom->setElementDisabled(QFormBuilderExtra::saveColorGroup(palette, QPalette::Disabled));
+
+    return dom;
+}
+
+QPalette QFormBuilderExtra::loadPalette(const DomPalette *dom)
+{
+    QPalette palette;
+
+    if (dom->elementActive())
+        QFormBuilderExtra::setupColorGroup(&palette, QPalette::Active, dom->elementActive());
+
+    if (dom->elementInactive())
+        QFormBuilderExtra::setupColorGroup(&palette, QPalette::Inactive, dom->elementInactive());
+
+    if (dom->elementDisabled())
+        QFormBuilderExtra::setupColorGroup(&palette, QPalette::Disabled, dom->elementDisabled());
+
+    palette.setCurrentColorGroup(QPalette::Active);
+    return palette;
+}
+
+QBrush QFormBuilderExtra::setupBrush(const DomBrush *brush)
+{
+    QBrush br;
+    if (!brush->hasAttributeBrushStyle())
+        return br;
+
+    const Qt::BrushStyle style = enumKeyOfObjectToValue<QAbstractFormBuilderGadget, Qt::BrushStyle>("brushStyle",
+                                                                                                    brush->attributeBrushStyle().toLatin1().constData());
+
+    if (style == Qt::LinearGradientPattern ||
+            style == Qt::RadialGradientPattern ||
+            style == Qt::ConicalGradientPattern) {
+        const QMetaEnum gradientType_enum = metaEnum<QAbstractFormBuilderGadget>("gradientType");
+        const QMetaEnum gradientSpread_enum = metaEnum<QAbstractFormBuilderGadget>("gradientSpread");
+        const QMetaEnum gradientCoordinate_enum = metaEnum<QAbstractFormBuilderGadget>("gradientCoordinate");
+
+        const DomGradient *gradient = brush->elementGradient();
+        const QGradient::Type type = enumKeyToValue<QGradient::Type>(gradientType_enum, gradient->attributeType().toLatin1());
+
+
+        QGradient *gr = nullptr;
+
+        if (type == QGradient::LinearGradient) {
+            gr = new QLinearGradient(QPointF(gradient->attributeStartX(), gradient->attributeStartY()),
+                            QPointF(gradient->attributeEndX(), gradient->attributeEndY()));
+        } else if (type == QGradient::RadialGradient) {
+            gr = new QRadialGradient(QPointF(gradient->attributeCentralX(), gradient->attributeCentralY()),
+                            gradient->attributeRadius(),
+                            QPointF(gradient->attributeFocalX(), gradient->attributeFocalY()));
+        } else if (type == QGradient::ConicalGradient) {
+            gr = new QConicalGradient(QPointF(gradient->attributeCentralX(), gradient->attributeCentralY()),
+                            gradient->attributeAngle());
+        }
+        if (!gr)
+            return br;
+
+        const QGradient::Spread spread = enumKeyToValue<QGradient::Spread>(gradientSpread_enum, gradient->attributeSpread().toLatin1());
+        gr->setSpread(spread);
+
+        const QGradient::CoordinateMode coord = enumKeyToValue<QGradient::CoordinateMode>(gradientCoordinate_enum, gradient->attributeCoordinateMode().toLatin1());
+        gr->setCoordinateMode(coord);
+
+        const auto &stops = gradient->elementGradientStop();
+        for (const DomGradientStop *stop : stops) {
+            const DomColor *color = stop->elementColor();
+            gr->setColorAt(stop->attributePosition(), QColor::fromRgb(color->elementRed(),
+                            color->elementGreen(), color->elementBlue(), color->attributeAlpha()));
+        }
+        br = QBrush(*gr);
+        delete gr;
+    } else if (style == Qt::TexturePattern) {
+        const DomProperty *texture = brush->elementTexture();
+        if (texture && texture->kind() == DomProperty::Pixmap) {
+            br.setTexture({});
+        }
+    } else {
+        const DomColor *color = brush->elementColor();
+        br.setColor(QColor::fromRgb(color->elementRed(),
+                            color->elementGreen(), color->elementBlue(), color->attributeAlpha()));
+        br.setStyle((Qt::BrushStyle)style);
+    }
+    return br;
+}
+
+DomBrush *QFormBuilderExtra::saveBrush(const QBrush &br)
+{
+    const QMetaEnum brushStyle_enum = metaEnum<QAbstractFormBuilderGadget>("brushStyle");
+
+    DomBrush *brush = new DomBrush();
+    const Qt::BrushStyle style = br.style();
+    brush->setAttributeBrushStyle(QLatin1StringView(brushStyle_enum.valueToKey(style)));
+    if (style == Qt::LinearGradientPattern ||
+                style == Qt::RadialGradientPattern ||
+                style == Qt::ConicalGradientPattern) {
+        const QMetaEnum gradientType_enum = metaEnum<QAbstractFormBuilderGadget>("gradientType");
+        const QMetaEnum gradientSpread_enum = metaEnum<QAbstractFormBuilderGadget>("gradientSpread");
+        const QMetaEnum gradientCoordinate_enum = metaEnum<QAbstractFormBuilderGadget>("gradientCoordinate");
+
+        DomGradient *gradient = new DomGradient();
+        const QGradient *gr = br.gradient();
+        const QGradient::Type type = gr->type();
+        gradient->setAttributeType(QLatin1StringView(gradientType_enum.valueToKey(type)));
+        gradient->setAttributeSpread(QLatin1StringView(gradientSpread_enum.valueToKey(gr->spread())));
+        gradient->setAttributeCoordinateMode(QLatin1StringView(gradientCoordinate_enum.valueToKey(gr->coordinateMode())));
+        QList<DomGradientStop *> stops;
+        const QGradientStops st = gr->stops();
+        for (const QGradientStop &pair : st) {
+            DomGradientStop *stop = new DomGradientStop();
+            stop->setAttributePosition(pair.first);
+            DomColor *color = new DomColor();
+            color->setElementRed(pair.second.red());
+            color->setElementGreen(pair.second.green());
+            color->setElementBlue(pair.second.blue());
+            color->setAttributeAlpha(pair.second.alpha());
+            stop->setElementColor(color);
+            stops.append(stop);
+        }
+        gradient->setElementGradientStop(stops);
+        if (type == QGradient::LinearGradient) {
+            auto lgr = static_cast<const QLinearGradient *>(gr);
+            gradient->setAttributeStartX(lgr->start().x());
+            gradient->setAttributeStartY(lgr->start().y());
+            gradient->setAttributeEndX(lgr->finalStop().x());
+            gradient->setAttributeEndY(lgr->finalStop().y());
+        } else if (type == QGradient::RadialGradient) {
+            auto rgr = static_cast<const QRadialGradient *>(gr);
+            gradient->setAttributeCentralX(rgr->center().x());
+            gradient->setAttributeCentralY(rgr->center().y());
+            gradient->setAttributeFocalX(rgr->focalPoint().x());
+            gradient->setAttributeFocalY(rgr->focalPoint().y());
+            gradient->setAttributeRadius(rgr->radius());
+        } else if (type == QGradient::ConicalGradient) {
+            auto cgr = static_cast<const QConicalGradient *>(gr);
+            gradient->setAttributeCentralX(cgr->center().x());
+            gradient->setAttributeCentralY(cgr->center().y());
+            gradient->setAttributeAngle(cgr->angle());
+        }
+
+        brush->setElementGradient(gradient);
+    } else if (style == Qt::TexturePattern) {
+        const QPixmap pixmap = br.texture();
+        if (!pixmap.isNull()) {
+            DomProperty *p = new DomProperty;
+            QFormBuilderExtra::setPixmapProperty(p, {});
+            brush->setElementTexture(p);
+        }
+    } else {
+        const QColor &c = br.color();
+        DomColor *color = new DomColor();
+        color->setElementRed(c.red());
+        color->setElementGreen(c.green());
+        color->setElementBlue(c.blue());
+        color->setAttributeAlpha(c.alpha());
+        brush->setElementColor(color);
+    }
+    return brush;
+}
+
+DomProperty *QFormBuilderExtra::propertyByName(const QList<DomProperty*> &properties,
+                                               QAnyStringView needle)
+{
+    auto it = std::find_if(properties.cbegin(), properties.cend(),
+                           [needle](const DomProperty *p) {
+                               return p->attributeName() == needle; });
+    return it != properties.cend() ? *it : nullptr;
+}
+
 // ------------ QFormBuilderStrings
 
 QFormBuilderStrings::QFormBuilderStrings() :
-    buddyProperty(QStringLiteral("buddy")),
-    cursorProperty(QStringLiteral("cursor")),
-    objectNameProperty(QStringLiteral("objectName")),
-    trueValue(QStringLiteral("true")),
-    falseValue(QStringLiteral("false")),
-    horizontalPostFix(QStringLiteral("Horizontal")),
-    separator(QStringLiteral("separator")),
-    defaultTitle(QStringLiteral("Page")),
-    titleAttribute(QStringLiteral("title")),
-    labelAttribute(QStringLiteral("label")),
-    toolTipAttribute(QStringLiteral("toolTip")),
-    whatsThisAttribute(QStringLiteral("whatsThis")),
-    flagsAttribute(QStringLiteral("flags")),
-    iconAttribute(QStringLiteral("icon")),
-    pixmapAttribute(QStringLiteral("pixmap")),
-    textAttribute(QStringLiteral("text")),
-    currentIndexProperty(QStringLiteral("currentIndex")),
-    toolBarAreaAttribute(QStringLiteral("toolBarArea")),
-    toolBarBreakAttribute(QStringLiteral("toolBarBreak")),
-    dockWidgetAreaAttribute(QStringLiteral("dockWidgetArea")),
-    marginProperty(QStringLiteral("margin")),
-    spacingProperty(QStringLiteral("spacing")),
-    leftMarginProperty(QStringLiteral("leftMargin")),
-    topMarginProperty(QStringLiteral("topMargin")),
-    rightMarginProperty(QStringLiteral("rightMargin")),
-    bottomMarginProperty(QStringLiteral("bottomMargin")),
-    horizontalSpacingProperty(QStringLiteral("horizontalSpacing")),
-    verticalSpacingProperty(QStringLiteral("verticalSpacing")),
-    sizeHintProperty(QStringLiteral("sizeHint")),
-    sizeTypeProperty(QStringLiteral("sizeType")),
-    orientationProperty(QStringLiteral("orientation")),
-    styleSheetProperty(QStringLiteral("styleSheet")),
-    qtHorizontal(QStringLiteral("Qt::Horizontal")),
-    qtVertical(QStringLiteral("Qt::Vertical")),
-    currentRowProperty(QStringLiteral("currentRow")),
-    tabSpacingProperty(QStringLiteral("tabSpacing")),
-    qWidgetClass(QStringLiteral("QWidget")),
-    lineClass(QStringLiteral("Line")),
-    geometryProperty(QStringLiteral("geometry")),
-    scriptWidgetVariable(QStringLiteral("widget")),
-    scriptChildWidgetsVariable(QStringLiteral("childWidgets"))
+    itemRoles {
+        {Qt::FontRole, "font"_L1},
+        {Qt::TextAlignmentRole, "textAlignment"_L1},
+        {Qt::BackgroundRole, "background"_L1},
+        {Qt::ForegroundRole, "foreground"_L1},
+        {Qt::CheckStateRole, "checkState"_L1}
+    },
+    itemTextRoles { // This must be first for the loop below
+        { {Qt::EditRole, Qt::DisplayPropertyRole}, textAttribute},
+        { {Qt::ToolTipRole, Qt::ToolTipPropertyRole}, toolTipAttribute},
+        { {Qt::StatusTipRole, Qt::StatusTipPropertyRole}, "statusTip"_L1},
+        { {Qt::WhatsThisRole, Qt::WhatsThisPropertyRole}, whatsThisAttribute}
+    }
 {
-    itemRoles.append(qMakePair(Qt::FontRole, QString::fromLatin1("font")));
-    itemRoles.append(qMakePair(Qt::TextAlignmentRole, QString::fromLatin1("textAlignment")));
-    itemRoles.append(qMakePair(Qt::BackgroundRole, QString::fromLatin1("background")));
-    itemRoles.append(qMakePair(Qt::ForegroundRole, QString::fromLatin1("foreground")));
-    itemRoles.append(qMakePair(Qt::CheckStateRole, QString::fromLatin1("checkState")));
-
-    foreach (const RoleNName &it, itemRoles)
+    for (const RoleNName &it : std::as_const(itemRoles))
         treeItemRoleHash.insert(it.second, it.first);
 
-    itemTextRoles.append(qMakePair(qMakePair(Qt::EditRole, Qt::DisplayPropertyRole),
-                                   textAttribute)); // This must be first for the loop below
-    itemTextRoles.append(qMakePair(qMakePair(Qt::ToolTipRole, Qt::ToolTipPropertyRole),
-                                   toolTipAttribute));
-    itemTextRoles.append(qMakePair(qMakePair(Qt::StatusTipRole, Qt::StatusTipPropertyRole),
-                                   QString::fromLatin1("statusTip")));
-    itemTextRoles.append(qMakePair(qMakePair(Qt::WhatsThisRole, Qt::WhatsThisPropertyRole),
-                                   whatsThisAttribute));
-
     // Note: this skips the first item!
-    QList<TextRoleNName>::const_iterator it = itemTextRoles.constBegin(), end = itemTextRoles.constEnd();
+    auto it = itemTextRoles.constBegin();
+    const auto end = itemTextRoles.constEnd();
     while (++it != end)
         treeItemTextRoleHash.insert(it->second, it->first);
 }

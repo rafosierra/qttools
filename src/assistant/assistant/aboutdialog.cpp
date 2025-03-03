@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Assistant of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "aboutdialog.h"
 
@@ -42,9 +12,9 @@
 #include <QtWidgets/QPushButton>
 #include <QtWidgets/QLayout>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QDesktopWidget>
 #include <QtWidgets/QMessageBox>
 #include <QtGui/QDesktopServices>
+#include <QtGui/QScreen>
 
 QT_BEGIN_NAMESPACE
 
@@ -54,7 +24,7 @@ AboutLabel::AboutLabel(QWidget *parent)
     TRACE_OBJ
     setFrameStyle(QFrame::NoFrame);
     QPalette p;
-    p.setColor(QPalette::Base, p.color(QPalette::Background));
+    p.setColor(QPalette::Base, p.color(QPalette::Window));
     setPalette(p);
 }
 
@@ -86,14 +56,15 @@ QVariant AboutLabel::loadResource(int type, const QUrl &name)
     return QVariant();
 }
 
-void AboutLabel::setSource(const QUrl &url)
+void AboutLabel::doSetSource(const QUrl &url, QTextDocument::ResourceType type)
 {
     TRACE_OBJ
+    Q_UNUSED(type);
     if (url.isValid() && (!HelpViewer::isLocalUrl(url)
     || !HelpViewer::canOpenPage(url.path()))) {
         if (!QDesktopServices::openUrl(url)) {
             QMessageBox::warning(this, tr("Warning"),
-                tr("Unable to launch external application.\n"), tr("OK"));
+                tr("Unable to launch external application."), QMessageBox::Close);
         }
     }
 }
@@ -103,12 +74,12 @@ AboutDialog::AboutDialog(QWidget *parent)
         Qt::WindowTitleHint|Qt::WindowSystemMenuHint)
 {
     TRACE_OBJ
-    m_pixmapLabel = 0;
+    m_pixmapLabel = nullptr;
     m_aboutLabel = new AboutLabel();
 
     m_closeButton = new QPushButton();
     m_closeButton->setText(tr("&Close"));
-    connect(m_closeButton, SIGNAL(clicked()), this, SLOT(close()));
+    connect(m_closeButton, &QAbstractButton::clicked, this, &QWidget::close);
 
     m_layout = new QGridLayout(this);
     m_layout->addWidget(m_aboutLabel, 1, 0, 1, -1);
@@ -146,8 +117,10 @@ QString AboutDialog::documentTitle() const
 void AboutDialog::updateSize()
 {
     TRACE_OBJ
-    QSize screenSize = QApplication::desktop()->availableGeometry(QCursor::pos())
-        .size();
+    auto screen = QGuiApplication::screenAt(QCursor::pos());
+    if (!screen)
+        screen = QGuiApplication::primaryScreen();
+    const QSize screenSize = screen->availableSize();
     int limit = qMin(screenSize.width()/2, 500);
 
 #ifdef Q_OS_MAC
@@ -161,7 +134,7 @@ void AboutDialog::updateSize()
         width = limit;
 
     QFontMetrics fm(qApp->font("QWorkspaceTitleBar"));
-    int windowTitleWidth = qMin(fm.width(windowTitle()) + 50, limit);
+    int windowTitleWidth = qMin(fm.horizontalAdvance(windowTitle()) + 50, limit);
     if (windowTitleWidth > width)
         width = windowTitleWidth;
 

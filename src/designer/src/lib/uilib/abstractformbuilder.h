@@ -1,48 +1,22 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #ifndef ABSTRACTFORMBUILDER_H
 #define ABSTRACTFORMBUILDER_H
 
+#if 0
+#  pragma qt_sync_skip_header_check
+#endif
+
 #include "uilib_global.h"
 
-#include <QtCore/QList>
-#include <QtCore/QHash>
-#include <QtCore/QDir>
-#include <QtCore/QScopedPointer>
+#include <QtCore/qlist.h>
+#include <QtCore/qhash.h>
+#include <QtCore/qdir.h>
+#include <QtCore/qscopedpointer.h>
 
-#include <QtWidgets/QSizePolicy>
-#include <QtGui/QPalette>
+#include <QtWidgets/qsizepolicy.h>
+#include <QtGui/qpalette.h>
 
 QT_BEGIN_NAMESPACE
 #if 0
@@ -101,13 +75,15 @@ class QFormBuilderExtra;
 class QDESIGNER_UILIB_EXPORT QAbstractFormBuilder
 {
 public:
+    Q_DISABLE_COPY_MOVE(QAbstractFormBuilder)
+
     QAbstractFormBuilder();
     virtual ~QAbstractFormBuilder();
 
     QDir workingDirectory() const;
     void setWorkingDirectory(const QDir &directory);
 
-    virtual QWidget *load(QIODevice *dev, QWidget *parentWidget=0);
+    virtual QWidget *load(QIODevice *dev, QWidget *parentWidget = nullptr);
     virtual void save(QIODevice *dev, QWidget *widget);
 
     QString errorString() const;
@@ -201,7 +177,7 @@ protected:
     QVariant toVariant(const QMetaObject *meta, DomProperty *property);
     static QString toString(const DomString *str);
 
-    typedef QHash<QString, DomProperty*> DomPropertyHash;
+    using DomPropertyHash = QHash<QString, DomProperty*>;
     static DomPropertyHash propertyMap(const QList<DomProperty*> &properties);
 
     void setupColorGroup(QPalette &palette, QPalette::ColorGroup colorGroup, DomColorGroup *group);
@@ -222,28 +198,18 @@ protected:
 //  Icon/pixmap stuff
 //
     // A Pair of icon path/qrc path.
-    typedef QPair<QString, QString> IconPaths;
+    using IconPaths = std::pair<QString, QString>;
 
-    IconPaths iconPaths(const QIcon &) const;
-    IconPaths pixmapPaths(const QPixmap &) const;
     void setIconProperty(DomProperty &, const IconPaths &) const;
     void setPixmapProperty(DomProperty &, const IconPaths &) const;
-    DomProperty* iconToDomProperty(const QIcon &) const;
 
     static const DomResourcePixmap *domPixmap(const DomProperty* p);
-    QIcon domPropertyToIcon(const DomResourcePixmap *);
-    QIcon domPropertyToIcon(const DomProperty* p);
-    QPixmap domPropertyToPixmap(const DomResourcePixmap* p);
-    QPixmap domPropertyToPixmap(const DomProperty* p);
 
 private:
 //
 //  utils
 //
     static Qt::ToolBarArea toolbarAreaFromDOMAttributes(const DomPropertyHash &attributeMap);
-
-    QAbstractFormBuilder(const QAbstractFormBuilder &other);
-    void operator = (const QAbstractFormBuilder &other);
 
     friend QDESIGNER_UILIB_EXPORT DomProperty *variantToDomProperty(QAbstractFormBuilder *abstractFormBuilder, const QMetaObject *meta, const QString &propertyName, const QVariant &value);
     friend QDESIGNER_UILIB_EXPORT QVariant domPropertyToVariant(QAbstractFormBuilder *abstractFormBuilder,const QMetaObject *meta, const DomProperty *property);

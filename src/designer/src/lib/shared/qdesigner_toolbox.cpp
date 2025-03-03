@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qdesigner_toolbox_p.h"
 #include "qdesigner_command_p.h"
@@ -37,18 +7,21 @@
 #include "promotiontaskmenu_p.h"
 #include "formwindowbase_p.h"
 
-#include <QtDesigner/QDesignerFormWindowInterface>
+#include <QtDesigner/abstractformwindow.h>
 
-#include <QtCore/QEvent>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QToolBox>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QLayout>
-#include <QtWidgets/QApplication>
-#include <QtGui/QContextMenuEvent>
-#include <QtCore/QHash>
+#include <QtWidgets/qtoolbox.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qlayout.h>
+#include <QtWidgets/qapplication.h>
+
+#include <QtGui/qaction.h>
+#include <QtGui/qevent.h>
+
+#include <QtCore/qhash.h>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 QToolBoxHelper::QToolBoxHelper(QToolBox *toolbox) :
     QObject(toolbox),
@@ -57,12 +30,12 @@ QToolBoxHelper::QToolBoxHelper(QToolBox *toolbox) :
     m_actionInsertPage(new QAction(tr("Before Current Page"), this)),
     m_actionInsertPageAfter(new QAction(tr("After Current Page"), this)),
     m_actionChangePageOrder(new QAction(tr("Change Page Order..."), this)),
-    m_pagePromotionTaskMenu(new qdesigner_internal::PromotionTaskMenu(0, qdesigner_internal::PromotionTaskMenu::ModeSingleWidget, this))
+    m_pagePromotionTaskMenu(new qdesigner_internal::PromotionTaskMenu(nullptr, qdesigner_internal::PromotionTaskMenu::ModeSingleWidget, this))
 {
-    connect(m_actionDeletePage, SIGNAL(triggered()), this, SLOT(removeCurrentPage()));
-    connect(m_actionInsertPage, SIGNAL(triggered()), this, SLOT(addPage()));
-    connect(m_actionInsertPageAfter, SIGNAL(triggered()), this, SLOT(addPageAfter()));
-    connect(m_actionChangePageOrder, SIGNAL(triggered()), this, SLOT(changeOrder()));
+    connect(m_actionDeletePage, &QAction::triggered, this, &QToolBoxHelper::removeCurrentPage);
+    connect(m_actionInsertPage, &QAction::triggered, this, &QToolBoxHelper::addPage);
+    connect(m_actionInsertPageAfter, &QAction::triggered, this, &QToolBoxHelper::addPageAfter);
+    connect(m_actionChangePageOrder, &QAction::triggered, this, &QToolBoxHelper::changeOrder);
 
     m_toolbox->installEventFilter(this);
 }
@@ -111,22 +84,19 @@ bool QToolBoxHelper::eventFilter(QObject *watched, QEvent *event)
 QToolBoxHelper *QToolBoxHelper::helperOf(const QToolBox *toolbox)
 {
     // Look for 1st order children only..otherwise, we might get filters of nested widgets
-    const QObjectList children = toolbox->children();
-    const QObjectList::const_iterator cend = children.constEnd();
-    for (QObjectList::const_iterator it = children.constBegin(); it != cend; ++it) {
-        QObject *o = *it;
+    for (QObject *o : toolbox->children()) {
         if (!o->isWidgetType())
             if (QToolBoxHelper *h = qobject_cast<QToolBoxHelper *>(o))
                 return h;
     }
-    return 0;
+    return nullptr;
 }
 
 QMenu *QToolBoxHelper::addToolBoxContextMenuActions(const QToolBox *toolbox, QMenu *popup)
 {
     QToolBoxHelper *helper = helperOf(toolbox);
     if (!helper)
-        return 0;
+        return nullptr;
     return helper->addContextMenuActions(popup);
 }
 
@@ -212,7 +182,7 @@ void QToolBoxHelper::setCurrentItemBackgroundRole(QPalette::ColorRole role)
 
 QMenu *QToolBoxHelper::addContextMenuActions(QMenu *popup) const
 {
-    QMenu *pageMenu = 0;
+    QMenu *pageMenu = nullptr;
     const int count = m_toolbox->count();
     m_actionDeletePage->setEnabled(count > 1);
     if (count) {
@@ -240,11 +210,11 @@ QMenu *QToolBoxHelper::addContextMenuActions(QMenu *popup) const
 
 // -------- QToolBoxWidgetPropertySheet
 
-static const char *currentItemTextKey = "currentItemText";
-static const char *currentItemNameKey = "currentItemName";
-static const char *currentItemIconKey = "currentItemIcon";
-static const char *currentItemToolTipKey = "currentItemToolTip";
-static const char *tabSpacingKey = "tabSpacing";
+static constexpr auto currentItemTextKey = "currentItemText"_L1;
+static constexpr auto currentItemNameKey = "currentItemName"_L1;
+static constexpr auto currentItemIconKey = "currentItemIcon"_L1;
+static constexpr auto currentItemToolTipKey = "currentItemToolTip"_L1;
+static constexpr auto tabSpacingKey = "tabSpacing"_L1;
 
 enum { tabSpacingDefault = -1 };
 
@@ -252,26 +222,24 @@ QToolBoxWidgetPropertySheet::QToolBoxWidgetPropertySheet(QToolBox *object, QObje
     QDesignerPropertySheet(object, parent),
     m_toolBox(object)
 {
-    createFakeProperty(QLatin1String(currentItemTextKey), QVariant::fromValue(qdesigner_internal::PropertySheetStringValue()));
-    createFakeProperty(QLatin1String(currentItemNameKey), QString());
-    createFakeProperty(QLatin1String(currentItemIconKey), QVariant::fromValue(qdesigner_internal::PropertySheetIconValue()));
+    createFakeProperty(currentItemTextKey, QVariant::fromValue(qdesigner_internal::PropertySheetStringValue()));
+    createFakeProperty(currentItemNameKey, QString());
+    createFakeProperty(currentItemIconKey, QVariant::fromValue(qdesigner_internal::PropertySheetIconValue()));
     if (formWindowBase())
-        formWindowBase()->addReloadableProperty(this, indexOf(QLatin1String(currentItemIconKey)));
-    createFakeProperty(QLatin1String(currentItemToolTipKey), QVariant::fromValue(qdesigner_internal::PropertySheetStringValue()));
-    createFakeProperty(QLatin1String(tabSpacingKey), QVariant(tabSpacingDefault));
+        formWindowBase()->addReloadableProperty(this, indexOf(currentItemIconKey));
+    createFakeProperty(currentItemToolTipKey, QVariant::fromValue(qdesigner_internal::PropertySheetStringValue()));
+    createFakeProperty(tabSpacingKey, QVariant(tabSpacingDefault));
 }
 
 QToolBoxWidgetPropertySheet::ToolBoxProperty QToolBoxWidgetPropertySheet::toolBoxPropertyFromName(const QString &name)
 {
-    typedef QHash<QString, ToolBoxProperty> ToolBoxPropertyHash;
-    static ToolBoxPropertyHash toolBoxPropertyHash;
-    if (toolBoxPropertyHash.empty()) {
-        toolBoxPropertyHash.insert(QLatin1String(currentItemTextKey),    PropertyCurrentItemText);
-        toolBoxPropertyHash.insert(QLatin1String(currentItemNameKey),    PropertyCurrentItemName);
-        toolBoxPropertyHash.insert(QLatin1String(currentItemIconKey),    PropertyCurrentItemIcon);
-        toolBoxPropertyHash.insert(QLatin1String(currentItemToolTipKey), PropertyCurrentItemToolTip);
-        toolBoxPropertyHash.insert(QLatin1String(tabSpacingKey),         PropertyTabSpacing);
-    }
+    static const QHash<QString, ToolBoxProperty> toolBoxPropertyHash = {
+        {currentItemTextKey,    PropertyCurrentItemText},
+        {currentItemNameKey,    PropertyCurrentItemName},
+        {currentItemIconKey,    PropertyCurrentItemIcon},
+        {currentItemToolTipKey, PropertyCurrentItemToolTip},
+        {tabSpacingKey,         PropertyTabSpacing}
+    };
     return toolBoxPropertyHash.value(name, PropertyToolBoxNone);
 }
 

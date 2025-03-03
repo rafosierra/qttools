@@ -1,67 +1,38 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Assistant of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "helpviewer.h"
-#include "helpviewer_p.h"
+#include "helpviewerimpl.h"
 
 #include "helpenginewrapper.h"
 #include "tracer.h"
 
-#include <QtCore/QCoreApplication>
 #include <QtCore/QFileInfo>
 #include <QtCore/QStringBuilder>
 #include <QtCore/QTemporaryFile>
-#include <QtCore/QUrl>
 
 #include <QtGui/QDesktopServices>
-#include <QtGui/QMouseEvent>
+#if QT_CONFIG(clipboard)
+#include <QtGui/QClipboard>
+#endif
+#include <QtGui/QGuiApplication>
+#include <QtGui/QStyleHints>
+#include <QtGui/QWheelEvent>
+
+#include <QtWidgets/QScrollBar>
+#include <QtWidgets/QVBoxLayout>
 
 #include <QtHelp/QHelpEngineCore>
 
+#include <qlitehtmlwidget.h>
+
 QT_BEGIN_NAMESPACE
 
-const QString HelpViewer::AboutBlank =
-    QCoreApplication::translate("HelpViewer", "<title>about:blank</title>");
+using namespace Qt::StringLiterals;
 
-const QString HelpViewer::LocalHelpFile = QLatin1String("qthelp://"
-    "org.qt-project.assistantinternal-1.0.0/assistant/assistant-quick-guide.html");
+const int kMaxHistoryItems = 20;
 
-const QString HelpViewer::PageNotFoundMessage =
-    QCoreApplication::translate("HelpViewer", "<title>Error 404...</title><div "
-    "align=\"center\"><br><br><h1>The page could not be found.</h1><br><h3>'%1'"
-    "</h3></div>");
-
-struct ExtensionMap {
+const struct ExtensionMap {
     const char *extension;
     const char *mimeType;
 } extensionMap[] = {
@@ -77,7 +48,7 @@ struct ExtensionMap {
     { ".mng", "video/x-mng" },
     { ".pbm", "image/x-portable-bitmap" },
     { ".pgm", "image/x-portable-graymap" },
-    { ".pdf", "application/pdf" },
+    { ".pdf", nullptr },
     { ".png", "image/png" },
     { ".ppm", "image/x-portable-pixmap" },
     { ".rss", "application/rss+xml" },
@@ -94,14 +65,350 @@ struct ExtensionMap {
     { ".xhtml", "application/xhtml+xml" },
     { ".wml", "text/vnd.wap.wml" },
     { ".wmlc", "application/vnd.wap.wmlc" },
-    { "about:blank", 0 },
-    { 0, 0 }
+    { "about:blank", nullptr },
+    { nullptr, nullptr }
 };
+
+static void setLight(QWidget *widget)
+{
+    // Make docs' contents visible in dark theme
+    QPalette p = widget->palette();
+    p.setColor(QPalette::Inactive, QPalette::Highlight,
+               p.color(QPalette::Active, QPalette::Highlight));
+    p.setColor(QPalette::Inactive, QPalette::HighlightedText,
+               p.color(QPalette::Active, QPalette::HighlightedText));
+    p.setColor(QPalette::Base, Qt::white);
+    p.setColor(QPalette::Text, Qt::black);
+    widget->setPalette(p);
+}
+
+static bool isDarkTheme()
+{
+    // Either Qt realizes that it is dark, or the palette exposes it, by having
+    // the window background darker than the text
+    return QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark
+            || QGuiApplication::palette().color(QPalette::Base).lightnessF()
+            < QGuiApplication::palette().color(QPalette::Text).lightnessF();
+}
+
+static void setPaletteFromApp(QWidget *widget)
+{
+    QPalette appPalette = QGuiApplication::palette();
+    // Detach the palette from the application palette, so it doesn't change directly when the
+    // application palette changes.
+    // That ensures that if the system is dark, and dark documentation is show, and the user
+    // switches the system to a light theme, that the documentation background stays dark for the
+    // visible page until either the we got informed by the change in application palette, or the
+    // user switched pages
+    appPalette.setColor(QPalette::Base, appPalette.color(QPalette::Base));
+    widget->setPalette(appPalette);
+}
+
+static QByteArray getData(const QUrl &url, QWidget *widget)
+{
+    // This is a hack for Qt documentation,
+    // which decides to use a simpler CSS if the viewer does not have JavaScript
+    // which was a hack to decide if we are viewing in QTextBrowser or QtWebEngine et al.
+    // Force it to use the "normal" offline CSS even without JavaScript, since litehtml can
+    // handle that, and inject a dark themed CSS into Qt documentation for dark Qt Creator themes
+    QUrl actualUrl = url;
+    QString path = url.path(QUrl::FullyEncoded);
+    static const char simpleCss[] = "/offline-simple.css";
+    if (path.endsWith(simpleCss)) {
+        if (isDarkTheme()) {
+            // check if dark CSS is shipped with documentation
+            QString darkPath = path;
+            darkPath.replace(simpleCss, "/offline-dark.css");
+            actualUrl.setPath(darkPath);
+            QByteArray data = HelpEngineWrapper::instance().fileData(actualUrl);
+            if (!data.isEmpty()) {
+                // we found the dark style
+                // set background dark (by using app palette)
+                setPaletteFromApp(widget);
+                return data;
+            }
+        }
+        path.replace(simpleCss, "/offline.css");
+        actualUrl.setPath(path);
+    }
+
+    if (actualUrl.isValid())
+        return HelpEngineWrapper::instance().fileData(actualUrl);
+
+    const bool isAbout = (actualUrl.toString() == "about:blank"_L1);
+    return isAbout ? HelpViewerImpl::AboutBlank.toUtf8()
+                   : HelpViewerImpl::PageNotFoundMessage.arg(url.toString()).toUtf8();
+}
+
+class HelpViewerPrivate
+{
+public:
+    struct HistoryItem
+    {
+        QUrl url;
+        QString title;
+        int vscroll;
+    };
+    HistoryItem currentHistoryItem() const;
+    void setSourceInternal(const QUrl &url, int *vscroll = nullptr, bool reload = false);
+    void incrementZoom(int steps);
+    void applyZoom(int percentage);
+
+    HelpViewer *q = nullptr;
+    QLiteHtmlWidget *m_viewer = nullptr;
+    std::vector<HistoryItem> m_backItems;
+    std::vector<HistoryItem> m_forwardItems;
+    int m_fontZoom = 100; // zoom percentage
+};
+
+HelpViewerPrivate::HistoryItem HelpViewerPrivate::currentHistoryItem() const
+{
+    return { m_viewer->url(), m_viewer->title(), m_viewer->verticalScrollBar()->value() };
+}
+
+void HelpViewerPrivate::setSourceInternal(const QUrl &url, int *vscroll, bool reload)
+{
+    QGuiApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
+
+    const bool isHelp = (url.toString() == "help"_L1);
+    const QUrl resolvedUrl = (isHelp ? HelpViewerImpl::LocalHelpFile
+                                     : HelpEngineWrapper::instance().findFile(url));
+
+    QUrl currentUrlWithoutFragment = m_viewer->url();
+    currentUrlWithoutFragment.setFragment({});
+    QUrl newUrlWithoutFragment = resolvedUrl;
+    newUrlWithoutFragment.setFragment({});
+
+    m_viewer->setUrl(resolvedUrl);
+    if (currentUrlWithoutFragment != newUrlWithoutFragment || reload) {
+        // Users can register arbitrary documentation, so we do not expect the documentation to
+        // support dark themes, and start with light palette.
+        // We override this if we find Qt's dark style
+        setLight(q);
+        m_viewer->setHtml(QString::fromUtf8(getData(resolvedUrl, q)));
+    }
+    if (vscroll)
+        m_viewer->verticalScrollBar()->setValue(*vscroll);
+    else
+        m_viewer->scrollToAnchor(resolvedUrl.fragment(QUrl::FullyEncoded));
+
+    QGuiApplication::restoreOverrideCursor();
+
+    emit q->sourceChanged(q->source());
+    emit q->loadFinished();
+    emit q->titleChanged();
+}
+
+void HelpViewerPrivate::incrementZoom(int steps)
+{
+    const int incrementPercentage = 10 * steps; // 10 percent increase by single step
+    const int previousZoom = m_fontZoom;
+    applyZoom(previousZoom + incrementPercentage);
+}
+
+void HelpViewerPrivate::applyZoom(int percentage)
+{
+    const int newZoom = qBound(10, percentage, 300);
+    if (newZoom == m_fontZoom)
+        return;
+    m_fontZoom = newZoom;
+    m_viewer->setZoomFactor(newZoom / 100.0);
+}
+
+HelpViewer::HelpViewer(qreal zoom, QWidget *parent)
+    : QWidget(parent)
+    , d(new HelpViewerPrivate)
+{
+    auto layout = new QVBoxLayout;
+    d->q = this;
+    d->m_viewer = new QLiteHtmlWidget(this);
+    d->m_viewer->setResourceHandler([this](const QUrl &url) { return getData(url, this); });
+    d->m_viewer->viewport()->installEventFilter(this);
+    const int zoomPercentage = zoom == 0 ? 100 : zoom * 100;
+    d->applyZoom(zoomPercentage);
+    connect(d->m_viewer, &QLiteHtmlWidget::linkClicked, this, &HelpViewer::setSource);
+    connect(d->m_viewer, &QLiteHtmlWidget::linkHighlighted, this, &HelpViewer::highlighted);
+#if QT_CONFIG(clipboard)
+    connect(d->m_viewer, &QLiteHtmlWidget::copyAvailable, this, &HelpViewer::copyAvailable);
+#endif
+    setLayout(layout);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->addWidget(d->m_viewer, 10);
+
+    // If the platform supports it, changes of color scheme light/dark take effect during runtime:
+    connect(
+            QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this,
+            [this] {
+                int vscroll = d->m_viewer->verticalScrollBar()->value();
+                d->setSourceInternal(source(), &vscroll, /*reload*/ true);
+            },
+            // Queue to make sure that the palette is actually applied on the application
+            Qt::QueuedConnection);
+}
 
 HelpViewer::~HelpViewer()
 {
-    TRACE_OBJ
     delete d;
+}
+
+QFont HelpViewer::viewerFont() const
+{
+    return d->m_viewer->defaultFont();
+}
+
+void HelpViewer::setViewerFont(const QFont &font)
+{
+    d->m_viewer->setDefaultFont(font);
+}
+
+void HelpViewer::scaleUp()
+{
+    d->incrementZoom(1);
+}
+
+void HelpViewer::scaleDown()
+{
+    d->incrementZoom(-1);
+}
+
+void HelpViewer::resetScale()
+{
+    d->applyZoom(100);
+}
+
+qreal HelpViewer::scale() const
+{
+    return d->m_viewer->zoomFactor();
+}
+
+QString HelpViewer::title() const
+{
+    return d->m_viewer->title();
+}
+
+QUrl HelpViewer::source() const
+{
+    return d->m_viewer->url();
+}
+
+void HelpViewer::reload()
+{
+    doSetSource(source(), true);
+}
+
+void HelpViewer::setSource(const QUrl &url)
+{
+    doSetSource(url, false);
+}
+
+void HelpViewer::doSetSource(const QUrl &url, bool reload)
+{
+    if (launchWithExternalApp(url))
+        return;
+
+    d->m_forwardItems.clear();
+    emit forwardAvailable(false);
+    if (d->m_viewer->url().isValid()) {
+        d->m_backItems.push_back(d->currentHistoryItem());
+        while (d->m_backItems.size() > kMaxHistoryItems) // this should trigger only once anyhow
+            d->m_backItems.erase(d->m_backItems.begin());
+        emit backwardAvailable(true);
+    }
+
+    d->setSourceInternal(url, nullptr, reload);
+}
+
+#if QT_CONFIG(printer)
+void HelpViewer::print(QPrinter *printer)
+{
+    d->m_viewer->print(printer);
+}
+#endif
+
+QString HelpViewer::selectedText() const
+{
+    return d->m_viewer->selectedText();
+}
+
+bool HelpViewer::isForwardAvailable() const
+{
+    return !d->m_forwardItems.empty();
+}
+
+bool HelpViewer::isBackwardAvailable() const
+{
+    return !d->m_backItems.empty();
+}
+
+static QTextDocument::FindFlags textDocumentFlagsForFindFlags(HelpViewer::FindFlags flags)
+{
+    QTextDocument::FindFlags textDocFlags;
+    if (flags & HelpViewer::FindBackward)
+        textDocFlags |= QTextDocument::FindBackward;
+    if (flags & HelpViewer::FindCaseSensitively)
+        textDocFlags |= QTextDocument::FindCaseSensitively;
+    return textDocFlags;
+}
+
+bool HelpViewer::findText(const QString &text, FindFlags flags, bool incremental, bool fromSearch)
+{
+    Q_UNUSED(fromSearch);
+    return d->m_viewer->findText(text, textDocumentFlagsForFindFlags(flags), incremental);
+}
+
+#if QT_CONFIG(clipboard)
+void HelpViewer::copy()
+{
+    QGuiApplication::clipboard()->setText(selectedText());
+}
+#endif
+
+void HelpViewer::home()
+{
+    setSource(HelpEngineWrapper::instance().homePage());
+}
+
+void HelpViewer::forward()
+{
+    HelpViewerPrivate::HistoryItem nextItem = d->currentHistoryItem();
+    if (d->m_forwardItems.empty())
+        return;
+    d->m_backItems.push_back(nextItem);
+    nextItem = d->m_forwardItems.front();
+    d->m_forwardItems.erase(d->m_forwardItems.begin());
+
+    emit backwardAvailable(isBackwardAvailable());
+    emit forwardAvailable(isForwardAvailable());
+    d->setSourceInternal(nextItem.url, &nextItem.vscroll);
+}
+
+void HelpViewer::backward()
+{
+    HelpViewerPrivate::HistoryItem previousItem = d->currentHistoryItem();
+    if (d->m_backItems.empty())
+        return;
+    d->m_forwardItems.insert(d->m_forwardItems.begin(), previousItem);
+    previousItem = d->m_backItems.back();
+    d->m_backItems.pop_back();
+
+    emit backwardAvailable(isBackwardAvailable());
+    emit forwardAvailable(isForwardAvailable());
+    d->setSourceInternal(previousItem.url, &previousItem.vscroll);
+}
+
+bool HelpViewer::eventFilter(QObject *src, QEvent *event)
+{
+    if (event->type() == QEvent::Wheel) {
+        auto we = static_cast<QWheelEvent *>(event);
+        if (we->modifiers() == Qt::ControlModifier) {
+            we->accept();
+            const int deltaY = we->angleDelta().y();
+            if (deltaY != 0)
+                d->incrementZoom(deltaY / 120);
+            return true;
+        }
+    }
+    return QWidget::eventFilter(src, event);
 }
 
 bool HelpViewer::isLocalUrl(const QUrl &url)
@@ -109,33 +416,33 @@ bool HelpViewer::isLocalUrl(const QUrl &url)
     TRACE_OBJ
     const QString &scheme = url.scheme();
     return scheme.isEmpty()
-        || scheme == QLatin1String("file")
-        || scheme == QLatin1String("qrc")
-        || scheme == QLatin1String("data")
-        || scheme == QLatin1String("qthelp")
-        || scheme == QLatin1String("about");
+        || scheme == "file"_L1
+        || scheme == "qrc"_L1
+        || scheme == "data"_L1
+        || scheme == "qthelp"_L1
+        || scheme == "about"_L1;
 }
 
-bool HelpViewer::canOpenPage(const QString &url)
+bool HelpViewer::canOpenPage(const QString &path)
 {
     TRACE_OBJ
-    return !mimeFromUrl(url).isEmpty();
+    return !mimeFromUrl(QUrl::fromLocalFile(path)).isEmpty();
 }
 
 QString HelpViewer::mimeFromUrl(const QUrl &url)
 {
     TRACE_OBJ
     const QString &path = url.path();
-    const int index = path.lastIndexOf(QLatin1Char('.'));
+    const int index = path.lastIndexOf(u'.');
     const QByteArray &ext = path.mid(index).toUtf8().toLower();
 
     const ExtensionMap *e = extensionMap;
     while (e->extension) {
         if (ext == e->extension)
-            return QLatin1String(e->mimeType);
+            return QLatin1StringView(e->mimeType);
         ++e;
     }
-    return QLatin1String("application/octet-stream");
+    return "application/octet-stream"_L1;
 }
 
 bool HelpViewer::launchWithExternalApp(const QUrl &url)
@@ -147,65 +454,24 @@ bool HelpViewer::launchWithExternalApp(const QUrl &url)
         if (!resolvedUrl.isValid())
             return false;
 
-        const QString& path = resolvedUrl.path();
+        const QString& path = resolvedUrl.toLocalFile();
         if (!canOpenPage(path)) {
             QTemporaryFile tmpTmpFile;
             if (!tmpTmpFile.open())
                 return false;
 
             const QString &extension = QFileInfo(path).completeSuffix();
-            QFile actualTmpFile(tmpTmpFile.fileName() % QLatin1String(".")
-                % extension);
+            QFile actualTmpFile(tmpTmpFile.fileName() % "."_L1 % extension);
             if (!actualTmpFile.open(QIODevice::ReadWrite | QIODevice::Truncate))
                 return false;
 
             actualTmpFile.write(helpEngine.fileData(resolvedUrl));
             actualTmpFile.close();
-            return QDesktopServices::openUrl(QUrl(actualTmpFile.fileName()));
+            return QDesktopServices::openUrl(QUrl::fromLocalFile(actualTmpFile.fileName()));
         }
-    } else if (url.scheme() == QLatin1String("http") || url.scheme() == QLatin1String("mailto")) {
-        return QDesktopServices::openUrl(url);
+        return false;
     }
-    return false;
-}
-
-// -- public slots
-
-void HelpViewer::home()
-{
-    TRACE_OBJ
-    setSource(HelpEngineWrapper::instance().homePage());
-}
-
-// -- private slots
-
-void HelpViewer::setLoadStarted()
-{
-    d->m_loadFinished = false;
-}
-
-void HelpViewer::setLoadFinished(bool ok)
-{
-    d->m_loadFinished = ok;
-    emit sourceChanged(source());
-}
-
-// -- private
-
-bool HelpViewer::handleForwardBackwardMouseButtons(QMouseEvent *event)
-{
-    TRACE_OBJ
-    if (event->button() == Qt::XButton1) {
-        backward();
-        return true;
-    }
-
-    if (event->button() == Qt::XButton2) {
-        forward();
-        return true;
-    }
-
-    return false;
+    return QDesktopServices::openUrl(url);
 }
 
 QT_END_NAMESPACE

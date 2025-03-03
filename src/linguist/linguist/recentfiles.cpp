@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "recentfiles.h"
 #include "globals.h"
@@ -55,7 +25,8 @@ RecentFiles::RecentFiles(const int maxEntries)
 {
     m_timer.setSingleShot(true);
     m_timer.setInterval(3 * 60 * 1000);
-    connect(&m_timer, SIGNAL(timeout()), SLOT(closeGroup()));
+    connect(&m_timer, &QTimer::timeout,
+            this, &RecentFiles::closeGroup);
 }
 
 /*
@@ -100,7 +71,7 @@ void RecentFiles::addFiles(const QStringList &names)
             m_strLists.removeAt(index);
             m_clone1st = true;
         } else {
-            if (m_strLists.count() >= m_maxEntries)
+            if (m_strLists.size() >= m_maxEntries)
                 m_strLists.removeLast();
             m_clone1st = false;
         }
@@ -119,18 +90,17 @@ void RecentFiles::readConfig()
 {
     m_strLists.clear();
     QVariant val = QSettings().value(configKey());
-    if (val.type() == QVariant::StringList) // Backwards compat to Qt < 4.5
-        foreach (const QString &s, val.toStringList())
-            m_strLists << QStringList(QFileInfo(s).canonicalFilePath());
-    else
-        foreach (const QVariant &v, val.toList())
+    if (val.metaType().id() == QMetaType::QVariantList) {
+        const auto list = val.toList();
+        for (const QVariant &v : list)
             m_strLists << v.toStringList();
+    }
 }
 
 void RecentFiles::writeConfig() const
 {
     QList<QVariant> vals;
-    foreach (const QStringList &sl, m_strLists)
+    for (const QStringList &sl : m_strLists)
         vals << sl;
     QSettings().setValue(configKey(), vals);
 }

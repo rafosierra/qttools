@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "formeditor.h"
 #include "formeditor_optionspage.h"
@@ -49,6 +19,7 @@
 #include "spacer_propertysheet.h"
 #include "line_propertysheet.h"
 #include "layout_propertysheet.h"
+#include "qdesigner_dockwidget_p.h"
 #include "qdesigner_stackedbox_p.h"
 #include "qdesigner_toolbox_p.h"
 #include "qdesigner_tabwidget_p.h"
@@ -56,8 +27,8 @@
 #include "itemview_propertysheet.h"
 
 // sdk
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerIntegrationInterface>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractintegration.h>
 // shared
 #include <pluginmanager_p.h>
 #include <qdesigner_taskmenu_p.h>
@@ -69,14 +40,21 @@
 
 QT_BEGIN_NAMESPACE
 
+using namespace Qt::StringLiterals;
+
 namespace qdesigner_internal {
 
-FormEditor::FormEditor(QObject *parent)
+FormEditor::FormEditor(QObject *parent) : FormEditor(QStringList{}, parent)
+{
+}
+
+FormEditor::FormEditor(const QStringList &pluginPaths,
+                       QObject *parent)
     : QDesignerFormEditorInterface(parent)
 {
     setIntrospection(new QDesignerIntrospection);
     setDialogGui(new DialogGui);
-    QDesignerPluginManager *pluginManager = new QDesignerPluginManager(this);
+    auto *pluginManager = new QDesignerPluginManager(pluginPaths, this);
     setPluginManager(pluginManager);
 
     WidgetDataBase *widgetDatabase = new WidgetDataBase(this, this);
@@ -90,8 +68,10 @@ FormEditor::FormEditor(QObject *parent)
 
     FormWindowManager *formWindowManager = new FormWindowManager(this, this);
     setFormManager(formWindowManager);
-    connect(formWindowManager, SIGNAL(formWindowAdded(QDesignerFormWindowInterface*)), widgetFactory, SLOT(formWindowAdded(QDesignerFormWindowInterface*)));
-    connect(formWindowManager, SIGNAL(activeFormWindowChanged(QDesignerFormWindowInterface*)), widgetFactory, SLOT(activeFormWindowChanged(QDesignerFormWindowInterface*)));
+    connect(formWindowManager, &QDesignerFormWindowManagerInterface::formWindowAdded,
+            widgetFactory, &WidgetFactory::formWindowAdded);
+    connect(formWindowManager, &QDesignerFormWindowManagerInterface::activeFormWindowChanged,
+            widgetFactory, &WidgetFactory::activeFormWindowChanged);
 
     QExtensionManager *mgr = new QExtensionManager(this);
     const QString containerExtensionId = Q_TYPEID(QDesignerContainerExtension);
@@ -114,6 +94,7 @@ FormEditor::FormEditor(QObject *parent)
     QMenuActionProviderFactory::registerExtension(mgr, actionProviderExtensionId);
 
     QDesignerDefaultPropertySheetFactory::registerExtension(mgr);
+    QDockWidgetPropertySheetFactory::registerExtension(mgr);
     QLayoutWidgetPropertySheetFactory::registerExtension(mgr);
     SpacerPropertySheetFactory::registerExtension(mgr);
     LinePropertySheetFactory::registerExtension(mgr);
@@ -128,8 +109,7 @@ FormEditor::FormEditor(QObject *parent)
     QTreeViewPropertySheetFactory::registerExtension(mgr);
     QTableViewPropertySheetFactory::registerExtension(mgr);
 
-    const QString internalTaskMenuId = QStringLiteral("QDesignerInternalTaskMenuExtension");
-    QDesignerTaskMenuFactory::registerExtension(mgr, internalTaskMenuId);
+    QDesignerTaskMenuFactory::registerExtension(mgr, u"QDesignerInternalTaskMenuExtension"_s);
 
     mgr->registerExtensions(new QDesignerMemberSheetFactory(mgr),
                             Q_TYPEID(QDesignerMemberSheetExtension));
@@ -140,8 +120,8 @@ FormEditor::FormEditor(QObject *parent)
 
     QtResourceModel *resourceModel = new QtResourceModel(this);
     setResourceModel(resourceModel);
-    connect(resourceModel, SIGNAL(qrcFileModifiedExternally(QString)),
-            this, SLOT(slotQrcFileChangedExternally(QString)));
+    connect(resourceModel, &QtResourceModel::qrcFileModifiedExternally,
+            this, &FormEditor::slotQrcFileChangedExternally);
 
     QList<QDesignerOptionsPageInterface*> optionsPages;
     optionsPages << new TemplateOptionsPage(this) << new FormEditorOptionsPage(this) << new EmbeddedOptionsPage(this);
@@ -150,9 +130,7 @@ FormEditor::FormEditor(QObject *parent)
     setSettingsManager(new QDesignerQSettings());
 }
 
-FormEditor::~FormEditor()
-{
-}
+FormEditor::~FormEditor() = default;
 
 void FormEditor::slotQrcFileChangedExternally(const QString &path)
 {
@@ -160,9 +138,9 @@ void FormEditor::slotQrcFileChangedExternally(const QString &path)
         return;
 
     QDesignerIntegration::ResourceFileWatcherBehaviour behaviour = integration()->resourceFileWatcherBehaviour();
-    if (behaviour == QDesignerIntegration::NoResourceFileWatcher) {
+    if (behaviour == QDesignerIntegration::NoResourceFileWatcher)
         return;
-    } else if (behaviour == QDesignerIntegration::PromptToReloadResourceFile) {
+    if (behaviour == QDesignerIntegration::PromptToReloadResourceFile) {
         QMessageBox::StandardButton button = dialogGui()->message(topLevel(), QDesignerDialogGuiInterface::FileChangedMessage, QMessageBox::Warning,
                 tr("Resource File Changed"),
                 tr("The file \"%1\" has changed outside Designer. Do you want to reload it?").arg(path),

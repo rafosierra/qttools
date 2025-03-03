@@ -1,52 +1,22 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 
 #include "connectionedit_p.h"
 
 #include <QtDesigner/abstractformwindow.h>
 
-#include <QtGui/QPainter>
-#include <QtGui/QPaintEvent>
-#include <QtGui/QFontMetrics>
-#include <QtGui/QPixmap>
-#include <QtGui/QMatrix>
-#include <QtWidgets/QApplication>
-#include <QtGui/QContextMenuEvent>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QAction>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qmenu.h>
 
-#include <QtCore/QMultiMap>
+#include <QtGui/qaction.h>
+#include <QtGui/qpainter.h>
+#include <QtGui/qevent.h>
+#include <QtGui/qfontmetrics.h>
+#include <QtGui/qpixmap.h>
+#include <QtGui/qtransform.h>
+
+#include <QtCore/qmap.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -141,8 +111,8 @@ void AddConnectionCommand::redo()
     emit edit()->aboutToAddConnection(edit()->m_con_list.size());
     edit()->m_con_list.append(m_con);
     m_con->inserted();
-    edit()->setSelected(m_con, true);
     emit edit()->connectionAdded(m_con);
+    edit()->setSelected(m_con, true);
 }
 
 void AddConnectionCommand::undo()
@@ -164,8 +134,8 @@ public:
                             const QPoint &old_target_pos,
                             const QPoint &new_source_pos,
                             const QPoint &new_target_pos);
-    virtual void redo();
-    virtual void undo();
+    void redo() override;
+    void undo() override;
 private:
     Connection *m_con;
     const QPoint m_old_source_pos;
@@ -210,7 +180,7 @@ DeleteConnectionsCommand::DeleteConnectionsCommand(ConnectionEdit *edit,
 
 void DeleteConnectionsCommand::redo()
 {
-    foreach (Connection *con, m_con_list) {
+    for (Connection *con : std::as_const(m_con_list)) {
         const int idx = edit()->indexOfConnection(con);
         emit edit()->aboutToRemoveConnection(con);
         Q_ASSERT(edit()->m_con_list.contains(con));
@@ -224,14 +194,15 @@ void DeleteConnectionsCommand::redo()
 
 void DeleteConnectionsCommand::undo()
 {
-    foreach (Connection *con, m_con_list) {
+    for (Connection *con : std::as_const(m_con_list)) {
         Q_ASSERT(!edit()->m_con_list.contains(con));
         emit edit()->aboutToAddConnection(edit()->m_con_list.size());
         edit()->m_con_list.append(con);
-        edit()->setSelected(con, true);
+        edit()->selectNone();
         con->update();
         con->inserted();
         emit edit()->connectionAdded(con);
+        edit()->setSelected(con, true);
     }
 }
 
@@ -239,8 +210,8 @@ class SetEndPointCommand : public CECommand
 {
 public:
     SetEndPointCommand(ConnectionEdit *edit, Connection *con, EndPoint::Type type, QObject *object);
-    virtual void redo();
-    virtual void undo();
+    void redo() override;
+    void undo() override;
 private:
     Connection *m_con;
     const EndPoint::Type m_type;
@@ -287,8 +258,8 @@ void SetEndPointCommand::undo()
 Connection::Connection(ConnectionEdit *edit) :
     m_source_pos(QPoint(-1, -1)),
     m_target_pos(QPoint(-1, -1)),
-    m_source(0),
-    m_target(0),
+    m_source(nullptr),
+    m_target(nullptr),
     m_edit(edit),
     m_visible(true)
 {
@@ -315,7 +286,7 @@ void Connection::updateVisibility()
     QWidget *source = widget(EndPoint::Source);
     QWidget *target = widget(EndPoint::Target);
 
-    if (source == 0 || target == 0) {
+    if (source == nullptr || target == nullptr) {
         setVisible(false);
         return;
     }
@@ -348,15 +319,12 @@ bool Connection::isVisible() const
 
 bool Connection::ground() const
 {
-    return m_target != 0 && m_target == m_edit->m_bg_widget;
+    return m_target != nullptr && m_target == m_edit->m_bg_widget;
 }
 
 QPoint Connection::endPointPos(EndPoint::Type type) const
 {
-    if (type == EndPoint::Source)
-        return m_source_pos;
-    else
-        return m_target_pos;
+    return type == EndPoint::Source ? m_source_pos : m_target_pos;
 }
 
 static QPoint lineEntryPos(const QPoint &p1, const QPoint &p2, const QRect &rect)
@@ -457,13 +425,13 @@ void Connection::updateKneeList()
     m_knee_list.clear();
     m_arrow_head.clear();
 
-    if (m_source == 0 || s == QPoint(-1, -1) || t == QPoint(-1, -1))
+    if (m_source == nullptr || s == QPoint(-1, -1) || t == QPoint(-1, -1))
         return;
 
     const QRect r = sr | tr;
 
     m_knee_list.append(s);
-    if (m_target == 0) {
+    if (m_target == nullptr) {
         m_knee_list.append(QPoint(t.x(), s.y()));
     } else if (m_target == m_edit->m_bg_widget) {
         m_knee_list.append(QPoint(s.x(), t.y()));
@@ -638,9 +606,9 @@ void Connection::updateKneeList()
 
 void Connection::trimLine()
 {
-    if (m_source == 0 || m_source_pos == QPoint(-1, -1) || m_target_pos == QPoint(-1, -1))
+    if (m_source == nullptr || m_source_pos == QPoint(-1, -1) || m_target_pos == QPoint(-1, -1))
         return;
-    int cnt = m_knee_list.size();
+    auto cnt = m_knee_list.size();
     if (cnt < 2)
         return;
 
@@ -729,7 +697,7 @@ QRegion Connection::region() const
 {
     QRegion result;
 
-    for (int i = 0; i < m_knee_list.size() - 1; ++i)
+    for (qsizetype i = 0; i < m_knee_list.size() - 1; ++i)
         result = result.united(lineRect(m_knee_list.at(i), m_knee_list.at(i + 1)));
 
     if (!m_arrow_head.isEmpty()) {
@@ -750,9 +718,9 @@ void Connection::update(bool update_widgets) const
 {
     m_edit->update(region());
     if (update_widgets) {
-        if (m_source != 0)
+        if (m_source != nullptr)
             m_edit->update(m_source_rect);
-        if (m_target != 0)
+        if (m_target != nullptr)
             m_edit->update(m_target_rect);
     }
 
@@ -762,7 +730,7 @@ void Connection::update(bool update_widgets) const
 
 void Connection::paint(QPainter *p) const
 {
-    for (int i = 0; i < m_knee_list.size() - 1; ++i)
+    for (qsizetype i = 0; i < m_knee_list.size() - 1; ++i)
         p->drawLine(m_knee_list.at(i), m_knee_list.at(i + 1));
 
     if (!m_arrow_head.isEmpty()) {
@@ -794,7 +762,7 @@ QRect Connection::endPointRect(EndPoint::Type type) const
 
 CETypes::LineDir Connection::labelDir(EndPoint::Type type) const
 {
-    const int cnt = m_knee_list.size();
+    const auto cnt = m_knee_list.size();
     if (cnt < 2)
         return RightDir;
 
@@ -814,7 +782,7 @@ CETypes::LineDir Connection::labelDir(EndPoint::Type type) const
 
 QRect Connection::labelRect(EndPoint::Type type) const
 {
-    const int cnt = m_knee_list.size();
+    const auto cnt = m_knee_list.size();
     if (cnt < 2)
         return QRect();
     const QString text = label(type);
@@ -889,7 +857,7 @@ void Connection::updatePixmap(EndPoint::Type type)
     const LineDir dir = labelDir(type);
 
     if (dir == DownDir)
-        *pm = pm->transformed(QMatrix(0.0, -1.0, 1.0, 0.0, 0.0, 0.0));
+        *pm = pm->transformed(QTransform(0.0, -1.0, 1.0, 0.0, 0.0, 0.0));
 }
 
 void Connection::checkWidgets()
@@ -935,20 +903,20 @@ void Connection::checkWidgets()
 
 ConnectionEdit::ConnectionEdit(QWidget *parent, QDesignerFormWindowInterface *form) :
     QWidget(parent),
-    m_bg_widget(0),
+    m_bg_widget(nullptr),
     m_undo_stack(form->commandHistory()),
     m_enable_update_background(false),
-    m_tmp_con(0),
+    m_tmp_con(nullptr),
     m_start_connection_on_drag(true),
-    m_widget_under_mouse(0),
+    m_widget_under_mouse(nullptr),
     m_inactive_color(Qt::blue),
     m_active_color(Qt::red)
 {
     setAttribute(Qt::WA_MouseTracking, true);
     setFocusPolicy(Qt::ClickFocus);
 
-    connect(form, SIGNAL(widgetRemoved(QWidget*)), this, SLOT(widgetRemoved(QWidget*)));
-    connect(form, SIGNAL(objectRemoved(QObject*)), this, SLOT(objectRemoved(QObject*)));
+    connect(form, &QDesignerFormWindowInterface::widgetRemoved, this, &ConnectionEdit::widgetRemoved);
+    connect(form, &QDesignerFormWindowInterface::objectRemoved, this, &ConnectionEdit::objectRemoved);
 }
 
 ConnectionEdit::~ConnectionEdit()
@@ -960,9 +928,9 @@ void ConnectionEdit::clear()
 {
     m_con_list.clear();
     m_sel_con_set.clear();
-    m_bg_widget = 0;
-    m_widget_under_mouse = 0;
-    m_tmp_con = 0;
+    m_bg_widget = nullptr;
+    m_widget_under_mouse = nullptr;
+    m_tmp_con = nullptr;
 }
 
 void ConnectionEdit::setBackground(QWidget *background)
@@ -986,13 +954,13 @@ void ConnectionEdit::enableUpdateBackground(bool enable)
 void ConnectionEdit::updateBackground()
 {
     // Might happen while reloading a form.
-    if (m_bg_widget == 0)
+    if (m_bg_widget == nullptr)
         return;
 
     if (!m_enable_update_background)
         return;
 
-    foreach(Connection *c, m_con_list)
+    for (Connection *c : std::as_const(m_con_list))
         c->updateVisibility();
 
     updateLines();
@@ -1001,10 +969,10 @@ void ConnectionEdit::updateBackground()
 
 QWidget *ConnectionEdit::widgetAt(const QPoint &pos) const
 {
-    if (m_bg_widget == 0)
-        return 0;
+    if (m_bg_widget == nullptr)
+        return nullptr;
     QWidget *widget = m_bg_widget->childAt(pos);
-    if (widget == 0)
+    if (widget == nullptr)
         widget = m_bg_widget;
 
     return widget;
@@ -1013,7 +981,7 @@ QWidget *ConnectionEdit::widgetAt(const QPoint &pos) const
 
 QRect ConnectionEdit::widgetRect(QWidget *w) const
 {
-    if (w == 0)
+    if (w == nullptr)
         return QRect();
     QRect r = w->geometry();
     QPoint pos = w->mapToGlobal(QPoint(0, 0));
@@ -1024,7 +992,7 @@ QRect ConnectionEdit::widgetRect(QWidget *w) const
 
 ConnectionEdit::State ConnectionEdit::state() const
 {
-    if (m_tmp_con != 0)
+    if (m_tmp_con != nullptr)
         return Connecting;
     if (!m_drag_end_point.isNull())
         return Dragging;
@@ -1056,10 +1024,10 @@ void ConnectionEdit::paintConnection(QPainter *p, Connection *con,
     p->setPen(heavy ? m_active_color : m_inactive_color);
     con->paint(p);
 
-    if (source != 0 && source != m_bg_widget)
+    if (source != nullptr && source != m_bg_widget)
         set->insert(source, source);
 
-    if (target != 0 && target != m_bg_widget)
+    if (target != nullptr && target != m_bg_widget)
         set->insert(target, target);
 }
 
@@ -1070,14 +1038,14 @@ void ConnectionEdit::paintEvent(QPaintEvent *e)
 
     WidgetSet heavy_highlight_set, light_highlight_set;
 
-    foreach (Connection *con, m_con_list) {
+    for (Connection *con : std::as_const(m_con_list)) {
         if (!con->isVisible())
             continue;
 
         paintConnection(&p, con, &heavy_highlight_set, &light_highlight_set);
     }
 
-    if (m_tmp_con != 0)
+    if (m_tmp_con != nullptr)
         paintConnection(&p, m_tmp_con, &heavy_highlight_set, &light_highlight_set);
 
     if (!m_widget_under_mouse.isNull() && m_widget_under_mouse != m_bg_widget)
@@ -1088,7 +1056,7 @@ void ConnectionEdit::paintEvent(QPaintEvent *e)
     c.setAlpha(BG_ALPHA);
     p.setBrush(c);
 
-    foreach (QWidget *w, heavy_highlight_set) {
+    for (QWidget *w : std::as_const(heavy_highlight_set)) {
         p.drawRect(fixRect(widgetRect(w)));
         light_highlight_set.remove(w);
     }
@@ -1098,29 +1066,28 @@ void ConnectionEdit::paintEvent(QPaintEvent *e)
     c.setAlpha(BG_ALPHA);
     p.setBrush(c);
 
-    foreach (QWidget *w, light_highlight_set)
+    for (QWidget *w : std::as_const(light_highlight_set))
         p.drawRect(fixRect(widgetRect(w)));
 
     p.setBrush(palette().color(QPalette::Base));
     p.setPen(palette().color(QPalette::Text));
-    foreach (Connection *con, m_con_list) {
-        if (!con->isVisible())
-            continue;
-
-        paintLabel(&p, EndPoint::Source, con);
-        paintLabel(&p, EndPoint::Target, con);
+    for (Connection *con : std::as_const(m_con_list)) {
+        if (con->isVisible()) {
+            paintLabel(&p, EndPoint::Source, con);
+            paintLabel(&p, EndPoint::Target, con);
+        }
     }
 
     p.setPen(m_active_color);
     p.setBrush(m_active_color);
 
-    foreach (Connection *con, m_con_list) {
+    for (Connection *con : std::as_const(m_con_list)) {
         if (!selected(con) || !con->isVisible())
             continue;
 
         paintEndPoint(&p, con->endPointPos(EndPoint::Source));
 
-        if (con->widget(EndPoint::Target) != 0)
+        if (con->widget(EndPoint::Target) != nullptr)
             paintEndPoint(&p, con->endPointPos(EndPoint::Target));
     }
 }
@@ -1129,12 +1096,12 @@ void ConnectionEdit::abortConnection()
 {
     m_tmp_con->update();
     delete m_tmp_con;
-    m_tmp_con = 0;
-#ifndef QT_NO_CURSOR
+    m_tmp_con = nullptr;
+#if QT_CONFIG(cursor)
     setCursor(QCursor());
 #endif
     if (m_widget_under_mouse == m_bg_widget)
-        m_widget_under_mouse = 0;
+        m_widget_under_mouse = nullptr;
 }
 
 void ConnectionEdit::mousePressEvent(QMouseEvent *e)
@@ -1150,11 +1117,12 @@ void ConnectionEdit::mousePressEvent(QMouseEvent *e)
     e->accept();
     // Prefer a non-background widget over the connection,
     // otherwise, widgets covered by the connection labels cannot be accessed
-    Connection *con_under_mouse = 0;
+    Connection *con_under_mouse = nullptr;
     if (!m_widget_under_mouse || m_widget_under_mouse == m_bg_widget)
-        con_under_mouse = connectionAt(e->pos());
+        con_under_mouse = connectionAt(e->position().toPoint());
 
     m_start_connection_on_drag = false;
+    const bool toggleSelection = e->modifiers().testFlag(Qt::ControlModifier);
     switch (cstate) {
         case Connecting:
             if (button == Qt::RightButton)
@@ -1164,18 +1132,17 @@ void ConnectionEdit::mousePressEvent(QMouseEvent *e)
             break;
         case Editing:
             if (!m_end_point_under_mouse.isNull()) {
-                if (!(e->modifiers() & Qt::ShiftModifier)) {
-                    startDrag(m_end_point_under_mouse, e->pos());
-                }
-            } else if (con_under_mouse != 0) {
-                if (!(e->modifiers() & Qt::ShiftModifier)) {
+                if (!toggleSelection)
+                    startDrag(m_end_point_under_mouse, e->position().toPoint());
+            } else if (con_under_mouse != nullptr) {
+                if (toggleSelection) {
+                    setSelected(con_under_mouse, !selected(con_under_mouse));
+                } else {
                     selectNone();
                     setSelected(con_under_mouse, true);
-                } else {
-                    setSelected(con_under_mouse, !selected(con_under_mouse));
                 }
             } else {
-                if (!(e->modifiers() & Qt::ShiftModifier)) {
+                if (!toggleSelection) {
                     selectNone();
                     if (!m_widget_under_mouse.isNull())
                         m_start_connection_on_drag = true;
@@ -1200,12 +1167,10 @@ void ConnectionEdit::mouseDoubleClickEvent(QMouseEvent *e)
         case Dragging:
             break;
         case Editing:
-            if (!m_widget_under_mouse.isNull()) {
+            if (!m_widget_under_mouse.isNull())
                 emit widgetActivated(m_widget_under_mouse);
-            } else if (m_sel_con_set.size() == 1) {
-                Connection *con = m_sel_con_set.keys().first();
-                modifyConnection(con);
-            }
+            else if (m_sel_con_set.size() == 1)
+                modifyConnection(m_sel_con_set.constBegin().key());
             break;
     }
 
@@ -1224,15 +1189,15 @@ void ConnectionEdit::mouseReleaseEvent(QMouseEvent *e)
             if (m_widget_under_mouse.isNull())
                 abortConnection();
             else
-                endConnection(m_widget_under_mouse, e->pos());
-#ifndef QT_NO_CURSOR
+                endConnection(m_widget_under_mouse, e->position().toPoint());
+#if QT_CONFIG(cursor)
             setCursor(QCursor());
 #endif
             break;
         case Editing:
             break;
         case Dragging:
-            endDrag(e->pos());
+            endDrag(e->position().toPoint());
             break;
     }
 }
@@ -1246,9 +1211,9 @@ void ConnectionEdit::findObjectsUnderMouse(const QPoint &pos)
     // Prefer a non-background widget over the connection,
     // otherwise, widgets covered by the connection labels cannot be accessed
     if (w == m_bg_widget && con_under_mouse)
-        w = 0;
+        w = nullptr;
     else
-        con_under_mouse = 0;
+        con_under_mouse = nullptr;
 
     if (w != m_widget_under_mouse) {
         if (!m_widget_under_mouse.isNull())
@@ -1260,7 +1225,7 @@ void ConnectionEdit::findObjectsUnderMouse(const QPoint &pos)
 
     const EndPoint hs = endPointAt(pos);
     if (hs != m_end_point_under_mouse) {
-#ifndef QT_NO_CURSOR
+#if QT_CONFIG(cursor)
         if (m_end_point_under_mouse.isNull())
             setCursor(Qt::PointingHandCursor);
         else
@@ -1272,24 +1237,24 @@ void ConnectionEdit::findObjectsUnderMouse(const QPoint &pos)
 
 void ConnectionEdit::mouseMoveEvent(QMouseEvent *e)
 {
-    findObjectsUnderMouse(e->pos());
+    findObjectsUnderMouse(e->position().toPoint());
     switch (state()) {
         case Connecting:
-            continueConnection(m_widget_under_mouse, e->pos());
+            continueConnection(m_widget_under_mouse, e->position().toPoint());
             break;
         case Editing:
             if ((e->buttons() & Qt::LeftButton)
                     && m_start_connection_on_drag
                     && !m_widget_under_mouse.isNull()) {
                 m_start_connection_on_drag = false;
-                startConnection(m_widget_under_mouse, e->pos());
-#ifndef QT_NO_CURSOR
+                startConnection(m_widget_under_mouse, e->position().toPoint());
+#if QT_CONFIG(cursor)
                 setCursor(Qt::CrossCursor);
 #endif
             }
             break;
         case Dragging:
-            continueDrag(e->pos());
+            continueDrag(e->position().toPoint());
             break;
     }
 
@@ -1314,7 +1279,7 @@ void ConnectionEdit::keyPressEvent(QKeyEvent *e)
 
 void ConnectionEdit::startConnection(QWidget *source, const QPoint &pos)
 {
-    Q_ASSERT(m_tmp_con == 0);
+    Q_ASSERT(m_tmp_con == nullptr);
 
     m_tmp_con = new Connection(this);
     m_tmp_con->setEndPoint(EndPoint::Source, source, pos);
@@ -1322,17 +1287,17 @@ void ConnectionEdit::startConnection(QWidget *source, const QPoint &pos)
 
 void ConnectionEdit::endConnection(QWidget *target, const QPoint &pos)
 {
-    Q_ASSERT(m_tmp_con != 0);
+    Q_ASSERT(m_tmp_con != nullptr);
 
     m_tmp_con->setEndPoint(EndPoint::Target, target, pos);
 
     QWidget *source = m_tmp_con->widget(EndPoint::Source);
-    Q_ASSERT(source != 0);
-    Q_ASSERT(target != 0);
+    Q_ASSERT(source != nullptr);
+    Q_ASSERT(target != nullptr);
     setEnabled(false);
     Connection *new_con = createConnection(source, target);
     setEnabled(true);
-    if (new_con != 0) {
+    if (new_con != nullptr) {
         new_con->setEndPoint(EndPoint::Source, source, m_tmp_con->endPointPos(EndPoint::Source));
         new_con->setEndPoint(EndPoint::Target, target, m_tmp_con->endPointPos(EndPoint::Target));
         m_undo_stack->push(new AddConnectionCommand(this, new_con));
@@ -1340,14 +1305,14 @@ void ConnectionEdit::endConnection(QWidget *target, const QPoint &pos)
     }
 
     delete m_tmp_con;
-    m_tmp_con = 0;
+    m_tmp_con = nullptr;
 
     findObjectsUnderMouse(mapFromGlobal(QCursor::pos()));
 }
 
 void ConnectionEdit::continueConnection(QWidget *target, const QPoint &pos)
 {
-    Q_ASSERT(m_tmp_con != 0);
+    Q_ASSERT(m_tmp_con != nullptr);
 
     m_tmp_con->setEndPoint(EndPoint::Target, target, pos);
 }
@@ -1368,9 +1333,9 @@ static ConnectionEdit::ConnectionSet findConnectionsOf(const ConnectionEdit::Con
 {
     ConnectionEdit::ConnectionSet rc;
 
-    const ConnectionEdit::ConnectionList::const_iterator ccend = cl.constEnd();
+    const auto ccend = cl.cend();
     for ( ; oi1 != oi2; ++oi1) {
-        for (ConnectionEdit::ConnectionList::const_iterator cit = cl.constBegin(); cit != ccend; ++cit) {
+        for (auto cit = cl.constBegin(); cit != ccend; ++cit) {
             Connection *con = *cit;
             if (con->object(ConnectionEdit::EndPoint::Source) == *oi1 || con->object(ConnectionEdit::EndPoint::Target) == *oi1)
                 rc.insert(con, con);
@@ -1382,7 +1347,7 @@ static ConnectionEdit::ConnectionSet findConnectionsOf(const ConnectionEdit::Con
 void ConnectionEdit::widgetRemoved(QWidget *widget)
 {
     // Remove all connections of that widget and its children.
-    if (m_con_list.empty())
+    if (m_con_list.isEmpty())
         return;
 
     QWidgetList child_list = widget->findChildren<QWidget*>();
@@ -1390,8 +1355,10 @@ void ConnectionEdit::widgetRemoved(QWidget *widget)
 
     const ConnectionSet remove_set = findConnectionsOf(m_con_list, child_list.constBegin(),  child_list.constEnd());
 
-    if (!remove_set.isEmpty())
-        m_undo_stack->push(new DeleteConnectionsCommand(this, remove_set.keys()));
+    if (!remove_set.isEmpty()) {
+        auto cmd = new DeleteConnectionsCommand(this, ConnectionList(remove_set.cbegin(), remove_set.cend()));
+        m_undo_stack->push(cmd);
+    }
 
     updateBackground();
 }
@@ -1399,14 +1366,16 @@ void ConnectionEdit::widgetRemoved(QWidget *widget)
 void ConnectionEdit::objectRemoved(QObject *o)
 {
     // Remove all connections of that object and its children (in case of action groups).
-    if (m_con_list.empty())
+    if (m_con_list.isEmpty())
         return;
 
     QObjectList child_list = o->children();
     child_list.prepend(o);
     const ConnectionSet remove_set = findConnectionsOf(m_con_list, child_list.constBegin(),  child_list.constEnd());
-    if (!remove_set.isEmpty())
-        m_undo_stack->push(new DeleteConnectionsCommand(this, remove_set.keys()));
+    if (!remove_set.isEmpty()) {
+        auto cmd = new DeleteConnectionsCommand(this, ConnectionList(remove_set.cbegin(), remove_set.cend()));
+        m_undo_stack->push(cmd);
+    }
 
     updateBackground();
 }
@@ -1433,7 +1402,7 @@ bool ConnectionEdit::selected(const Connection *con) const
 
 void ConnectionEdit::selectNone()
 {
-    foreach (Connection *con, m_sel_con_set)
+    for (Connection *con : std::as_const(m_sel_con_set))
         con->update();
 
     m_sel_con_set.clear();
@@ -1443,22 +1412,22 @@ void ConnectionEdit::selectAll()
 {
     if (m_sel_con_set.size() == m_con_list.size())
         return;
-    foreach (Connection *con, m_con_list)
+    for (Connection *con : std::as_const(m_con_list))
         setSelected(con, true);
 }
 
 Connection *ConnectionEdit::connectionAt(const QPoint &pos) const
 {
-    foreach (Connection *con, m_con_list) {
+    for (Connection *con : m_con_list) {
         if (con->contains(pos))
             return con;
     }
-    return 0;
+    return nullptr;
 }
 
 CETypes::EndPoint ConnectionEdit::endPointAt(const QPoint &pos) const
 {
-    foreach (Connection *con, m_con_list) {
+    for (Connection *con : m_con_list) {
         if (!selected(con))
             continue;
         const QRect sr = con->endPointRect(EndPoint::Source);
@@ -1511,7 +1480,8 @@ void ConnectionEdit::deleteSelected()
 {
     if (m_sel_con_set.isEmpty())
         return;
-    m_undo_stack->push(new DeleteConnectionsCommand(this, m_sel_con_set.keys()));
+    auto cmd = new DeleteConnectionsCommand(this, ConnectionList(m_sel_con_set.cbegin(), m_sel_con_set.cend()));
+    m_undo_stack->push(cmd);
 }
 
 void ConnectionEdit::addConnection(Connection *con)
@@ -1521,7 +1491,7 @@ void ConnectionEdit::addConnection(Connection *con)
 
 void ConnectionEdit::updateLines()
 {
-    foreach (Connection *con, m_con_list)
+    for (Connection *con : std::as_const(m_con_list))
         con->checkWidgets();
 }
 
@@ -1533,10 +1503,10 @@ void ConnectionEdit::resizeEvent(QResizeEvent *e)
 
 void ConnectionEdit::setSource(Connection *con, const QString &obj_name)
 {
-    QObject *object = 0;
+    QObject *object = nullptr;
     if (!obj_name.isEmpty()) {
         object = m_bg_widget->findChild<QObject*>(obj_name);
-        if (object == 0 && m_bg_widget->objectName() == obj_name)
+        if (object == nullptr && m_bg_widget->objectName() == obj_name)
             object = m_bg_widget;
 
         if (object == con->object(EndPoint::Source))
@@ -1547,10 +1517,10 @@ void ConnectionEdit::setSource(Connection *con, const QString &obj_name)
 
 void ConnectionEdit::setTarget(Connection *con, const QString &obj_name)
 {
-    QObject *object = 0;
+    QObject *object = nullptr;
     if (!obj_name.isEmpty()) {
         object = m_bg_widget->findChild<QObject*>(obj_name);
-        if (object == 0 && m_bg_widget->objectName() == obj_name)
+        if (object == nullptr && m_bg_widget->objectName() == obj_name)
             object = m_bg_widget;
 
         if (object == con->object(EndPoint::Target))
@@ -1562,7 +1532,7 @@ void ConnectionEdit::setTarget(Connection *con, const QString &obj_name)
 Connection *ConnectionEdit::takeConnection(Connection *con)
 {
     if (!m_con_list.contains(con))
-        return 0;
+        return nullptr;
     m_con_list.removeAll(con);
     return con;
 }
@@ -1570,24 +1540,24 @@ Connection *ConnectionEdit::takeConnection(Connection *con)
 void ConnectionEdit::clearNewlyAddedConnection()
 {
     delete m_tmp_con;
-    m_tmp_con = 0;
+    m_tmp_con = nullptr;
 }
 
 void ConnectionEdit::createContextMenu(QMenu &menu)
 {
     // Select
     QAction *selectAllAction = menu.addAction(tr("Select All"));
-    selectAllAction->setEnabled(connectionList().size());
-    connect(selectAllAction, SIGNAL(triggered()), this, SLOT(selectAll()));
+    selectAllAction->setEnabled(!connectionList().isEmpty());
+    connect(selectAllAction, &QAction::triggered, this, &ConnectionEdit::selectAll);
     QAction *deselectAllAction = menu.addAction(tr("Deselect All"));
-    deselectAllAction->setEnabled(selection().size());
-    connect(deselectAllAction, SIGNAL(triggered()), this, SLOT(selectNone()));
+    deselectAllAction->setEnabled(!selection().isEmpty());
+    connect(deselectAllAction, &QAction::triggered, this, &ConnectionEdit::selectNone);
     menu.addSeparator();
     // Delete
     QAction *deleteAction = menu.addAction(tr("Delete"));
     deleteAction->setShortcut(QKeySequence::Delete);
     deleteAction->setEnabled(!selection().isEmpty());
-    connect(deleteAction, SIGNAL(triggered()), this, SLOT(deleteSelected()));
+    connect(deleteAction, &QAction::triggered, this, &ConnectionEdit::deleteSelected);
 }
 
 void ConnectionEdit::contextMenuEvent(QContextMenuEvent * event)

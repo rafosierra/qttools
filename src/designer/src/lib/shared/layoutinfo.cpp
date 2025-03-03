@@ -1,51 +1,23 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "layoutinfo_p.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerContainerExtension>
-#include <QtDesigner/QDesignerMetaDataBaseInterface>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/container.h>
+#include <QtDesigner/abstractmetadatabase.h>
+#include <QtDesigner/qextensionmanager.h>
 
-#include <QtWidgets/QHBoxLayout>
-#include <QtWidgets/QFormLayout>
-#include <QtWidgets/QSplitter>
-#include <QtCore/QDebug>
-#include <QtCore/QHash>
-#include <QtCore/QRect>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qformlayout.h>
+#include <QtWidgets/qsplitter.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qhash.h>
+#include <QtCore/qrect.h>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 namespace qdesigner_internal {
 /*!
@@ -53,29 +25,28 @@ namespace qdesigner_internal {
 */
 LayoutInfo::Type LayoutInfo::layoutType(const QDesignerFormEditorInterface *core, const QLayout *layout)
 {
-    Q_UNUSED(core)
+    Q_UNUSED(core);
     if (!layout)
         return NoLayout;
-    else if (qobject_cast<const QHBoxLayout*>(layout))
+    if (qobject_cast<const QHBoxLayout*>(layout))
         return HBox;
-    else if (qobject_cast<const QVBoxLayout*>(layout))
+    if (qobject_cast<const QVBoxLayout*>(layout))
         return VBox;
-    else if (qobject_cast<const QGridLayout*>(layout))
+    if (qobject_cast<const QGridLayout*>(layout))
         return Grid;
-    else if (qobject_cast<const QFormLayout*>(layout))
+    if (qobject_cast<const QFormLayout*>(layout))
        return Form;
     return UnknownLayout;
 }
 
 static const QHash<QString, LayoutInfo::Type> &layoutNameTypeMap()
 {
-    static QHash<QString, LayoutInfo::Type> nameTypeMap;
-    if (nameTypeMap.empty()) {
-        nameTypeMap.insert(QStringLiteral("QVBoxLayout"), LayoutInfo::VBox);
-        nameTypeMap.insert(QStringLiteral("QHBoxLayout"), LayoutInfo::HBox);
-        nameTypeMap.insert(QStringLiteral("QGridLayout"), LayoutInfo::Grid);
-        nameTypeMap.insert(QStringLiteral("QFormLayout"), LayoutInfo::Form);
-    }
+    static const QHash<QString, LayoutInfo::Type> nameTypeMap = {
+        {u"QVBoxLayout"_s, LayoutInfo::VBox},
+        {u"QHBoxLayout"_s, LayoutInfo::HBox},
+        {u"QGridLayout"_s, LayoutInfo::Grid},
+        {u"QFormLayout"_s, LayoutInfo::Form}
+    };
     return nameTypeMap;
 }
 
@@ -104,7 +75,7 @@ LayoutInfo::Type LayoutInfo::managedLayoutType(const QDesignerFormEditorInterfac
                                                QLayout **ptrToLayout)
 {
     if (ptrToLayout)
-        *ptrToLayout = 0;
+        *ptrToLayout = nullptr;
     if (const QSplitter *splitter = qobject_cast<const QSplitter *>(w))
         return  splitter->orientation() == Qt::Horizontal ? HSplitter : VSplitter;
     QLayout *layout = managedLayout(core, w);
@@ -117,7 +88,7 @@ LayoutInfo::Type LayoutInfo::managedLayoutType(const QDesignerFormEditorInterfac
 
 QWidget *LayoutInfo::layoutParent(const QDesignerFormEditorInterface *core, QLayout *layout)
 {
-    Q_UNUSED(core)
+    Q_UNUSED(core);
 
     QObject *o = layout;
     while (o) {
@@ -126,7 +97,7 @@ QWidget *LayoutInfo::layoutParent(const QDesignerFormEditorInterface *core, QLay
 
         o = o->parent();
     }
-    return 0;
+    return nullptr;
 }
 
 void LayoutInfo::deleteLayout(const QDesignerFormEditorInterface *core, QWidget *widget)
@@ -134,11 +105,11 @@ void LayoutInfo::deleteLayout(const QDesignerFormEditorInterface *core, QWidget 
     if (QDesignerContainerExtension *container = qt_extension<QDesignerContainerExtension*>(core->extensionManager(), widget))
         widget = container->widget(container->currentIndex());
 
-    Q_ASSERT(widget != 0);
+    Q_ASSERT(widget != nullptr);
 
     QLayout *layout = managedLayout(core, widget);
 
-    if (layout == 0 || core->metaDataBase()->item(layout) != 0) {
+    if (layout == nullptr || core->metaDataBase()->item(layout) != nullptr) {
         delete layout;
         widget->updateGeometry();
         return;
@@ -155,7 +126,7 @@ LayoutInfo::Type LayoutInfo::laidoutWidgetType(const QDesignerFormEditorInterfac
     if (isManaged)
         *isManaged = false;
     if (ptrToLayout)
-        *ptrToLayout = 0;
+        *ptrToLayout = nullptr;
 
     QWidget *parent = widget->parentWidget();
     if (!parent)
@@ -182,12 +153,10 @@ LayoutInfo::Type LayoutInfo::laidoutWidgetType(const QDesignerFormEditorInterfac
     }
 
     // 3) Some child layout (see below comment about Q3GroupBox)
-    const QList<QLayout*> childLayouts = parentLayout->findChildren<QLayout*>();
-    if (childLayouts.empty())
+    const auto childLayouts = parentLayout->findChildren<QLayout*>();
+    if (childLayouts.isEmpty())
         return NoLayout;
-    const QList<QLayout*>::const_iterator lcend = childLayouts.constEnd();
-    for (QList<QLayout*>::const_iterator it = childLayouts.constBegin(); it != lcend; ++it) {
-        QLayout *layout = *it;
+    for (QLayout *layout : childLayouts) {
         if (layout->indexOf(widget) != -1) {
             if (isManaged)
                 *isManaged = core->metaDataBase()->item(layout);
@@ -208,18 +177,21 @@ QLayout *LayoutInfo::internalLayout(const QWidget *widget)
 
 QLayout *LayoutInfo::managedLayout(const QDesignerFormEditorInterface *core, const QWidget *widget)
 {
-    if (widget == 0)
-        return 0;
+    if (widget == nullptr)
+        return nullptr;
 
     QLayout *layout = widget->layout();
     if (!layout)
-        return 0;
+        return nullptr;
 
     return managedLayout(core, layout);
 }
 
 QLayout *LayoutInfo::managedLayout(const QDesignerFormEditorInterface *core, QLayout *layout)
 {
+    if (!layout)
+        return nullptr;
+
     QDesignerMetaDataBaseInterface *metaDataBase = core->metaDataBase();
 
     if (!metaDataBase)
@@ -227,23 +199,23 @@ QLayout *LayoutInfo::managedLayout(const QDesignerFormEditorInterface *core, QLa
     /* This code exists mainly for the Q3GroupBox class, for which
      * widget->layout() returns an internal VBoxLayout. */
     const QDesignerMetaDataBaseItemInterface *item = metaDataBase->item(layout);
-    if (item == 0) {
+    if (item == nullptr) {
         layout = layout->findChild<QLayout*>();
         item = metaDataBase->item(layout);
     }
     if (!item)
-        return 0;
+        return nullptr;
     return layout;
 }
 
 // Is it a a dummy grid placeholder created by Designer?
 bool LayoutInfo::isEmptyItem(QLayoutItem *item)
 {
-    if (item == 0) {
+    if (item == nullptr) {
         qDebug() << "** WARNING Zero-item passed on to isEmptyItem(). This indicates a layout inconsistency.";
         return true;
     }
-    return item->spacerItem() != 0;
+    return item->spacerItem() != nullptr;
 }
 
 QDESIGNER_SHARED_EXPORT void getFormLayoutItemPosition(const QFormLayout *formLayout, int index, int *rowPtr, int *columnPtr, int *rowspanPtr, int *colspanPtr)
@@ -278,7 +250,8 @@ QDESIGNER_SHARED_EXPORT void formLayoutAddWidget(QFormLayout *formLayout, QWidge
         if (spanning) {
             formLayout->insertRow(r.y(), w);
         } else {
-            QWidget *label = 0, *field = 0;
+            QWidget *label = nullptr;
+            QWidget *field = nullptr;
             if (r.x() == 0) {
                 label = w;
             } else {

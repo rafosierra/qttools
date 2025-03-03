@@ -1,52 +1,22 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "widgetbox.h"
 #include "widgetboxtreewidget.h"
 #include "widgetbox_dnditem.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerFormWindowManagerInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractformwindowmanager.h>
 
 #include <iconloader_p.h>
 #include <qdesigner_utils_p.h>
 
-#include <QtGui/QDropEvent>
-#include <QtWidgets/QVBoxLayout>
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QToolBar>
-#include <QtWidgets/QLineEdit>
-#include <QtGui/QIcon>
+#include <QtGui/qevent.h>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qtoolbar.h>
+#include <QtWidgets/qlineedit.h>
+#include <QtGui/qicon.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -60,12 +30,12 @@ namespace qdesigner_internal {
 
 class WidgetBoxFilterLineEdit : public QLineEdit {
 public:
-    explicit WidgetBoxFilterLineEdit(QWidget *parent = 0) : QLineEdit(parent), m_defaultFocusPolicy(focusPolicy())
+    explicit WidgetBoxFilterLineEdit(QWidget *parent = nullptr) : QLineEdit(parent), m_defaultFocusPolicy(focusPolicy())
         { setFocusPolicy(Qt::NoFocus); }
 
 protected:
-    void mousePressEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
-    void focusInEvent(QFocusEvent *e) Q_DECL_OVERRIDE;
+    void mousePressEvent(QMouseEvent *event) override;
+    void focusInEvent(QFocusEvent *e) override;
 
 private:
     const Qt::FocusPolicy m_defaultFocusPolicy;
@@ -102,7 +72,7 @@ WidgetBox::WidgetBox(QDesignerFormEditorInterface *core, QWidget *parent, Qt::Wi
 {
 
     QVBoxLayout *l = new QVBoxLayout(this);
-    l->setMargin(0);
+    l->setContentsMargins(QMargins());
     l->setSpacing(0);
 
     // Prevent the filter from grabbing focus since Our view has Qt::NoFocus
@@ -110,21 +80,19 @@ WidgetBox::WidgetBox(QDesignerFormEditorInterface *core, QWidget *parent, Qt::Wi
     QLineEdit *filterWidget = new WidgetBoxFilterLineEdit(toolBar);
     filterWidget->setPlaceholderText(tr("Filter"));
     filterWidget->setClearButtonEnabled(true);
-    connect(filterWidget, SIGNAL(textChanged(QString)), m_view, SLOT(filter(QString)));
+    connect(filterWidget, &QLineEdit::textChanged, m_view, &WidgetBoxTreeWidget::filter);
     toolBar->addWidget(filterWidget);
     l->addWidget(toolBar);
 
     // View
-    connect(m_view, SIGNAL(pressed(QString,QString,QPoint)),
-            this, SLOT(handleMousePress(QString,QString,QPoint)));
+    connect(m_view, &WidgetBoxTreeWidget::widgetBoxPressed,
+            this, &WidgetBox::handleMousePress);
     l->addWidget(m_view);
 
     setAcceptDrops (true);
 }
 
-WidgetBox::~WidgetBox()
-{
-}
+WidgetBox::~WidgetBox() = default;
 
 QDesignerFormEditorInterface *WidgetBox::core() const
 {
@@ -137,7 +105,7 @@ void WidgetBox::handleMousePress(const QString &name, const QString &xml, const 
         return;
 
     DomUI *ui = xmlToUi(name, xml, true);
-    if (ui == 0)
+    if (ui == nullptr)
         return;
     QList<QDesignerDnDItemInterface*> item_list;
     item_list.append(new WidgetBoxDnDItem(core(), ui, global_mouse_pos));
@@ -220,14 +188,14 @@ static const QDesignerMimeData *checkDragEvent(QDropEvent * event,
     const QDesignerMimeData *mimeData = qobject_cast<const QDesignerMimeData *>(event->mimeData());
     if (!mimeData) {
         event->ignore();
-        return 0;
+        return nullptr;
     }
     // If desired, ignore a widget box drag and drop, where widget==0.
     if (!acceptEventsFromWidgetBox) {
         const bool fromWidgetBox = !mimeData->items().first()->widget();
         if (fromWidgetBox) {
             event->ignore();
-            return 0;
+            return nullptr;
         }
     }
 
@@ -253,7 +221,7 @@ void WidgetBox::dropEvent(QDropEvent * event)
     if (!mimeData)
         return;
 
-    dropWidgets(mimeData->items(), event->pos());
+    dropWidgets(mimeData->items(), event->position().toPoint());
     QDesignerMimeData::removeMovedWidgetsFromSourceForm(mimeData->items());
 }
 

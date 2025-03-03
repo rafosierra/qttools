@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #ifndef TRANSLATORMESSAGE_H
 #define TRANSLATORMESSAGE_H
@@ -71,7 +41,12 @@ public:
     uint hash() const;
 
     QString id() const { return m_id; }
-    void setId(const QString &id) { m_id = id; }
+    void setId(const QString &id)
+    {
+        m_id = id;
+        if (!m_id.isEmpty())
+            m_context.clear();
+    }
 
     QString context() const { return m_context; }
     void setContext(const QString &context) { m_context = context; }
@@ -93,7 +68,7 @@ public:
     void appendTranslation(const QString &translation) { m_translations.append(translation); }
     bool isTranslated() const
     {
-        foreach (const QString &trans, m_translations)
+        for (const QString &trans : m_translations)
             if (!trans.isEmpty())
                 return true;
         return false;
@@ -103,6 +78,8 @@ public:
     void setFileName(const QString &fileName) { m_fileName = fileName; }
     int lineNumber() const { return m_lineNumber; }
     void setLineNumber(int lineNumber) { m_lineNumber = lineNumber; }
+    int tsLineNumber() const { return m_tsLineNumber; }
+    void setTsLineNumber(int lineNumber) { m_tsLineNumber = lineNumber; }
     void clearReferences();
     void setReferences(const References &refs);
     void addReference(const QString &fileName, int lineNumber);
@@ -116,6 +93,9 @@ public:
     void setExtraComment(const QString &extraComment) { m_extraComment = extraComment; }
     QString translatorComment() const { return m_translatorComment; }
     void setTranslatorComment(const QString &translatorComment) { m_translatorComment = translatorComment; }
+    QString warning() const {return m_warning;}
+    void setWarning(const QString &warning) {m_warning = warning;}
+
 
     bool isNull() const { return m_sourcetext.isNull() && m_lineNumber == -1 && m_translations.isEmpty(); }
 
@@ -133,6 +113,9 @@ public:
     void setExtras(const ExtraData &extras) { m_extra = extras; }
     void unsetExtra(const QString &key);
 
+    bool warningOnly() const { return m_warningOnly; }
+    void setWarningOnly(bool isWarningOnly) { m_warningOnly = isWarningOnly; }
+
     void dump() const;
 
 private:
@@ -146,16 +129,19 @@ private:
     ExtraData   m_extra; // PO flags, PO plurals
     QString     m_extraComment;
     QString     m_translatorComment;
+    QString     m_warning;
     QStringList m_translations;
     QString     m_fileName;
     int         m_lineNumber;
+    int         m_tsLineNumber = -1;
     References  m_extraRefs;
+    bool        m_warningOnly = false;
 
     Type m_type;
     bool m_plural;
 };
 
-Q_DECLARE_TYPEINFO(TranslatorMessage, Q_MOVABLE_TYPE);
+Q_DECLARE_TYPEINFO(TranslatorMessage, Q_RELOCATABLE_TYPE);
 
 QT_END_NAMESPACE
 

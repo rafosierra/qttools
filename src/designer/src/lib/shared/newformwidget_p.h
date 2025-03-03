@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #ifndef NEWFORMWIDGET_H
 #define NEWFORMWIDGET_H
@@ -48,14 +18,16 @@
 #include "shared_global_p.h"
 #include "deviceprofile_p.h"
 
-#include <QtDesigner/QDesignerNewFormWidgetInterface>
+#include <QtDesigner/abstractnewformwidget.h>
 
-#include <QtWidgets/QWidget>
-#include <QtGui/QPixmap>
+#include <QtWidgets/qwidget.h>
 
-#include <QtCore/QStringList>
-#include <QtCore/QPair>
-#include <QtCore/QMap>
+#include <QtGui/qpixmap.h>
+
+#include <QtCore/qlist.h>
+#include <QtCore/qmap.h>
+#include <QtCore/qpair.h>
+#include <QtCore/qstringlist.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -68,21 +40,19 @@ namespace Ui {
     class NewFormWidget;
 }
 
-class QDesignerWorkbench;
-
 class QDESIGNER_SHARED_EXPORT NewFormWidget : public QDesignerNewFormWidgetInterface
 {
     Q_OBJECT
-    Q_DISABLE_COPY(NewFormWidget)
+    Q_DISABLE_COPY_MOVE(NewFormWidget)
 
 public:
-    typedef QList<qdesigner_internal::DeviceProfile> DeviceProfileList;
+    using DeviceProfileList = QList<qdesigner_internal::DeviceProfile>;
 
     explicit NewFormWidget(QDesignerFormEditorInterface *core, QWidget *parentWidget);
-    virtual ~NewFormWidget();
+    ~NewFormWidget() override;
 
-    bool hasCurrentTemplate() const Q_DECL_OVERRIDE;
-    QString currentTemplate(QString *errorMessage = 0) Q_DECL_OVERRIDE;
+    bool hasCurrentTemplate() const override;
+    QString currentTemplate(QString *errorMessage = nullptr) override;
 
     // Convenience for implementing file dialogs with preview
     static QImage grabForm(QDesignerFormEditorInterface *core,
@@ -91,9 +61,9 @@ public:
                            const qdesigner_internal::DeviceProfile &dp);
 
 private slots:
-    void on_treeWidget_itemActivated(QTreeWidgetItem *item);
-    void on_treeWidget_currentItemChanged(QTreeWidgetItem *current, QTreeWidgetItem *);
-    void on_treeWidget_itemPressed(QTreeWidgetItem *item);
+    void treeWidgetItemActivated(QTreeWidgetItem *item);
+    void treeWidgetCurrentItemChanged(QTreeWidgetItem *current);
+    void treeWidgetItemPressed(QTreeWidgetItem *item);
     void slotDeviceProfileIndexChanged(int idx);
 
 private:
@@ -117,8 +87,8 @@ private:
     bool showCurrentItemPixmap();
 
     // Pixmap cache (item, profile combo index)
-    typedef QPair<const QTreeWidgetItem *, int> ItemPixmapCacheKey;
-    typedef QMap<ItemPixmapCacheKey, QPixmap> ItemPixmapCache;
+    using ItemPixmapCacheKey = std::pair<const QTreeWidgetItem *, int>;
+    using ItemPixmapCache = QMap<ItemPixmapCacheKey, QPixmap>;
     ItemPixmapCache m_itemPixmapCache;
 
     QDesignerFormEditorInterface *m_core;

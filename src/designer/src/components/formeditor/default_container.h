@@ -1,48 +1,18 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #ifndef DEFAULT_CONTAINER_H
 #define DEFAULT_CONTAINER_H
 
-#include <QtDesigner/QDesignerContainerExtension>
+#include <QtDesigner/container.h>
 #include <QtDesigner/extension.h>
 #include <extensionfactory_p.h>
 
-#include <QtWidgets/QStackedWidget>
-#include <QtWidgets/QTabWidget>
-#include <QtWidgets/QToolBox>
-#include <QtWidgets/QScrollArea>
-#include <QtWidgets/QDockWidget>
+#include <QtWidgets/qstackedwidget.h>
+#include <QtWidgets/qtabwidget.h>
+#include <QtWidgets/qtoolbox.h>
+#include <QtWidgets/qscrollarea.h>
+#include <QtWidgets/qdockwidget.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -54,17 +24,19 @@ class QStackedWidgetContainer: public QObject, public QDesignerContainerExtensio
     Q_OBJECT
     Q_INTERFACES(QDesignerContainerExtension)
 public:
-    explicit QStackedWidgetContainer(QStackedWidget *widget, QObject *parent = 0);
+    explicit QStackedWidgetContainer(QStackedWidget *widget, QObject *parent = nullptr);
 
-    virtual int count() const { return m_widget->count(); }
-    virtual QWidget *widget(int index) const { return m_widget->widget(index); }
+    int count() const override { return m_widget->count(); }
+    QWidget *widget(int index) const override { return m_widget->widget(index); }
 
-    virtual int currentIndex() const { return m_widget->currentIndex(); }
-    void setCurrentIndex(int index) Q_DECL_OVERRIDE;
+    int currentIndex() const override { return m_widget->currentIndex(); }
+    void setCurrentIndex(int index) override;
 
-    void addWidget(QWidget *widget) Q_DECL_OVERRIDE;
-    void insertWidget(int index, QWidget *widget) Q_DECL_OVERRIDE;
-    void remove(int index) Q_DECL_OVERRIDE;
+    bool canAddWidget() const override { return true; }
+    void addWidget(QWidget *widget) override;
+    void insertWidget(int index, QWidget *widget) override;
+    bool canRemove(int) const override { return true; }
+    void remove(int index) override;
 
 private:
     QStackedWidget *m_widget;
@@ -76,17 +48,19 @@ class QTabWidgetContainer: public QObject, public QDesignerContainerExtension
     Q_OBJECT
     Q_INTERFACES(QDesignerContainerExtension)
 public:
-    explicit QTabWidgetContainer(QTabWidget *widget, QObject *parent = 0);
+    explicit QTabWidgetContainer(QTabWidget *widget, QObject *parent = nullptr);
 
-    virtual int count() const { return m_widget->count(); }
-    virtual QWidget *widget(int index) const { return m_widget->widget(index); }
+    int count() const override { return m_widget->count(); }
+    QWidget *widget(int index) const override { return m_widget->widget(index); }
 
-    virtual int currentIndex() const { return m_widget->currentIndex(); }
-    void setCurrentIndex(int index) Q_DECL_OVERRIDE;
+    int currentIndex() const override { return m_widget->currentIndex(); }
+    void setCurrentIndex(int index) override;
 
-    void addWidget(QWidget *widget) Q_DECL_OVERRIDE;
-    void insertWidget(int index, QWidget *widget) Q_DECL_OVERRIDE;
-    void remove(int index) Q_DECL_OVERRIDE;
+    bool canAddWidget() const override { return true; }
+    void addWidget(QWidget *widget) override;
+    void insertWidget(int index, QWidget *widget) override;
+    bool canRemove(int) const override { return true; }
+    void remove(int index) override;
 
 private:
     QTabWidget *m_widget;
@@ -98,17 +72,19 @@ class QToolBoxContainer: public QObject, public QDesignerContainerExtension
     Q_OBJECT
     Q_INTERFACES(QDesignerContainerExtension)
 public:
-    explicit QToolBoxContainer(QToolBox *widget, QObject *parent = 0);
+    explicit QToolBoxContainer(QToolBox *widget, QObject *parent = nullptr);
 
-    virtual int count() const { return m_widget->count(); }
-    virtual QWidget *widget(int index) const { return m_widget->widget(index); }
+    int count() const override { return m_widget->count(); }
+    QWidget *widget(int index) const override { return m_widget->widget(index); }
 
-    virtual int currentIndex() const { return m_widget->currentIndex(); }
-    void setCurrentIndex(int index) Q_DECL_OVERRIDE;
+    int currentIndex() const override { return m_widget->currentIndex(); }
+    void setCurrentIndex(int index) override;
 
-    void addWidget(QWidget *widget) Q_DECL_OVERRIDE;
-    void insertWidget(int index, QWidget *widget) Q_DECL_OVERRIDE;
-    void remove(int index) Q_DECL_OVERRIDE;
+    bool canAddWidget() const override { return true; }
+    void addWidget(QWidget *widget) override;
+    void insertWidget(int index, QWidget *widget) override;
+    bool canRemove(int) const override { return true; }
+    void remove(int index) override;
 
 private:
     QToolBox *m_widget;
@@ -123,16 +99,16 @@ class SingleChildContainer: public QDesignerContainerExtension
 protected:
     explicit SingleChildContainer(Container *widget, bool active = true);
 public:
-    int count() const Q_DECL_OVERRIDE;
-    QWidget *widget(int index) const Q_DECL_OVERRIDE;
-    int currentIndex() const Q_DECL_OVERRIDE;
-    virtual void setCurrentIndex(int /*index*/) {}
-    void addWidget(QWidget *widget) Q_DECL_OVERRIDE;
-    void insertWidget(int index, QWidget *widget) Q_DECL_OVERRIDE;
-    virtual void remove(int /*index*/) {}
+    int count() const override;
+    QWidget *widget(int index) const override;
+    int currentIndex() const override;
+    void setCurrentIndex(int /*index*/) override {}
+    void addWidget(QWidget *widget) override;
+    void insertWidget(int index, QWidget *widget) override;
+    void remove(int /*index*/) override {}
 
-    virtual bool canAddWidget() const { return false; }
-    virtual bool canRemove(int) const { return false; }
+    bool canAddWidget() const override { return false; }
+    bool canRemove(int) const override { return false; }
 
 private:
     const bool m_active;
@@ -167,7 +143,7 @@ int SingleChildContainer<Container>::currentIndex() const
 template <class Container>
 void SingleChildContainer<Container>::addWidget(QWidget *widget)
 {
-    Q_ASSERT(m_container->widget() == 0);
+    Q_ASSERT(m_container->widget() == nullptr);
     widget->setParent(m_container);
     m_container->setWidget(widget);
 }
@@ -184,7 +160,7 @@ class QScrollAreaContainer: public QObject, public SingleChildContainer<QScrollA
     Q_OBJECT
     Q_INTERFACES(QDesignerContainerExtension)
 public:
-    explicit QScrollAreaContainer(QScrollArea *widget, QObject *parent = 0);
+    explicit QScrollAreaContainer(QScrollArea *widget, QObject *parent = nullptr);
 };
 
 // --------------- QDockWidgetContainer
@@ -193,14 +169,14 @@ class QDockWidgetContainer: public QObject, public SingleChildContainer<QDockWid
     Q_OBJECT
     Q_INTERFACES(QDesignerContainerExtension)
 public:
-    explicit QDockWidgetContainer(QDockWidget *widget, QObject *parent = 0);
+    explicit QDockWidgetContainer(QDockWidget *widget, QObject *parent = nullptr);
 };
 
-typedef ExtensionFactory<QDesignerContainerExtension, QStackedWidget, QStackedWidgetContainer> QDesignerStackedWidgetContainerFactory;
-typedef ExtensionFactory<QDesignerContainerExtension, QTabWidget, QTabWidgetContainer> QDesignerTabWidgetContainerFactory;
-typedef ExtensionFactory<QDesignerContainerExtension, QToolBox, QToolBoxContainer> QDesignerToolBoxContainerFactory;
-typedef ExtensionFactory<QDesignerContainerExtension, QScrollArea, QScrollAreaContainer> QScrollAreaContainerFactory;
-typedef ExtensionFactory<QDesignerContainerExtension,  QDockWidget, QDockWidgetContainer> QDockWidgetContainerFactory;
+using QDesignerStackedWidgetContainerFactory = ExtensionFactory<QDesignerContainerExtension, QStackedWidget, QStackedWidgetContainer>;
+using QDesignerTabWidgetContainerFactory = ExtensionFactory<QDesignerContainerExtension, QTabWidget, QTabWidgetContainer>;
+using QDesignerToolBoxContainerFactory = ExtensionFactory<QDesignerContainerExtension, QToolBox, QToolBoxContainer>;
+using QScrollAreaContainerFactory = ExtensionFactory<QDesignerContainerExtension, QScrollArea, QScrollAreaContainer>;
+using QDockWidgetContainerFactory = ExtensionFactory<QDesignerContainerExtension,  QDockWidget, QDockWidgetContainer>;
 }  // namespace qdesigner_internal
 
 QT_END_NAMESPACE

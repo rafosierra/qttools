@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 //
 //  W A R N I N G
@@ -46,9 +16,10 @@
 #define ACTIONEDITOR_H
 
 #include "shared_global_p.h"
-#include <QtDesigner/QDesignerActionEditorInterface>
+#include "shared_enums_p.h"
+#include <QtDesigner/abstractactioneditor.h>
 
-#include <QtCore/QPointer>
+#include <QtCore/qpointer.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -56,7 +27,6 @@ class QDesignerPropertyEditorInterface;
 class QDesignerSettingsInterface;
 class QMenu;
 class QActionGroup;
-class QSignalMapper;
 class QItemSelection;
 class QListWidget;
 class QPushButton;
@@ -72,23 +42,28 @@ class QDESIGNER_SHARED_EXPORT ActionEditor: public QDesignerActionEditorInterfac
 {
     Q_OBJECT
 public:
-    explicit ActionEditor(QDesignerFormEditorInterface *core, QWidget *parent = 0, Qt::WindowFlags flags = 0);
-    virtual ~ActionEditor();
+    explicit ActionEditor(QDesignerFormEditorInterface *core, QWidget *parent = nullptr,
+                          Qt::WindowFlags flags = {});
+    ~ActionEditor() override;
 
     QDesignerFormWindowInterface *formWindow() const;
-    void setFormWindow(QDesignerFormWindowInterface *formWindow) Q_DECL_OVERRIDE;
+    void setFormWindow(QDesignerFormWindowInterface *formWindow) override;
 
-    QDesignerFormEditorInterface *core() const Q_DECL_OVERRIDE;
+    QDesignerFormEditorInterface *core() const override;
 
     QAction *actionNew() const;
     QAction *actionDelete() const;
 
     QString filter() const;
 
-    void manageAction(QAction *action) Q_DECL_OVERRIDE;
-    void unmanageAction(QAction *action) Q_DECL_OVERRIDE;
+    void manageAction(QAction *action) override;
+    void unmanageAction(QAction *action) override;
 
-    static QString actionTextToName(const QString &text, const QString &prefix = QLatin1String("action"));
+    static ObjectNamingMode objectNamingMode() { return m_objectNamingMode; }
+    static void setObjectNamingMode(ObjectNamingMode n) { m_objectNamingMode = n; }
+
+    static QString actionTextToName(const QString &text,
+                                    const QString &prefix = QLatin1StringView("action"));
 
     // Utility to create a configure button with menu for usage on toolbars
     static QToolButton *createConfigureMenuButton(const QString &t, QMenu **ptrToMenu);
@@ -96,11 +71,13 @@ public:
 public slots:
     void setFilter(const QString &filter);
     void mainContainerChanged();
+    void clearSelection();
+    void selectAction(QAction *a); // For use by the menu editor
 
 private slots:
     void slotCurrentItemChanged(QAction *item);
     void slotSelectionChanged(const QItemSelection& selected, const QItemSelection& deselected);
-    void editAction(QAction *item);
+    void editAction(QAction *item, int column = -1);
     void editCurrentAction();
     void navigateToSlotCurrentAction();
     void slotActionChanged();
@@ -110,21 +87,21 @@ private slots:
     void slotContextMenuRequested(QContextMenuEvent *, QAction *);
     void slotViewMode(QAction *a);
     void slotSelectAssociatedWidget(QWidget *w);
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     void slotCopy();
     void slotCut();
     void slotPaste();
 #endif
 
 signals:
-    void itemActivated(QAction *item);
+    void itemActivated(QAction *item, int column);
     // Context menu for item or global menu if item == 0.
     void contextMenuRequested(QMenu *menu, QAction *item);
 
 private:
-    typedef QList<QAction *> ActionList;
+    using ActionList = QList<QAction *>;
     void deleteActions(QDesignerFormWindowInterface *formWindow, const ActionList &);
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     void copyActions(QDesignerFormWindowInterface *formWindow, const ActionList &);
 #endif
 
@@ -132,6 +109,8 @@ private:
     void saveSettings();
 
     void updateViewModeActions();
+
+    static ObjectNamingMode m_objectNamingMode;
 
     QDesignerFormEditorInterface *m_core;
     QPointer<QDesignerFormWindowInterface> m_formWindow;
@@ -142,7 +121,7 @@ private:
     QAction *m_actionNew;
     QAction *m_actionEdit;
     QAction *m_actionNavigateToSlot;
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     QAction *m_actionCopy;
     QAction *m_actionCut;
     QAction *m_actionPaste;
@@ -156,7 +135,7 @@ private:
 
     QString m_filter;
     QWidget *m_filterWidget;
-    QSignalMapper *m_selectAssociatedWidgetsMapper;
+    bool m_withinSelectAction = false;
 };
 
 } // namespace qdesigner_internal

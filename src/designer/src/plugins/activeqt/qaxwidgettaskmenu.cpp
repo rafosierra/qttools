@@ -1,57 +1,30 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "qaxwidgettaskmenu.h"
 #include "qdesigneraxwidget.h"
 #include "qaxwidgetpropertysheet.h"
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormWindowCursorInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformwindowcursor.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/qextensionmanager.h>
 
-#include <QtWidgets/QUndoCommand>
-#include <QtWidgets/QMessageBox>
-#include <QtWidgets/QUndoStack>
-#include <QtWidgets/QAction>
-#include <QtCore/QUuid>
-#include <ActiveQt/qaxselect.h>
+#include <QtAxContainer/qaxselect.h>
 
-#include <qt_windows.h>
+#include <QtWidgets/qmessagebox.h>
+#include <QtGui/qundostack.h>
+
+#include <QtGui/qaction.h>
+
+#include <QtCore/qt_windows.h>
+#include <QtCore/quuid.h>
+
 #include <olectl.h>
-#include <qaxtypes.h>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 /* SetControlCommand: An undo commands that sets a control bypassing
    Designer's property system which cannot handle the changing
@@ -63,8 +36,8 @@ class SetControlCommand : public QUndoCommand
 public:
     SetControlCommand(QDesignerAxWidget *ax, QDesignerFormWindowInterface *core, const QString &newClsid = QString());
 
-    virtual void redo() {  apply(m_newClsid); }
-    virtual void undo() {  apply(m_oldClsid);  }
+    virtual void redo() override {  apply(m_newClsid); }
+    virtual void undo() override {  apply(m_oldClsid);  }
 
 private:
     bool apply(const QString &clsid);
@@ -92,8 +65,9 @@ bool SetControlCommand::apply(const QString &clsid)
     if (m_oldClsid == m_newClsid)
         return true;
 
-    QObject *ext = m_formWindow->core()->extensionManager()->extension(m_axWidget, Q_TYPEID(QDesignerPropertySheetExtension));
-    QAxWidgetPropertySheet *sheet = qobject_cast<QAxWidgetPropertySheet*>(ext);
+    QObject *ext = m_formWindow->core()->extensionManager()->extension(
+            m_axWidget, Q_TYPEID(QDesignerPropertySheetExtension));
+    auto sheet = qobject_cast<QAxWidgetPropertySheet *>(ext);
     if (!sheet)
         return false;
 
@@ -113,15 +87,13 @@ QAxWidgetTaskMenu::QAxWidgetTaskMenu(QDesignerAxWidget *object, QObject *parent)
     m_setAction(new QAction(tr("Set Control"), this)),
     m_resetAction(new QAction(tr("Reset Control"), this))
 {
-    connect(m_setAction, SIGNAL(triggered()), this, SLOT(setActiveXControl()));
-    connect(m_resetAction, SIGNAL(triggered()), this, SLOT(resetActiveXControl()));
+    connect(m_setAction, &QAction::triggered, this, &QAxWidgetTaskMenu::setActiveXControl);
+    connect(m_resetAction, &QAction::triggered, this, &QAxWidgetTaskMenu::resetActiveXControl);
     m_taskActions.push_back(m_setAction);
     m_taskActions.push_back(m_resetAction);
 }
 
-QAxWidgetTaskMenu::~QAxWidgetTaskMenu()
-{
-}
+QAxWidgetTaskMenu::~QAxWidgetTaskMenu() = default;
 
 QList<QAction*> QAxWidgetTaskMenu::taskActions() const
 {
@@ -133,48 +105,44 @@ QList<QAction*> QAxWidgetTaskMenu::taskActions() const
 
 void QAxWidgetTaskMenu::resetActiveXControl()
 {
-    QDesignerFormWindowInterface *formWin = QDesignerFormWindowInterface::findFormWindow(m_axwidget);
-    Q_ASSERT(formWin != 0);
+    auto formWin = QDesignerFormWindowInterface::findFormWindow(m_axwidget);
+    Q_ASSERT(formWin != nullptr);
     formWin->commandHistory()->push(new SetControlCommand(m_axwidget, formWin));
 }
 
 void QAxWidgetTaskMenu::setActiveXControl()
 {
-    QAxSelect *dialog = new QAxSelect(m_axwidget->topLevelWidget());
-    if (dialog->exec())    {
-        QUuid clsid = dialog->clsid();
-        QString key;
+    QAxSelect dialog(m_axwidget->topLevelWidget());
+    if (dialog.exec() != QDialog::Accepted)
+        return;
 
-        IClassFactory2 *cf2 = 0;
-        CoGetClassObject(clsid, CLSCTX_SERVER, 0, IID_IClassFactory2, (void**)&cf2);
+    const auto clsid = QUuid::fromString(dialog.clsid());
+    QString key;
 
-        if (cf2)  {
-            BSTR bKey;
-            HRESULT hres = cf2->RequestLicKey(0, &bKey);
-            if (hres == CLASS_E_NOTLICENSED) {
-                QMessageBox::warning(m_axwidget->topLevelWidget(), tr("Licensed Control"),
-                                     tr("The control requires a design-time license"));
-                clsid = QUuid();
-            } else {
-                key = QString::fromWCharArray(bKey);
-            }
+    IClassFactory2 *cf2 = nullptr;
+    CoGetClassObject(clsid, CLSCTX_SERVER, 0, IID_IClassFactory2, reinterpret_cast<void **>(&cf2));
 
+    if (cf2) {
+        BSTR bKey;
+        HRESULT hres = cf2->RequestLicKey(0, &bKey);
+        if (hres == CLASS_E_NOTLICENSED) {
+            QMessageBox::warning(m_axwidget->topLevelWidget(), tr("Licensed Control"),
+                                 tr("The control requires a design-time license"));
             cf2->Release();
+            return;
         }
 
-        if (!clsid.isNull())  {
-            QDesignerFormWindowInterface *formWin = QDesignerFormWindowInterface::findFormWindow(m_axwidget);
-
-            Q_ASSERT(formWin != 0);
-            QString value = clsid.toString();
-            if (!key.isEmpty()) {
-                value += QLatin1Char(':');
-                value += key;
-            }
-            formWin->commandHistory()->push(new SetControlCommand(m_axwidget, formWin, value));
-        }
+        key = QString::fromWCharArray(bKey);
+        cf2->Release();
     }
-    delete dialog;
+
+    auto formWin = QDesignerFormWindowInterface::findFormWindow(m_axwidget);
+
+    Q_ASSERT(formWin != nullptr);
+    QString value = clsid.toString();
+    if (!key.isEmpty())
+        value += u':' + key;
+    formWin->commandHistory()->push(new SetControlCommand(m_axwidget, formWin, value));
 }
 
 QT_END_NAMESPACE

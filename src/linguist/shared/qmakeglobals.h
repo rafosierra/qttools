@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #ifndef QMAKEGLOBALS_H
 #define QMAKEGLOBALS_H
@@ -43,7 +13,7 @@
 
 #include <qhash.h>
 #include <qstringlist.h>
-#ifndef QT_BOOTSTRAPPED
+#if QT_CONFIG(process)
 # include <qprocess.h>
 #endif
 #ifdef PROEVALUATOR_THREAD_SAFE
@@ -55,6 +25,8 @@ QT_BEGIN_NAMESPACE
 
 class QMakeEvaluator;
 
+enum QMakeEvalPhase { QMakeEvalEarly, QMakeEvalBefore, QMakeEvalAfter, QMakeEvalLate };
+
 class QMakeBaseKey
 {
 public:
@@ -65,7 +37,7 @@ public:
     bool hostBuild;
 };
 
-uint qHash(const QMakeBaseKey &key);
+size_t qHash(const QMakeBaseKey &key);
 bool operator==(const QMakeBaseKey &one, const QMakeBaseKey &two);
 
 class QMakeBaseEnv
@@ -88,12 +60,13 @@ public:
 class QMAKE_EXPORT QMakeCmdLineParserState
 {
 public:
-    QMakeCmdLineParserState(const QString &_pwd) : pwd(_pwd), after(false) {}
+    QMakeCmdLineParserState(const QString &_pwd) : pwd(_pwd), phase(QMakeEvalBefore) {}
     QString pwd;
-    QStringList precmds, preconfigs, postcmds, postconfigs;
-    bool after;
+    QStringList cmds[4], configs[4];
+    QStringList extraargs;
+    QMakeEvalPhase phase;
 
-    void flush() { after = false; }
+    void flush() { phase = QMakeEvalBefore; }
 };
 
 class QMAKE_EXPORT QMakeGlobals
@@ -110,11 +83,12 @@ public:
     QProcessEnvironment environment;
 #endif
     QString qmake_abslocation;
-    QStringList qmake_args;
+    QStringList qmake_args, qmake_extra_args;
 
+    QString qtconf;
     QString qmakespec, xqmakespec;
     QString user_template, user_template_prefix;
-    QString precmds, postcmds;
+    QString extra_cmds[4];
 
 #ifdef PROEVALUATOR_DEBUG
     int debugLevel;
@@ -129,12 +103,14 @@ public:
     void setDirectories(const QString &input_dir, const QString &output_dir);
 #ifdef QT_BUILD_QMAKE
     void setQMakeProperty(QMakeProperty *prop) { property = prop; }
+    void reloadProperties() { property->reload(); }
     ProString propertyValue(const ProKey &name) const { return property->value(name); }
 #else
+    static void parseProperties(const QByteArray &data, QHash<ProKey, ProString> &props);
 #  ifdef PROEVALUATOR_INIT_PROPS
     bool initProperties();
 #  else
-    void setProperties(const QHash<QString, QString> &props);
+    void setProperties(const QHash<ProKey, ProString> &props) { properties = props; }
 #  endif
     ProString propertyValue(const ProKey &name) const { return properties.value(name); }
 #endif

@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "treewidgeteditor.h"
 #include <formwindowbase_p.h>
@@ -38,73 +8,81 @@
 #include <qdesigner_utils_p.h>
 #include <abstractformbuilder.h>
 #include <designerpropertymanager.h>
-#include <qttreepropertybrowser.h>
+#include <qttreepropertybrowser_p.h>
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformeditor.h>
 
-#include <QtCore/QDir>
-#include <QtCore/QQueue>
-#include <QtWidgets/QHeaderView>
-#include <QtWidgets/QTreeWidgetItemIterator>
+#include <QtCore/qdir.h>
+#include <QtCore/qqueue.h>
+#include <QtWidgets/qheaderview.h>
+#include <QtWidgets/qtreewidgetitemiterator.h>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 namespace qdesigner_internal {
 
 TreeWidgetEditor::TreeWidgetEditor(QDesignerFormWindowInterface *form, QDialog *dialog)
-    : AbstractItemEditor(form, 0), m_updatingBrowser(false)
+    : AbstractItemEditor(form, nullptr), m_updatingBrowser(false)
 {
     m_columnEditor = new ItemListEditor(form, this);
-    m_columnEditor->setObjectName(QStringLiteral("columnEditor"));
+    m_columnEditor->setObjectName(u"columnEditor"_s);
     m_columnEditor->setNewItemText(tr("New Column"));
     ui.setupUi(dialog);
 
     injectPropertyBrowser(ui.itemsTab, ui.widget);
-    connect(ui.showPropertiesButton, SIGNAL(clicked()),
-            this, SLOT(togglePropertyBrowser()));
+    connect(ui.showPropertiesButton, &QAbstractButton::clicked,
+            this, &TreeWidgetEditor::togglePropertyBrowser);
     setPropertyBrowserVisible(false);
 
     ui.tabWidget->insertTab(0, m_columnEditor, tr("&Columns"));
     ui.tabWidget->setCurrentIndex(0);
-    setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
-    ui.newItemButton->setIcon(createIconSet(QString::fromUtf8("plus.png")));
-    ui.newSubItemButton->setIcon(createIconSet(QString::fromUtf8("downplus.png")));
-    ui.deleteItemButton->setIcon(createIconSet(QString::fromUtf8("minus.png")));
-    ui.moveItemUpButton->setIcon(createIconSet(QString::fromUtf8("up.png")));
-    ui.moveItemDownButton->setIcon(createIconSet(QString::fromUtf8("down.png")));
-    ui.moveItemRightButton->setIcon(createIconSet(QString::fromUtf8("leveldown.png")));
-    ui.moveItemLeftButton->setIcon(createIconSet(QString::fromUtf8("levelup.png")));
+    ui.newItemButton->setIcon(createIconSet("plus.png"_L1));
+    ui.newSubItemButton->setIcon(createIconSet("downplus.png"_L1));
+    ui.deleteItemButton->setIcon(createIconSet("minus.png"_L1));
+    ui.moveItemUpButton->setIcon(createIconSet("up.png"_L1));
+    ui.moveItemDownButton->setIcon(createIconSet("down.png"_L1));
+    ui.moveItemRightButton->setIcon(createIconSet("leveldown.png"_L1));
+    ui.moveItemLeftButton->setIcon(createIconSet("levelup.png"_L1));
 
     ui.treeWidget->header()->setSectionsMovable(false);
 
-    connect(ui.newItemButton, SIGNAL(clicked()), this, SLOT(on_newItemButton_clicked()));
-    connect(ui.newSubItemButton, SIGNAL(clicked()), this, SLOT(on_newSubItemButton_clicked()));
-    connect(ui.moveItemUpButton, SIGNAL(clicked()), this, SLOT(on_moveItemUpButton_clicked()));
-    connect(ui.moveItemDownButton, SIGNAL(clicked()), this, SLOT(on_moveItemDownButton_clicked()));
-    connect(ui.moveItemRightButton, SIGNAL(clicked()), this, SLOT(on_moveItemRightButton_clicked()));
-    connect(ui.moveItemLeftButton, SIGNAL(clicked()), this, SLOT(on_moveItemLeftButton_clicked()));
-    connect(ui.deleteItemButton, SIGNAL(clicked()), this, SLOT(on_deleteItemButton_clicked()));
-    connect(ui.treeWidget, SIGNAL(currentItemChanged(QTreeWidgetItem*,QTreeWidgetItem*)),
-            this, SLOT(on_treeWidget_currentItemChanged()));
-    connect(ui.treeWidget, SIGNAL(itemChanged(QTreeWidgetItem*,int)),
-            this, SLOT(on_treeWidget_itemChanged(QTreeWidgetItem*,int)));
+    connect(ui.newItemButton, &QAbstractButton::clicked,
+            this, &TreeWidgetEditor::newItemButtonClicked);
+    connect(ui.newSubItemButton, &QAbstractButton::clicked,
+            this, &TreeWidgetEditor::newSubItemButtonClicked);
+    connect(ui.moveItemUpButton, &QAbstractButton::clicked,
+            this, &TreeWidgetEditor::moveItemUpButtonClicked);
+    connect(ui.moveItemDownButton, &QAbstractButton::clicked,
+            this, &TreeWidgetEditor::moveItemDownButtonClicked);
+    connect(ui.moveItemRightButton, &QAbstractButton::clicked,
+            this, &TreeWidgetEditor::moveItemRightButtonClicked);
+    connect(ui.moveItemLeftButton, &QAbstractButton::clicked,
+            this, &TreeWidgetEditor::moveItemLeftButtonClicked);
+    connect(ui.deleteItemButton, &QAbstractButton::clicked,
+            this, &TreeWidgetEditor::deleteItemButtonClicked);
+    connect(ui.treeWidget, &QTreeWidget::currentItemChanged,
+            this, &TreeWidgetEditor::treeWidgetCurrentItemChanged);
+    connect(ui.treeWidget, &QTreeWidget::itemChanged,
+            this, &TreeWidgetEditor::treeWidgetItemChanged);
 
-    connect(m_columnEditor, SIGNAL(indexChanged(int)),
-            this, SLOT(on_columnEditor_indexChanged(int)));
-    connect(m_columnEditor, SIGNAL(itemChanged(int,int,QVariant)),
-            this, SLOT(on_columnEditor_itemChanged(int,int,QVariant)));
-    connect(m_columnEditor, SIGNAL(itemInserted(int)),
-            this, SLOT(on_columnEditor_itemInserted(int)));
-    connect(m_columnEditor, SIGNAL(itemDeleted(int)),
-            this, SLOT(on_columnEditor_itemDeleted(int)));
-    connect(m_columnEditor, SIGNAL(itemMovedUp(int)),
-            this, SLOT(on_columnEditor_itemMovedUp(int)));
-    connect(m_columnEditor, SIGNAL(itemMovedDown(int)),
-            this, SLOT(on_columnEditor_itemMovedDown(int)));
+    connect(m_columnEditor, &ItemListEditor::indexChanged,
+            this, &TreeWidgetEditor::columnEditorIndexChanged);
+    connect(m_columnEditor, &ItemListEditor::itemChanged,
+            this, &TreeWidgetEditor::columnEditorItemChanged);
+    connect(m_columnEditor, &ItemListEditor::itemInserted,
+            this, &TreeWidgetEditor::columnEditorItemInserted);
+    connect(m_columnEditor, &ItemListEditor::itemDeleted,
+            this, &TreeWidgetEditor::columnEditorItemDeleted);
+    connect(m_columnEditor, &ItemListEditor::itemMovedUp,
+            this, &TreeWidgetEditor::columnEditorItemMovedUp);
+    connect(m_columnEditor, &ItemListEditor::itemMovedDown,
+            this, &TreeWidgetEditor::columnEditorItemMovedDown);
 
-    connect(iconCache(), SIGNAL(reloaded()), this, SLOT(cacheReloaded()));
+    connect(iconCache(), &DesignerIconCache::reloaded, this, &TreeWidgetEditor::cacheReloaded);
 }
 
 static AbstractItemEditor::PropertyDefinition treeHeaderPropList[] = {
@@ -113,11 +91,11 @@ static AbstractItemEditor::PropertyDefinition treeHeaderPropList[] = {
     { Qt::ToolTipPropertyRole, 0, DesignerPropertyManager::designerStringTypeId, "toolTip" },
     { Qt::StatusTipPropertyRole, 0, DesignerPropertyManager::designerStringTypeId, "statusTip" },
     { Qt::WhatsThisPropertyRole, 0, DesignerPropertyManager::designerStringTypeId, "whatsThis" },
-    { Qt::FontRole, QVariant::Font, 0, "font" },
+    { Qt::FontRole, QMetaType::QFont, nullptr, "font" },
     { Qt::TextAlignmentRole, 0, DesignerPropertyManager::designerAlignmentTypeId, "textAlignment" },
-    { Qt::BackgroundRole, QVariant::Color, 0, "background" },
-    { Qt::ForegroundRole, QVariant::Brush, 0, "foreground" },
-    { 0, 0, 0, 0 }
+    { Qt::BackgroundRole, QMetaType::QColor, nullptr, "background" },
+    { Qt::ForegroundRole, QMetaType::QBrush, nullptr, "foreground" },
+    { 0, 0, nullptr, nullptr }
 };
 
 static AbstractItemEditor::PropertyDefinition treeItemColumnPropList[] = {
@@ -126,24 +104,24 @@ static AbstractItemEditor::PropertyDefinition treeItemColumnPropList[] = {
     { Qt::ToolTipPropertyRole, 0, DesignerPropertyManager::designerStringTypeId, "toolTip" },
     { Qt::StatusTipPropertyRole, 0, DesignerPropertyManager::designerStringTypeId, "statusTip" },
     { Qt::WhatsThisPropertyRole, 0, DesignerPropertyManager::designerStringTypeId, "whatsThis" },
-    { Qt::FontRole, QVariant::Font, 0, "font" },
+    { Qt::FontRole, QMetaType::QFont, nullptr, "font" },
     { Qt::TextAlignmentRole, 0, DesignerPropertyManager::designerAlignmentTypeId, "textAlignment" },
-    { Qt::BackgroundRole, QVariant::Brush, 0, "background" },
-    { Qt::ForegroundRole, QVariant::Brush, 0, "foreground" },
+    { Qt::BackgroundRole, QMetaType::QBrush, nullptr, "background" },
+    { Qt::ForegroundRole, QMetaType::QBrush, nullptr, "foreground" },
     { Qt::CheckStateRole, 0, QtVariantPropertyManager::enumTypeId, "checkState" },
-    { 0, 0, 0, 0 }
+    { 0, 0, nullptr, nullptr }
 };
 
 static AbstractItemEditor::PropertyDefinition treeItemCommonPropList[] = {
     { ItemFlagsShadowRole, 0, QtVariantPropertyManager::flagTypeId, "flags" },
-    { 0, 0, 0, 0 }
+    { 0, 0, nullptr, nullptr }
 };
 
 QtVariantProperty *TreeWidgetEditor::setupPropertyGroup(const QString &title, PropertyDefinition *propDefs)
 {
     setupProperties(propDefs);
     QtVariantProperty *groupProp = m_propertyManager->addProperty(QtVariantPropertyManager::groupTypeId(), title);
-    foreach (QtVariantProperty *prop, m_rootProperties)
+    for (QtVariantProperty *prop : std::as_const(m_rootProperties))
         groupProp->addSubProperty(prop);
     m_rootProperties.clear();
     return groupProp;
@@ -186,7 +164,7 @@ void TreeWidgetEditor::setItemData(int role, const QVariant &v)
     const int col = (role == ItemFlagsShadowRole) ? 0 : ui.treeWidget->currentColumn();
     QVariant newValue = v;
     BoolBlocker block(m_updatingBrowser);
-    if (role == Qt::FontRole && newValue.type() == QVariant::Font) {
+    if (role == Qt::FontRole && newValue.metaType().id() == QMetaType::QFont) {
         QFont oldFont = ui.treeWidget->font();
         QFont newFont = qvariant_cast<QFont>(newValue).resolve(oldFont);
         newValue = QVariant::fromValue(newFont);
@@ -201,10 +179,16 @@ QVariant TreeWidgetEditor::getItemData(int role) const
     return ui.treeWidget->currentItem()->data(col, role);
 }
 
-void TreeWidgetEditor::on_newItemButton_clicked()
+int TreeWidgetEditor::defaultItemFlags() const
+{
+    static const int flags = QTreeWidgetItem().flags();
+    return flags;
+}
+
+void TreeWidgetEditor::newItemButtonClicked()
 {
     QTreeWidgetItem *curItem = ui.treeWidget->currentItem();
-    QTreeWidgetItem *newItem = 0;
+    QTreeWidgetItem *newItem = nullptr;
     ui.treeWidget->blockSignals(true);
     if (curItem) {
         if (curItem->parent())
@@ -224,7 +208,7 @@ void TreeWidgetEditor::on_newItemButton_clicked()
     ui.treeWidget->editItem(newItem, ui.treeWidget->currentColumn());
 }
 
-void TreeWidgetEditor::on_newSubItemButton_clicked()
+void TreeWidgetEditor::newSubItemButtonClicked()
 {
     QTreeWidgetItem *curItem = ui.treeWidget->currentItem();
     if (!curItem)
@@ -243,13 +227,13 @@ void TreeWidgetEditor::on_newSubItemButton_clicked()
     ui.treeWidget->editItem(newItem, ui.treeWidget->currentColumn());
 }
 
-void TreeWidgetEditor::on_deleteItemButton_clicked()
+void TreeWidgetEditor::deleteItemButtonClicked()
 {
     QTreeWidgetItem *curItem = ui.treeWidget->currentItem();
     if (!curItem)
         return;
 
-    QTreeWidgetItem *nextCurrent = 0;
+    QTreeWidgetItem *nextCurrent = nullptr;
     if (curItem->parent()) {
         int idx = curItem->parent()->indexOfChild(curItem);
         if (idx == curItem->parent()->childCount() - 1)
@@ -279,7 +263,7 @@ void TreeWidgetEditor::on_deleteItemButton_clicked()
     updateEditor();
 }
 
-void TreeWidgetEditor::on_moveItemUpButton_clicked()
+void TreeWidgetEditor::moveItemUpButtonClicked()
 {
     QTreeWidgetItem *curItem = ui.treeWidget->currentItem();
     if (!curItem)
@@ -309,7 +293,7 @@ void TreeWidgetEditor::on_moveItemUpButton_clicked()
     updateEditor();
 }
 
-void TreeWidgetEditor::on_moveItemDownButton_clicked()
+void TreeWidgetEditor::moveItemDownButtonClicked()
 {
     QTreeWidgetItem *curItem = ui.treeWidget->currentItem();
     if (!curItem)
@@ -342,7 +326,7 @@ void TreeWidgetEditor::on_moveItemDownButton_clicked()
     updateEditor();
 }
 
-void TreeWidgetEditor::on_moveItemLeftButton_clicked()
+void TreeWidgetEditor::moveItemLeftButtonClicked()
 {
     QTreeWidgetItem *curItem = ui.treeWidget->currentItem();
     if (!curItem)
@@ -367,7 +351,7 @@ void TreeWidgetEditor::on_moveItemLeftButton_clicked()
     updateEditor();
 }
 
-void TreeWidgetEditor::on_moveItemRightButton_clicked()
+void TreeWidgetEditor::moveItemRightButtonClicked()
 {
     QTreeWidgetItem *curItem = ui.treeWidget->currentItem();
     if (!curItem)
@@ -412,13 +396,13 @@ void TreeWidgetEditor::setPropertyBrowserVisible(bool v)
     m_propertyBrowser->setVisible(v);
 }
 
-void TreeWidgetEditor::on_treeWidget_currentItemChanged()
+void TreeWidgetEditor::treeWidgetCurrentItemChanged()
 {
     m_columnEditor->setCurrentIndex(ui.treeWidget->currentColumn());
     updateEditor();
 }
 
-void TreeWidgetEditor::on_treeWidget_itemChanged(QTreeWidgetItem *item, int column)
+void TreeWidgetEditor::treeWidgetItemChanged(QTreeWidgetItem *item, int column)
 {
     if (m_updatingBrowser)
         return;
@@ -431,13 +415,13 @@ void TreeWidgetEditor::on_treeWidget_itemChanged(QTreeWidgetItem *item, int colu
     updateBrowser();
 }
 
-void TreeWidgetEditor::on_columnEditor_indexChanged(int idx)
+void TreeWidgetEditor::columnEditorIndexChanged(int idx)
 {
     if (QTreeWidgetItem *item = ui.treeWidget->currentItem())
         ui.treeWidget->setCurrentItem(item, idx);
 }
 
-void TreeWidgetEditor::on_columnEditor_itemChanged(int idx, int role, const QVariant &v)
+void TreeWidgetEditor::columnEditorItemChanged(int idx, int role, const QVariant &v)
 {
     if (role == Qt::DisplayPropertyRole)
         ui.treeWidget->headerItem()->setData(idx, Qt::EditRole, qvariant_cast<PropertySheetStringValue>(v).value());
@@ -560,7 +544,7 @@ void TreeWidgetEditor::moveColumnsRight(int fromColumn, int toColumn)
     moveColumns(toColumn, fromColumn, 1);
 }
 
-void TreeWidgetEditor::on_columnEditor_itemInserted(int idx)
+void TreeWidgetEditor::columnEditorItemInserted(int idx)
 {
     int columnCount = ui.treeWidget->columnCount();
     ui.treeWidget->setColumnCount(columnCount + 1);
@@ -570,7 +554,7 @@ void TreeWidgetEditor::on_columnEditor_itemInserted(int idx)
     updateEditor();
 }
 
-void TreeWidgetEditor::on_columnEditor_itemDeleted(int idx)
+void TreeWidgetEditor::columnEditorItemDeleted(int idx)
 {
     closeEditors();
 
@@ -584,7 +568,7 @@ void TreeWidgetEditor::on_columnEditor_itemDeleted(int idx)
     updateEditor();
 }
 
-void TreeWidgetEditor::on_columnEditor_itemMovedUp(int idx)
+void TreeWidgetEditor::columnEditorItemMovedUp(int idx)
 {
     moveColumnsRight(idx - 1, idx);
 
@@ -592,7 +576,7 @@ void TreeWidgetEditor::on_columnEditor_itemMovedUp(int idx)
     updateEditor();
 }
 
-void TreeWidgetEditor::on_columnEditor_itemMovedDown(int idx)
+void TreeWidgetEditor::columnEditorItemMovedDown(int idx)
 {
     moveColumnsLeft(idx, idx + 1);
 
@@ -617,7 +601,6 @@ void TreeWidgetEditor::cacheReloaded()
 TreeWidgetEditorDialog::TreeWidgetEditorDialog(QDesignerFormWindowInterface *form, QWidget *parent) :
     QDialog(parent), m_editor(form, this)
 {
-    setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 }
 
 TreeWidgetContents TreeWidgetEditorDialog::fillContentsFromTreeWidget(QTreeWidget *treeWidget)

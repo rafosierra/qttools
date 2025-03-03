@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Assistant of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 #include "remotecontrol.h"
 
 #include "centralwidget.h"
@@ -47,7 +17,9 @@
 #include <QtWidgets/QApplication>
 
 #include <QtHelp/QHelpEngine>
+#include <QtHelp/QHelpFilterEngine>
 #include <QtHelp/QHelpIndexWidget>
+#include <QtHelp/QHelpLink>
 #include <QtHelp/QHelpSearchQueryWidget>
 
 #ifdef Q_OS_WIN
@@ -58,64 +30,59 @@
 
 QT_BEGIN_NAMESPACE
 
+using namespace Qt::StringLiterals;
+
 RemoteControl::RemoteControl(MainWindow *mainWindow)
     : QObject(mainWindow)
     , m_mainWindow(mainWindow)
-    , m_debug(false)
-    , m_caching(true)
-    , m_syncContents(false)
-    , m_expandTOC(-2)
     , helpEngine(HelpEngineWrapper::instance())
-
 {
     TRACE_OBJ
-    connect(m_mainWindow, SIGNAL(initDone()), this, SLOT(applyCache()));
+    connect(m_mainWindow, &MainWindow::initDone,
+            this, &RemoteControl::applyCache);
 
     StdInListener *l = new StdInListener(this);
-    connect(l, SIGNAL(receivedCommand(QString)),
-        this, SLOT(handleCommandString(QString)));
+    connect(l, &StdInListener::receivedCommand,
+            this, &RemoteControl::handleCommandString);
     l->start();
 }
 
 void RemoteControl::handleCommandString(const QString &cmdString)
 {
     TRACE_OBJ
-    QStringList cmds = cmdString.split(QLatin1Char(';'));
-    QStringList::const_iterator it = cmds.constBegin();
-    while (it != cmds.constEnd()) {
+    const QStringList &commands = cmdString.split(u';');
+    for (const QString &command : commands) {
         QString cmd, arg;
-        splitInputString(*it, cmd, arg);
+        splitInputString(command, cmd, arg);
 
         if (m_debug)
-            QMessageBox::information(0, tr("Debugging Remote Control"),
+            QMessageBox::information(nullptr, tr("Debugging Remote Control"),
                 tr("Received Command: %1 %2").arg(cmd).arg(arg));
 
-        if (cmd == QLatin1String("debug"))
+        if (cmd == "debug"_L1)
             handleDebugCommand(arg);
-         else if (cmd == QLatin1String("show"))
+         else if (cmd == "show"_L1)
             handleShowOrHideCommand(arg, true);
-         else if (cmd == QLatin1String("hide"))
+         else if (cmd == "hide"_L1)
             handleShowOrHideCommand(arg, false);
-         else if (cmd == QLatin1String("setsource"))
+         else if (cmd == "setsource"_L1)
             handleSetSourceCommand(arg);
-         else if (cmd == QLatin1String("synccontents"))
+         else if (cmd == "synccontents"_L1)
             handleSyncContentsCommand();
-         else if (cmd == QLatin1String("activatekeyword"))
+         else if (cmd == "activatekeyword"_L1)
             handleActivateKeywordCommand(arg);
-         else if (cmd == QLatin1String("activateidentifier"))
+         else if (cmd == "activateidentifier"_L1)
             handleActivateIdentifierCommand(arg);
-         else if (cmd == QLatin1String("expandtoc"))
+         else if (cmd == "expandtoc"_L1)
             handleExpandTocCommand(arg);
-         else if (cmd == QLatin1String("setcurrentfilter"))
+         else if (cmd == "setcurrentfilter"_L1)
             handleSetCurrentFilterCommand(arg);
-         else if (cmd == QLatin1String("register"))
+         else if (cmd == "register"_L1)
             handleRegisterCommand(arg);
-         else if (cmd == QLatin1String("unregister"))
+         else if (cmd == "unregister"_L1)
             handleUnregisterCommand(arg);
          else
             break;
-
-        ++it;
     }
     m_mainWindow->raise();
     m_mainWindow->activateWindow();
@@ -126,28 +93,28 @@ void RemoteControl::splitInputString(const QString &input, QString &cmd,
 {
     TRACE_OBJ
     QString cmdLine = input.trimmed();
-    int i = cmdLine.indexOf(QLatin1Char(' '));
+    int i = cmdLine.indexOf(u' ');
     cmd = cmdLine.left(i);
-    arg = cmdLine.mid(i+1);
+    arg = cmdLine.mid(i + 1);
     cmd = cmd.toLower();
 }
 
 void RemoteControl::handleDebugCommand(const QString &arg)
 {
     TRACE_OBJ
-    m_debug = arg == QLatin1String("on");
+    m_debug = arg == "on"_L1;
 }
 
 void RemoteControl::handleShowOrHideCommand(const QString &arg, bool show)
 {
     TRACE_OBJ
-    if (arg.toLower() == QLatin1String("contents"))
+    if (arg.toLower() == "contents"_L1)
         m_mainWindow->setContentsVisible(show);
-    else if (arg.toLower() == QLatin1String("index"))
+    else if (arg.toLower() == "index"_L1)
         m_mainWindow->setIndexVisible(show);
-    else if (arg.toLower() == QLatin1String("bookmarks"))
+    else if (arg.toLower() == "bookmarks"_L1)
         m_mainWindow->setBookmarksVisible(show);
-    else if (arg.toLower() == QLatin1String("search"))
+    else if (arg.toLower() == "search"_L1)
         m_mainWindow->setSearchVisible(show);
 }
 
@@ -191,11 +158,8 @@ void RemoteControl::handleActivateKeywordCommand(const QString &arg)
                     m_mainWindow->setSearchVisible(true);
                     if (QHelpSearchQueryWidget *w = se->queryWidget()) {
                         w->collapseExtendedSearch();
-                        QList<QHelpSearchQuery> queryList;
-                        queryList << QHelpSearchQuery(QHelpSearchQuery::DEFAULT,
-                            QStringList(arg));
-                        w->setQuery(queryList);
-                        se->search(queryList);
+                        w->setSearchInput(arg);
+                        se->search(arg);
                     }
                 }
             } else {
@@ -213,9 +177,9 @@ void RemoteControl::handleActivateIdentifierCommand(const QString &arg)
         clearCache();
         m_activateIdentifier = arg;
     } else {
-        const QMap<QString, QUrl> &links = helpEngine.linksForIdentifier(arg);
-        if (!links.isEmpty())
-            CentralWidget::instance()->setSource(links.constBegin().value());
+        const auto docs = helpEngine.documentsForIdentifier(arg);
+        if (!docs.isEmpty())
+            CentralWidget::instance()->setSource(docs.first().url);
     }
 }
 
@@ -238,12 +202,12 @@ void RemoteControl::handleExpandTocCommand(const QString &arg)
 void RemoteControl::handleSetCurrentFilterCommand(const QString &arg)
 {
     TRACE_OBJ
-    if (helpEngine.customFilters().contains(arg)) {
+    if (helpEngine.filterEngine()->filters().contains(arg)) {
         if (m_caching) {
             clearCache();
             m_currentFilter = arg;
         } else {
-            helpEngine.setCurrentFilter(arg);
+            helpEngine.filterEngine()->setActiveFilter(arg);
         }
     }
 }
@@ -280,12 +244,12 @@ void RemoteControl::applyCache()
         m_mainWindow->setIndexString(m_activateKeyword);
         helpEngine.indexWidget()->activateCurrentItem();
     } else if (!m_activateIdentifier.isEmpty()) {
-        QMap<QString, QUrl> links =
-            helpEngine.linksForIdentifier(m_activateIdentifier);
-        if (!links.isEmpty())
-            CentralWidget::instance()->setSource(links.constBegin().value());
+        const auto docs =
+            helpEngine.documentsForIdentifier(m_activateIdentifier);
+        if (!docs.isEmpty())
+            CentralWidget::instance()->setSource(docs.first().url);
     } else if (!m_currentFilter.isEmpty()) {
-        helpEngine.setCurrentFilter(m_currentFilter);
+        helpEngine.filterEngine()->setActiveFilter(m_currentFilter);
     }
 
     if (m_syncContents)

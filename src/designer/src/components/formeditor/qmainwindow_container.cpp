@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qmainwindow_container.h"
 #include "qdesigner_toolbar_p.h"
@@ -37,15 +7,15 @@
 
 #include <QtCore/qdebug.h>
 
-#include <QtWidgets/QLayout>
-#include <QtWidgets/QMenuBar>
-#include <QtWidgets/QToolBar>
-#include <QtWidgets/QStatusBar>
-#include <QtWidgets/QDockWidget>
+#include <QtWidgets/qlayout.h>
+#include <QtWidgets/qmenubar.h>
+#include <QtWidgets/qtoolbar.h>
+#include <QtWidgets/qstatusbar.h>
+#include <QtWidgets/qdockwidget.h>
 
 QT_BEGIN_NAMESPACE
 
-using namespace qdesigner_internal;
+namespace qdesigner_internal {
 
 QMainWindowContainer::QMainWindowContainer(QMainWindow *widget, QObject *parent)
     : QObject(parent),
@@ -55,20 +25,19 @@ QMainWindowContainer::QMainWindowContainer(QMainWindow *widget, QObject *parent)
 
 int QMainWindowContainer::count() const
 {
-    return m_widgets.count();
+    return m_widgets.size();
 }
 
 QWidget *QMainWindowContainer::widget(int index) const
 {
-    if (index == -1)
-        return 0;
-
-    return m_widgets.at(index);
+    return m_widgets.value(index, nullptr);
 }
 
 int QMainWindowContainer::currentIndex() const
 {
-    return m_mainWindow->centralWidget() ? 0 : -1;
+    // QTBUG-111603, handle plugins with unmanaged central widgets
+    auto *cw = m_mainWindow->centralWidget();
+    return cw != nullptr && m_widgets.contains(cw) ? 0 : -1;
 }
 
 void QMainWindowContainer::setCurrentIndex(int index)
@@ -79,12 +48,16 @@ void QMainWindowContainer::setCurrentIndex(int index)
 
 namespace {
     // Pair of <area,break_before>
-    typedef QPair<Qt::ToolBarArea,bool> ToolBarData;
+    using ToolBarData = std::pair<Qt::ToolBarArea, bool>;
 
     ToolBarData toolBarData(QToolBar *me) {
         const QMainWindow *mw = qobject_cast<const QMainWindow*>(me->parentWidget());
-        if (!mw || !mw->layout() ||  mw->layout()->indexOf(me) == -1)
-            return ToolBarData(Qt::TopToolBarArea,false);
+        if (!mw || !mw->layout() ||  mw->layout()->indexOf(me) == -1) {
+            const QVariant desiredAreaV = me->property("_q_desiredArea");
+            const Qt::ToolBarArea desiredArea = desiredAreaV.canConvert<Qt::ToolBarArea>()
+                ? desiredAreaV.value<Qt::ToolBarArea>() : Qt::TopToolBarArea;
+            return {desiredArea, false};
+        }
         return ToolBarData(mw->toolBarArea(me), mw->toolBarBreak(me));
     }
 
@@ -98,15 +71,18 @@ Qt::DockWidgetArea dockWidgetArea(QDockWidget *me)
             candidates.append(mw->layout());
             candidates += mw->layout()->findChildren<QLayout*>();
         }
-        foreach (QLayout *l, candidates) {
-            if (l->indexOf(me) != -1) {
+        for (QLayout *l : std::as_const(candidates)) {
+            if (l->indexOf(me) != -1)
                 return mw->dockWidgetArea(me);
-            }
         }
     }
     return Qt::LeftDockWidgetArea;
 }
 }
+
+// In QMainWindowContainer::remove(), remember the dock area in a dynamic
+// property so that it can used in addWidget() if that is called by undo().
+static const char dockAreaPropertyName[] = "_q_dockArea";
 
 void QMainWindowContainer::addWidget(QWidget *widget)
 {
@@ -140,7 +116,17 @@ void QMainWindowContainer::addWidget(QWidget *widget)
 
     else if (QDockWidget *dockWidget = qobject_cast<QDockWidget*>(widget)) {
         m_widgets.append(widget);
-        m_mainWindow->addDockWidget(dockWidgetArea(dockWidget), dockWidget);
+
+        Qt::DockWidgetArea area = Qt::LeftDockWidgetArea;
+        const auto areaProperty = widget->property(dockAreaPropertyName);
+        if (areaProperty.canConvert<Qt::DockWidgetArea>()) {
+            area = areaProperty.value<Qt::DockWidgetArea>();
+            widget->setProperty(dockAreaPropertyName, {});
+        } else {
+            area = dockWidgetArea(dockWidget);
+        }
+
+        m_mainWindow->addDockWidget(area, dockWidget);
         dockWidget->show();
 
         if (FormWindow *fw = FormWindow::findFormWindow(m_mainWindow)) {
@@ -176,16 +162,20 @@ void QMainWindowContainer::remove(int index)
         m_mainWindow->removeToolBar(toolBar);
     } else if (QMenuBar *menuBar = qobject_cast<QMenuBar*>(widget)) {
         menuBar->hide();
-        menuBar->setParent(0);
-        m_mainWindow->setMenuBar(0);
+        menuBar->setParent(nullptr);
+        m_mainWindow->setMenuBar(nullptr);
     } else if (QStatusBar *statusBar = qobject_cast<QStatusBar*>(widget)) {
         statusBar->hide();
-        statusBar->setParent(0);
-        m_mainWindow->setStatusBar(0);
+        statusBar->setParent(nullptr);
+        m_mainWindow->setStatusBar(nullptr);
     } else if (QDockWidget *dockWidget = qobject_cast<QDockWidget*>(widget)) {
+        const auto area = m_mainWindow->dockWidgetArea(dockWidget);
+        dockWidget->setProperty(dockAreaPropertyName, QVariant::fromValue(area));
         m_mainWindow->removeDockWidget(dockWidget);
     }
     m_widgets.removeAt(index);
 }
+
+} // namespace qdesigner_internal
 
 QT_END_NAMESPACE

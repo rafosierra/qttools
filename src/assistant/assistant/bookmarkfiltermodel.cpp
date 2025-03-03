@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Assistant of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 #include "bookmarkfiltermodel.h"
 
 #include "bookmarkitem.h"
@@ -37,8 +7,6 @@
 
 BookmarkFilterModel::BookmarkFilterModel(QObject *parent)
     : QAbstractProxyModel(parent)
-    , hideBookmarks(true)
-    , sourceModel(0)
 {
 }
 
@@ -47,62 +15,59 @@ void BookmarkFilterModel::setSourceModel(QAbstractItemModel *_sourceModel)
     beginResetModel();
 
     if (sourceModel) {
-        disconnect(sourceModel, SIGNAL(dataChanged(QModelIndex,QModelIndex)),
-            this, SLOT(changed(QModelIndex,QModelIndex)));
-        disconnect(sourceModel, SIGNAL(rowsInserted(QModelIndex,int,int)),
-            this, SLOT(rowsInserted(QModelIndex,int,int)));
-        disconnect(sourceModel,
-            SIGNAL(rowsAboutToBeRemoved(QModelIndex,int,int)), this,
-            SLOT(rowsAboutToBeRemoved(QModelIndex,int,int)));
-        disconnect(sourceModel, SIGNAL(rowsRemoved(QModelIndex,int,int)),
-            this, SLOT(rowsRemoved(QModelIndex,int,int)));
-        disconnect(sourceModel, SIGNAL(layoutAboutToBeChanged()), this,
-            SLOT(layoutAboutToBeChanged()));
-        disconnect(sourceModel, SIGNAL(layoutChanged()), this,
-            SLOT(layoutChanged()));
-        disconnect(sourceModel, SIGNAL(modelAboutToBeReset()), this,
-            SLOT(modelAboutToBeReset()));
-        disconnect(sourceModel, SIGNAL(modelReset()), this, SLOT(modelReset()));
+        disconnect(sourceModel, &QAbstractItemModel::dataChanged,
+                this, &BookmarkFilterModel::changed);
+        disconnect(sourceModel, &QAbstractItemModel::rowsInserted,
+                this, &BookmarkFilterModel::rowsInserted);
+        disconnect(sourceModel, &QAbstractItemModel::rowsAboutToBeRemoved,
+                this, &BookmarkFilterModel::rowsAboutToBeRemoved);
+        disconnect(sourceModel, &QAbstractItemModel::rowsRemoved,
+                this, &BookmarkFilterModel::rowsRemoved);
+        disconnect(sourceModel, &QAbstractItemModel::layoutAboutToBeChanged,
+                this, &BookmarkFilterModel::layoutAboutToBeChanged);
+        disconnect(sourceModel, &QAbstractItemModel::layoutChanged,
+                this, &BookmarkFilterModel::layoutChanged);
+        disconnect(sourceModel, &QAbstractItemModel::modelAboutToBeReset,
+                this, &BookmarkFilterModel::modelAboutToBeReset);
+        disconnect(sourceModel, &QAbstractItemModel::modelReset,
+                this, &BookmarkFilterModel::modelReset);
     }
 
-    QAbstractProxyModel::setSourceModel(sourceModel);
     sourceModel = qobject_cast<BookmarkModel*> (_sourceModel);
+    QAbstractProxyModel::setSourceModel(sourceModel);
 
-    connect(sourceModel, SIGNAL(dataChanged(QModelIndex,QModelIndex)), this,
-        SLOT(changed(QModelIndex,QModelIndex)));
+    if (sourceModel) {
+        connect(sourceModel, &QAbstractItemModel::dataChanged,
+                this, &BookmarkFilterModel::changed);
+        connect(sourceModel, &QAbstractItemModel::rowsInserted,
+                this, &BookmarkFilterModel::rowsInserted);
+        connect(sourceModel, &QAbstractItemModel::rowsAboutToBeRemoved,
+                this, &BookmarkFilterModel::rowsAboutToBeRemoved);
+        connect(sourceModel, &QAbstractItemModel::rowsRemoved,
+                this, &BookmarkFilterModel::rowsRemoved);
+        connect(sourceModel, &QAbstractItemModel::layoutAboutToBeChanged,
+                this, &BookmarkFilterModel::layoutAboutToBeChanged);
+        connect(sourceModel, &QAbstractItemModel::layoutChanged,
+                this, &BookmarkFilterModel::layoutChanged);
+        connect(sourceModel, &QAbstractItemModel::modelAboutToBeReset,
+                this, &BookmarkFilterModel::modelAboutToBeReset);
+        connect(sourceModel, &QAbstractItemModel::modelReset,
+                this, &BookmarkFilterModel::modelReset);
 
-    connect(sourceModel, SIGNAL(rowsInserted(QModelIndex,int,int)),
-        this, SLOT(rowsInserted(QModelIndex,int,int)));
-
-    connect(sourceModel, SIGNAL(rowsAboutToBeRemoved(QModelIndex,int,int)),
-        this, SLOT(rowsAboutToBeRemoved(QModelIndex,int,int)));
-    connect(sourceModel, SIGNAL(rowsRemoved(QModelIndex,int,int)), this,
-        SLOT(rowsRemoved(QModelIndex,int,int)));
-
-    connect(sourceModel, SIGNAL(layoutAboutToBeChanged()), this,
-        SLOT(layoutAboutToBeChanged()));
-    connect(sourceModel, SIGNAL(layoutChanged()), this,
-        SLOT(layoutChanged()));
-
-    connect(sourceModel, SIGNAL(modelAboutToBeReset()), this,
-        SLOT(modelAboutToBeReset()));
-    connect(sourceModel, SIGNAL(modelReset()), this, SLOT(modelReset()));
-
-    if (sourceModel)
         setupCache(sourceModel->index(0, 0, QModelIndex()).parent());
-
+    }
     endResetModel();
 }
 
 int BookmarkFilterModel::rowCount(const QModelIndex &index) const
 {
-    Q_UNUSED(index)
-    return cache.count();
+    Q_UNUSED(index);
+    return cache.size();
 }
 
 int BookmarkFilterModel::columnCount(const QModelIndex &index) const
 {
-    Q_UNUSED(index)
+    Q_UNUSED(index);
     if (sourceModel)
         return sourceModel->columnCount();
     return 0;
@@ -111,7 +76,7 @@ int BookmarkFilterModel::columnCount(const QModelIndex &index) const
 QModelIndex BookmarkFilterModel::mapToSource(const QModelIndex &proxyIndex) const
 {
     const int row = proxyIndex.row();
-    if (proxyIndex.isValid() && row >= 0 && row < cache.count())
+    if (proxyIndex.isValid() && row >= 0 && row < cache.size())
         return cache[row];
     return QModelIndex();
 }
@@ -123,15 +88,15 @@ QModelIndex BookmarkFilterModel::mapFromSource(const QModelIndex &sourceIndex) c
 
 QModelIndex BookmarkFilterModel::parent(const QModelIndex &child) const
 {
-    Q_UNUSED(child)
+    Q_UNUSED(child);
     return QModelIndex();
 }
 
 QModelIndex BookmarkFilterModel::index(int row, int column,
     const QModelIndex &index) const
 {
-    Q_UNUSED(index)
-    if (row < 0 || column < 0 || cache.count() <= row
+    Q_UNUSED(index);
+    if (row < 0 || column < 0 || cache.size() <= row
         || !sourceModel || sourceModel->columnCount() <= column) {
         return QModelIndex();
     }
@@ -304,7 +269,7 @@ int BookmarkTreeModel::columnCount(const QModelIndex &parent) const
 
 bool BookmarkTreeModel::filterAcceptsRow(int row, const QModelIndex &parent) const
 {
-    Q_UNUSED(row)
+    Q_UNUSED(row);
     BookmarkModel *model = qobject_cast<BookmarkModel*> (sourceModel());
     if (model->rowCount(parent) > 0
         && model->data(model->index(row, 0, parent), UserRoleFolder).toBool())

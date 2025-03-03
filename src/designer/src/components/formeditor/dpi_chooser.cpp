@@ -1,47 +1,16 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "dpi_chooser.h"
 
 #include <deviceprofile_p.h>
 
-#include <QtWidgets/QComboBox>
-#include <QtWidgets/QSpinBox>
-#include <QtWidgets/QLabel>
-#include <QtWidgets/QVBoxLayout>
-#include <QtWidgets/QHBoxLayout>
-#include <QtWidgets/QPushButton>
-#include <QtWidgets/QCheckBox>
+#include <QtWidgets/qcombobox.h>
+#include <QtWidgets/qspinbox.h>
+#include <QtWidgets/qlabel.h>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qpushbutton.h>
+#include <QtWidgets/qcheckbox.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -86,29 +55,29 @@ DPI_Chooser::DPI_Chooser(QWidget *parent) :
 {
     // Predefined settings: System
     DeviceProfile::systemResolution(&(m_systemEntry->dpiX), &(m_systemEntry->dpiY));
-    m_systemEntry->description = 0;
+    m_systemEntry->description = nullptr;
     const struct DPI_Entry *systemEntry = m_systemEntry;
     //: System resolution
     m_predefinedCombo->addItem(tr("System (%1 x %2)").arg(m_systemEntry->dpiX).arg(m_systemEntry->dpiY), QVariant::fromValue(systemEntry));
     // Devices. Exclude the system values as not to duplicate the entries
-    const int predefinedCount = sizeof(dpiEntries)/sizeof(DPI_Entry);
-    const struct DPI_Entry *ecend = dpiEntries + predefinedCount;
-    for (const struct DPI_Entry *it = dpiEntries; it < ecend; ++it)
-        if (it->dpiX != m_systemEntry->dpiX || it->dpiY != m_systemEntry->dpiY)
-            m_predefinedCombo->addItem(tr(it->description), QVariant::fromValue(it));
+    for (const DPI_Entry &e : dpiEntries) {
+        if (e.dpiX != m_systemEntry->dpiX || e.dpiY != m_systemEntry->dpiY)
+            m_predefinedCombo->addItem(tr(e.description), QVariant::fromValue(&e));
+    }
     m_predefinedCombo->addItem(tr("User defined"));
 
     setFocusProxy(m_predefinedCombo);
     m_predefinedCombo->setEditable(false);
     m_predefinedCombo->setCurrentIndex(0);
-    connect(m_predefinedCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(syncSpinBoxes()));
+    connect(m_predefinedCombo, &QComboBox::currentIndexChanged,
+            this, &DPI_Chooser::syncSpinBoxes);
     // top row with predefined settings
     QVBoxLayout *vBoxLayout = new QVBoxLayout;
-    vBoxLayout->setMargin(0);
+    vBoxLayout->setContentsMargins(QMargins());
     vBoxLayout->addWidget(m_predefinedCombo);
     // Spin box row
     QHBoxLayout *hBoxLayout = new QHBoxLayout;
-    hBoxLayout->setMargin(0);
+    hBoxLayout->setContentsMargins(QMargins());
 
     m_dpiXSpinBox->setMinimum(minDPI);
     m_dpiXSpinBox->setMaximum(maxDPI);
@@ -151,7 +120,7 @@ void DPI_Chooser::setDPI(int dpiX, int dpiY)
     int predefinedIndex = -1;
     for (int i = 0; i < count; i++) {
         const QVariant data = m_predefinedCombo->itemData(i);
-        if (data.type() != QVariant::Invalid) {
+        if (data.metaType().id() != QMetaType::UnknownType) {
             const struct DPI_Entry *entry = qvariant_cast<const struct DPI_Entry *>(data);
             if (entry->dpiX == dpiX && entry->dpiY == dpiY) {
                 predefinedIndex = i;
@@ -184,7 +153,7 @@ void DPI_Chooser::syncSpinBoxes()
     const QVariant data = m_predefinedCombo->itemData(predefIdx);
 
     // Predefined mode in which spin boxes are disabled or user defined?
-    const bool userSetting = data.type() == QVariant::Invalid;
+    const bool userSetting = data.metaType().id() == QMetaType::UnknownType;
     m_dpiXSpinBox->setEnabled(userSetting);
     m_dpiYSpinBox->setEnabled(userSetting);
 

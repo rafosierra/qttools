@@ -1,58 +1,28 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "itemview_propertysheet.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
+#include <QtDesigner/abstractformeditor.h>
 
-#include <QtWidgets/QAbstractItemView>
-#include <QtWidgets/QHeaderView>
-#include <QtCore/QDebug>
+#include <QtWidgets/qabstractitemview.h>
+#include <QtWidgets/qheaderview.h>
+#include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 namespace qdesigner_internal {
 
 struct Property {
-    Property() : m_sheet(0),m_id(-1) {}
+    Property() = default;
     Property(QDesignerPropertySheetExtension *sheet, int id)
         : m_sheet(sheet), m_id(id) {}
 
-    QDesignerPropertySheetExtension *m_sheet;
-    int m_id;
+    QDesignerPropertySheetExtension *m_sheet{nullptr};
+    int m_id{-1};
 };
-
-typedef QMap<int, Property> FakePropertyMap;
 
 struct ItemViewPropertySheetPrivate {
     ItemViewPropertySheetPrivate(QDesignerFormEditorInterface *core,
@@ -63,7 +33,7 @@ struct ItemViewPropertySheetPrivate {
     inline QString fakePropertyName(const QString &prefix, const QString &realName);
 
     // Maps index of fake property to index of real property in respective sheet
-    FakePropertyMap m_propertyIdMap;
+    QMap<int, Property> m_propertyIdMap;
 
     // Maps name of fake property to name of real property
     QHash<QString, QString> m_propertyNameMap;
@@ -73,20 +43,16 @@ struct ItemViewPropertySheetPrivate {
 };
 
 // Name of the fake group
-static const char *headerGroup = "Header";
+static constexpr auto headerGroup = "Header"_L1;
 
 // Name of the real properties
-static const char *visibleProperty = "visible";
-static const char *cascadingSectionResizesProperty = "cascadingSectionResizes";
-static const char *defaultSectionSizeProperty = "defaultSectionSize";
-static const char *highlightSectionsProperty = "highlightSections";
-static const char *minimumSectionSizeProperty = "minimumSectionSize";
-static const char *showSortIndicatorProperty = "showSortIndicator";
-static const char *stretchLastSectionProperty = "stretchLastSection";
-} // namespace qdesigner_internal
-
-using namespace qdesigner_internal;
-
+static constexpr auto visibleProperty = "visible"_L1;
+static constexpr auto cascadingSectionResizesProperty = "cascadingSectionResizes"_L1;
+static constexpr auto defaultSectionSizeProperty = "defaultSectionSize"_L1;
+static constexpr auto highlightSectionsProperty = "highlightSections"_L1;
+static constexpr auto minimumSectionSizeProperty = "minimumSectionSize"_L1;
+static constexpr auto showSortIndicatorProperty = "showSortIndicator"_L1;
+static constexpr auto stretchLastSectionProperty = "stretchLastSection"_L1;
 
 /***************** ItemViewPropertySheetPrivate *********************/
 
@@ -107,14 +73,12 @@ ItemViewPropertySheetPrivate::ItemViewPropertySheetPrivate(QDesignerFormEditorIn
 QStringList ItemViewPropertySheetPrivate::realPropertyNames()
 {
     if (m_realPropertyNames.isEmpty())
-        m_realPropertyNames
-            << QLatin1String(visibleProperty)
-            << QLatin1String(cascadingSectionResizesProperty)
-            << QLatin1String(defaultSectionSizeProperty)
-            << QLatin1String(highlightSectionsProperty)
-            << QLatin1String(minimumSectionSizeProperty)
-            << QLatin1String(showSortIndicatorProperty)
-            << QLatin1String(stretchLastSectionProperty);
+        m_realPropertyNames = {
+            visibleProperty, cascadingSectionResizesProperty,
+            defaultSectionSizeProperty, highlightSectionsProperty,
+            minimumSectionSizeProperty, showSortIndicatorProperty,
+            stretchLastSectionProperty
+        };
     return m_realPropertyNames;
 }
 
@@ -148,9 +112,9 @@ QString ItemViewPropertySheetPrivate::fakePropertyName(const QString &prefix,
 
 ItemViewPropertySheet::ItemViewPropertySheet(QTreeView *treeViewObject, QObject *parent)
         : QDesignerPropertySheet(treeViewObject, parent),
-        d(new ItemViewPropertySheetPrivate(core(), treeViewObject->header(), 0))
+        d(new ItemViewPropertySheetPrivate(core(), treeViewObject->header(), nullptr))
 {
-    initHeaderProperties(treeViewObject->header(), QStringLiteral("header"));
+    initHeaderProperties(treeViewObject->header(), u"header"_s);
 }
 
 ItemViewPropertySheet::ItemViewPropertySheet(QTableView *tableViewObject, QObject *parent)
@@ -159,8 +123,8 @@ ItemViewPropertySheet::ItemViewPropertySheet(QTableView *tableViewObject, QObjec
                                            tableViewObject->horizontalHeader(),
                                            tableViewObject->verticalHeader()))
 {
-    initHeaderProperties(tableViewObject->horizontalHeader(), QStringLiteral("horizontalHeader"));
-    initHeaderProperties(tableViewObject->verticalHeader(), QStringLiteral("verticalHeader"));
+    initHeaderProperties(tableViewObject->horizontalHeader(), u"horizontalHeader"_s);
+    initHeaderProperties(tableViewObject->verticalHeader(), u"verticalHeader"_s);
 }
 
 ItemViewPropertySheet::~ItemViewPropertySheet()
@@ -172,11 +136,12 @@ void ItemViewPropertySheet::initHeaderProperties(QHeaderView *hv, const QString 
 {
     QDesignerPropertySheetExtension *headerSheet = d->m_propertySheet.value(hv);
     Q_ASSERT(headerSheet);
-    const QString headerGroupS = QLatin1String(headerGroup);
-    foreach (const QString &realPropertyName, d->realPropertyNames()) {
+    const QString headerGroupS = headerGroup;
+    const QStringList &realPropertyNames = d->realPropertyNames();
+    for (const QString &realPropertyName : realPropertyNames) {
         const int headerIndex = headerSheet->indexOf(realPropertyName);
         Q_ASSERT(headerIndex != -1);
-        const QVariant defaultValue = realPropertyName == QLatin1String(visibleProperty) ?
+        const QVariant defaultValue = realPropertyName == visibleProperty ?
                                       QVariant(true) : headerSheet->property(headerIndex);
         const QString fakePropertyName = d->fakePropertyName(prefix, realPropertyName);
         const int fakeIndex = createFakeProperty(fakePropertyName, defaultValue);
@@ -196,7 +161,7 @@ QHash<QString,QString> ItemViewPropertySheet::propertyNameMap() const
 
 QVariant ItemViewPropertySheet::property(int index) const
 {
-    const FakePropertyMap::const_iterator it = d->m_propertyIdMap.constFind(index);
+    const auto it = d->m_propertyIdMap.constFind(index);
     if (it != d->m_propertyIdMap.constEnd())
         return it.value().m_sheet->property(it.value().m_id);
     return QDesignerPropertySheet::property(index);
@@ -204,7 +169,7 @@ QVariant ItemViewPropertySheet::property(int index) const
 
 void ItemViewPropertySheet::setProperty(int index, const QVariant &value)
 {
-    const FakePropertyMap::iterator it = d->m_propertyIdMap.find(index);
+    const auto it = d->m_propertyIdMap.find(index);
     if (it != d->m_propertyIdMap.end()) {
         it.value().m_sheet->setProperty(it.value().m_id, value);
     } else {
@@ -214,7 +179,7 @@ void ItemViewPropertySheet::setProperty(int index, const QVariant &value)
 
 void ItemViewPropertySheet::setChanged(int index, bool changed)
 {
-    const FakePropertyMap::iterator it = d->m_propertyIdMap.find(index);
+    const auto it = d->m_propertyIdMap.find(index);
     if (it != d->m_propertyIdMap.end()) {
         it.value().m_sheet->setChanged(it.value().m_id, changed);
     } else {
@@ -224,7 +189,7 @@ void ItemViewPropertySheet::setChanged(int index, bool changed)
 
 bool ItemViewPropertySheet::isChanged(int index) const
 {
-    const FakePropertyMap::const_iterator it = d->m_propertyIdMap.constFind(index);
+    const auto it = d->m_propertyIdMap.constFind(index);
     if (it != d->m_propertyIdMap.constEnd())
         return it.value().m_sheet->isChanged(it.value().m_id);
     return QDesignerPropertySheet::isChanged(index);
@@ -232,7 +197,7 @@ bool ItemViewPropertySheet::isChanged(int index) const
 
 bool ItemViewPropertySheet::hasReset(int index) const
 {
-    const FakePropertyMap::const_iterator it = d->m_propertyIdMap.constFind(index);
+    const auto it = d->m_propertyIdMap.constFind(index);
     if (it != d->m_propertyIdMap.constEnd())
         return it.value().m_sheet->hasReset(it.value().m_id);
     return QDesignerPropertySheet::hasReset(index);
@@ -240,7 +205,7 @@ bool ItemViewPropertySheet::hasReset(int index) const
 
 bool ItemViewPropertySheet::reset(int index)
 {
-    const FakePropertyMap::iterator it = d->m_propertyIdMap.find(index);
+    const auto it = d->m_propertyIdMap.find(index);
     if (it != d->m_propertyIdMap.end()) {
        QDesignerPropertySheetExtension *headerSheet = it.value().m_sheet;
        const int headerIndex = it.value().m_id;
@@ -248,15 +213,16 @@ bool ItemViewPropertySheet::reset(int index)
        // Resetting for "visible" might fail and the stored default
        // of the Widget database is "false" due to the widget not being
        // visible at the time it was determined. Reset to "true" manually.
-       if (!resetRC && headerSheet->propertyName(headerIndex) == QLatin1String(visibleProperty)) {
+       if (!resetRC && headerSheet->propertyName(headerIndex) == visibleProperty) {
            headerSheet->setProperty(headerIndex, QVariant(true));
            headerSheet->setChanged(headerIndex, false);
            return true;
        }
        return resetRC;
-    } else {
-        return QDesignerPropertySheet::reset(index);
     }
+    return QDesignerPropertySheet::reset(index);
 }
+
+} // namespace qdesigner_internal
 
 QT_END_NAMESPACE

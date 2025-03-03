@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 //
 //  W A R N I N G
@@ -47,12 +17,12 @@
 
 #include "uilib_global.h"
 
-#include <QtCore/QObject>
-#include <QtCore/QMetaProperty>
-#include <QtCore/QLocale>
-#include <QtCore/QCoreApplication>
+#include <QtCore/qobject.h>
+#include <QtCore/qmetaobject.h>
+#include <QtCore/qlocale.h>
+#include <QtCore/qcoreapplication.h>
 
-#include <QtWidgets/QWidget>
+#include <QtWidgets/qwidget.h>
 
 #include "formbuilderextra_p.h"
 
@@ -85,6 +55,8 @@ class QAbstractFormBuilderGadget: public QWidget
     Q_PROPERTY(QPalette::ColorRole colorRole READ fakeColorRole)
     Q_PROPERTY(QPalette::ColorGroup colorGroup READ fakeColorGroup)
     Q_PROPERTY(QFont::StyleStrategy styleStrategy READ fakeStyleStrategy)
+    Q_PROPERTY(QFont::HintingPreference hintingPreference READ fakeHintingPreference)
+    Q_PROPERTY(QFont::Weight fontWeight READ fakeFontWeight)
     Q_PROPERTY(Qt::CursorShape cursorShape READ fakeCursorShape)
     Q_PROPERTY(Qt::BrushStyle brushStyle READ fakeBrushStyle)
     Q_PROPERTY(Qt::ToolBarArea toolBarArea READ fakeToolBarArea)
@@ -101,6 +73,8 @@ public:
     QPalette::ColorGroup fakeColorGroup() const { Q_ASSERT(0); return static_cast<QPalette::ColorGroup>(0); }
     QPalette::ColorRole fakeColorRole() const   { Q_ASSERT(0); return static_cast<QPalette::ColorRole>(0); }
     QFont::StyleStrategy fakeStyleStrategy() const     { Q_ASSERT(0); return QFont::PreferDefault; }
+    QFont::HintingPreference fakeHintingPreference() const { Q_ASSERT(0); return QFont::PreferDefaultHinting; }
+    QFont::Weight fakeFontWeight() const { Q_ASSERT(0); return QFont::Weight::Normal; }
     Qt::CursorShape fakeCursorShape() const     { Q_ASSERT(0); return Qt::ArrowCursor; }
     Qt::BrushStyle fakeBrushStyle() const       { Q_ASSERT(0); return Qt::NoBrush; }
     Qt::ToolBarArea fakeToolBarArea() const {  Q_ASSERT(0); return Qt::NoToolBarArea; }
@@ -116,13 +90,13 @@ public:
 
 // Convert key to value for a given QMetaEnum
 template <class EnumType>
-inline EnumType enumKeyToValue(const QMetaEnum &metaEnum,const char *key, const EnumType* = 0)
+inline EnumType enumKeyToValue(const QMetaEnum &metaEnum,const char *key, const EnumType* = nullptr)
 {
     int val = metaEnum.keyToValue(key);
     if (val == -1) {
 
         uiLibWarning(QCoreApplication::translate("QFormBuilder", "The enumeration-value '%1' is invalid. The default value '%2' will be used instead.")
-                    .arg(QString::fromUtf8(key)).arg(QString::fromUtf8(metaEnum.key(0))));
+                    .arg(QString::fromUtf8(key), QString::fromUtf8(metaEnum.key(0))));
         val = metaEnum.value(0);
     }
     return static_cast<EnumType>(val);
@@ -130,7 +104,7 @@ inline EnumType enumKeyToValue(const QMetaEnum &metaEnum,const char *key, const 
 
 // Convert keys to value for a given QMetaEnum
 template <class EnumType>
-inline EnumType enumKeysToValue(const QMetaEnum &metaEnum,const char *keys, const EnumType* = 0)
+inline EnumType enumKeysToValue(const QMetaEnum &metaEnum,const char *keys, const EnumType* = nullptr)
 {
     int val = metaEnum.keysToValue(keys);
     if (val == -1) {
@@ -144,7 +118,7 @@ inline EnumType enumKeysToValue(const QMetaEnum &metaEnum,const char *keys, cons
 
 // Access meta enumeration object of a qobject
 template <class QObjectType>
-inline QMetaEnum metaEnum(const char *name, const QObjectType* = 0)
+inline QMetaEnum metaEnum(const char *name)
 {
     const int e_index = QObjectType::staticMetaObject.indexOfProperty(name);
     Q_ASSERT(e_index != -1);
@@ -153,7 +127,7 @@ inline QMetaEnum metaEnum(const char *name, const QObjectType* = 0)
 
 // Convert key to value for enumeration by name
 template <class QObjectType, class EnumType>
-inline EnumType enumKeyOfObjectToValue(const char *enumName, const char *key, const QObjectType* = 0, const EnumType* = 0)
+inline EnumType enumKeyOfObjectToValue(const char *enumName, const char *key)
 {
     const QMetaEnum me = metaEnum<QObjectType>(enumName);
     return enumKeyToValue<EnumType>(me, key);

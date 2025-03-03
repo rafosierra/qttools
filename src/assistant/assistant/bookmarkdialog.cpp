@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Assistant of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 #include "bookmarkdialog.h"
 #include "bookmarkfiltermodel.h"
 #include "bookmarkitem.h"
@@ -41,6 +11,8 @@
 #include <QtWidgets/QMenu>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 BookmarkDialog::BookmarkDialog(BookmarkModel *sourceModel, const QString &title,
         const QString &url, QWidget *parent)
@@ -56,18 +28,17 @@ BookmarkDialog::BookmarkDialog(BookmarkModel *sourceModel, const QString &title,
     ui.newFolderButton->setVisible(false);
     ui.buttonBox->button(QDialogButtonBox::Ok)->setDefault(true);
 
-    connect(ui.buttonBox, SIGNAL(accepted()), this, SLOT(accepted()));
-    connect(ui.buttonBox, SIGNAL(rejected()), this, SLOT(rejected()));
-    connect(ui.newFolderButton, SIGNAL(clicked()), this, SLOT(addFolder()));
-    connect(ui.toolButton, SIGNAL(clicked()), this, SLOT(toolButtonClicked()));
-    connect(ui.bookmarkEdit, SIGNAL(textChanged(QString)), this,
-        SLOT(textChanged(QString)));
+    connect(ui.buttonBox, &QDialogButtonBox::accepted, this, &BookmarkDialog::accepted);
+    connect(ui.buttonBox, &QDialogButtonBox::rejected, this, &BookmarkDialog::rejected);
+    connect(ui.newFolderButton, &QAbstractButton::clicked, this, &BookmarkDialog::addFolder);
+    connect(ui.toolButton, &QAbstractButton::clicked, this, &BookmarkDialog::toolButtonClicked);
+    connect(ui.bookmarkEdit, &QLineEdit::textChanged, this, &BookmarkDialog::textChanged);
 
     bookmarkProxyModel = new BookmarkFilterModel(this);
     bookmarkProxyModel->setSourceModel(bookmarkModel);
     ui.bookmarkFolders->setModel(bookmarkProxyModel);
-    connect(ui.bookmarkFolders, SIGNAL(currentIndexChanged(int)), this,
-        SLOT(currentIndexChanged(int)));
+    connect(ui.bookmarkFolders, &QComboBox::currentIndexChanged,
+            this, QOverload<int>::of(&BookmarkDialog::currentIndexChanged));
 
     bookmarkTreeModel = new BookmarkTreeModel(this);
     bookmarkTreeModel->setSourceModel(bookmarkModel);
@@ -79,10 +50,10 @@ BookmarkDialog::BookmarkDialog(BookmarkModel *sourceModel, const QString &title,
     ui.treeView->viewport()->installEventFilter(this);
     ui.treeView->setContextMenuPolicy(Qt::CustomContextMenu);
 
-    connect(ui.treeView, SIGNAL(customContextMenuRequested(QPoint)), this,
-        SLOT(customContextMenuRequested(QPoint)));
-    connect(ui.treeView->selectionModel(), SIGNAL(currentChanged(QModelIndex,
-        QModelIndex)), this, SLOT(currentIndexChanged(QModelIndex)));
+    connect(ui.treeView, &QWidget::customContextMenuRequested,
+            this, &BookmarkDialog::customContextMenuRequested);
+    connect(ui.treeView->selectionModel(), &QItemSelectionModel::currentChanged,
+            this, QOverload<const QModelIndex &>::of(&BookmarkDialog::currentIndexChanged));
 
     ui.bookmarkFolders->setCurrentIndex(ui.bookmarkFolders->count() > 1 ? 1 : 0);
 
@@ -161,7 +132,7 @@ void BookmarkDialog::accepted()
 void BookmarkDialog::rejected()
 {
     TRACE_OBJ
-    foreach (const QPersistentModelIndex &index, cache)
+    for (const QPersistentModelIndex &index : std::as_const(cache))
         bookmarkModel->removeItem(index);
     reject();
 }
@@ -195,10 +166,10 @@ void BookmarkDialog::toolButtonClicked()
 
     if (visible) {
         resize(QSize(width(), 400));
-        ui.toolButton->setText(QLatin1String("-"));
+        ui.toolButton->setText("-"_L1);
     } else {
         resize(width(), minimumHeight());
-        ui.toolButton->setText(QLatin1String("+"));
+        ui.toolButton->setText("+"_L1);
     }
 }
 
@@ -214,7 +185,7 @@ void BookmarkDialog::customContextMenuRequested(const QPoint &point)
     if (isRootItem(index))
         return; // check if we go to rename the "Bookmarks Menu", bail
 
-    QMenu menu(QLatin1String(""), this);
+    QMenu menu(QString(), this);
     QAction *renameItem = menu.addAction(tr("Rename Folder"));
 
     QAction *picked = menu.exec(ui.treeView->mapToGlobal(point));

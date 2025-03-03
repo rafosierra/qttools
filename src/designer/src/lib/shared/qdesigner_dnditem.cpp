@@ -1,51 +1,21 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qdesigner_dnditem_p.h"
 #include "formwindowbase_p.h"
 #include <QtDesigner/private/ui4_p.h>
 
-#include <QtGui/QPainter>
-#include <QtGui/QBitmap>
-#include <QtGui/QPixmap>
-#include <QtGui/QImage>
-#include <QtWidgets/QLabel>
-#include <QtGui/QDrag>
-#include <QtGui/QCursor>
-#include <QtGui/QDropEvent>
-#include <QtGui/QRgb>
+#include <QtGui/qpainter.h>
+#include <QtGui/qbitmap.h>
+#include <QtGui/qpixmap.h>
+#include <QtGui/qimage.h>
+#include <QtWidgets/qlabel.h>
+#include <QtGui/qdrag.h>
+#include <QtGui/qcursor.h>
+#include <QtGui/qevent.h>
+#include <QtGui/qrgb.h>
 
-#include <QtCore/QMultiMap>
+#include <QtCore/qmap.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -54,17 +24,17 @@ namespace qdesigner_internal {
 QDesignerDnDItem::QDesignerDnDItem(DropType type, QWidget *source) :
     m_source(source),
     m_type(type),
-    m_dom_ui(0),
-    m_widget(0),
-    m_decoration(0)
+    m_dom_ui(nullptr),
+    m_widget(nullptr),
+    m_decoration(nullptr)
 {
 }
 
 void QDesignerDnDItem::init(DomUI *ui, QWidget *widget, QWidget *decoration,
                                     const QPoint &global_mouse_pos)
 {
-    Q_ASSERT(widget != 0 || ui != 0);
-    Q_ASSERT(decoration != 0);
+    Q_ASSERT(widget != nullptr || ui != nullptr);
+    Q_ASSERT(decoration != nullptr);
 
     m_dom_ui = ui;
     m_widget = widget;
@@ -75,7 +45,7 @@ void QDesignerDnDItem::init(DomUI *ui, QWidget *widget, QWidget *decoration,
 
 QDesignerDnDItem::~QDesignerDnDItem()
 {
-    if (m_decoration != 0)
+    if (m_decoration != nullptr)
         m_decoration->deleteLater();
     delete m_dom_ui;
 }
@@ -137,6 +107,7 @@ QDesignerMimeData::QDesignerMimeData(const QDesignerDnDItems &items, QDrag *drag
         const QPixmap widgetPixmap = deco->grab(QRect(0, 0, -1, -1));
 #ifdef TRANSPARENT_DRAG_PIXMAP
         QImage image(widgetPixmap.size(), QImage::Format_ARGB32);
+        image.setDevicePixelRatio(widgetPixmap.devicePixelRatio());
         image.fill(QColor(Qt::transparent).rgba());
         QPainter painter(&image);
         painter.drawPixmap(QPoint(0, 0), widgetPixmap);
@@ -150,27 +121,31 @@ QDesignerMimeData::QDesignerMimeData(const QDesignerDnDItems &items, QDrag *drag
         break;
     default: {
         // determine size of drag decoration by uniting all geometries
-        const QDesignerDnDItems::const_iterator cend = m_items.constEnd();
-        QDesignerDnDItems::const_iterator it =m_items.constBegin();
+        const auto cend = m_items.cend();
+        auto it = m_items.cbegin();
         QRect unitedGeometry = (*it)->decoration()->geometry();
+        const qreal devicePixelRatio = (*it)->decoration()->devicePixelRatioF();
         for (++it; it != cend; ++it )
             unitedGeometry  = unitedGeometry .united((*it)->decoration()->geometry());
 
         // paint with offset. At the same time, create a mask bitmap, containing widget rectangles.
-        QImage image(unitedGeometry.size(), QImage::Format_ARGB32);
+        const QSize imageSize = (QSizeF(unitedGeometry.size()) * devicePixelRatio).toSize();
+        QImage image(imageSize, QImage::Format_ARGB32);
+        image.setDevicePixelRatio(devicePixelRatio);
         image.fill(QColor(Qt::transparent).rgba());
-        QBitmap mask(unitedGeometry.size());
+        QBitmap mask(imageSize);
+        mask.setDevicePixelRatio(devicePixelRatio);
         mask.clear();
         // paint with offset, determine action
         QPainter painter(&image);
         QPainter maskPainter(&mask);
         decorationTopLeft = unitedGeometry.topLeft();
-        for (it = m_items.constBegin() ; it != cend; ++it ) {
-            QWidget *w = (*it)->decoration();
+        for (auto *item : std::as_const(m_items)) {
+            QWidget *w = item->decoration();
             const QPixmap wp = w->grab(QRect(0, 0, -1, -1));
             const QPoint pos = w->pos() - decorationTopLeft;
             painter.drawPixmap(pos, wp);
-            maskPainter.fillRect(QRect(pos, wp.size()), Qt::color1);
+            maskPainter.fillRect(QRect(pos, w->size()), Qt::color1);
         }
         painter.end();
         maskPainter.end();
@@ -194,9 +169,7 @@ QDesignerMimeData::QDesignerMimeData(const QDesignerDnDItems &items, QDrag *drag
 
 QDesignerMimeData::~QDesignerMimeData()
 {
-    const QDesignerDnDItems::const_iterator cend = m_items.constEnd();
-    for (QDesignerDnDItems::const_iterator it = m_items.constBegin(); it != cend; ++it )
-        delete *it;
+    qDeleteAll(m_items);
 }
 
 Qt::DropAction QDesignerMimeData::proposedDropAction() const
@@ -206,7 +179,7 @@ Qt::DropAction QDesignerMimeData::proposedDropAction() const
 
 Qt::DropAction QDesignerMimeData::execDrag(const QDesignerDnDItems &items, QWidget * dragSource)
 {
-    if (items.empty())
+    if (items.isEmpty())
         return Qt::IgnoreAction;
 
     QDrag *drag = new QDrag(dragSource);
@@ -214,17 +187,19 @@ Qt::DropAction QDesignerMimeData::execDrag(const QDesignerDnDItems &items, QWidg
 
     // Store pointers to widgets that are to be re-shown if a move operation is canceled
     QWidgetList reshowWidgets;
-    const QDesignerDnDItems::const_iterator cend = items.constEnd();
-    for (QDesignerDnDItems::const_iterator it = items.constBegin(); it != cend; ++it )
-        if (QWidget *w = (*it)->widget())
-            if ((*it)->type() ==  QDesignerDnDItemInterface::MoveDrop)
+    for (auto *item : items) {
+        if (QWidget *w = item->widget()) {
+            if (item->type() == QDesignerDnDItemInterface::MoveDrop)
                 reshowWidgets.push_back(w);
+        }
+    }
 
     const Qt::DropAction executedAction = drag->exec(Qt::CopyAction|Qt::MoveAction, mimeData->proposedDropAction());
 
-    if (executedAction == Qt::IgnoreAction && !reshowWidgets.empty())
-        foreach (QWidget *w, reshowWidgets)
+    if (executedAction == Qt::IgnoreAction) {
+        for (QWidget *w : std::as_const(reshowWidgets))
             w->show();
+    }
 
     return executedAction;
 }
@@ -233,28 +208,27 @@ Qt::DropAction QDesignerMimeData::execDrag(const QDesignerDnDItems &items, QWidg
 void QDesignerMimeData::moveDecoration(const QPoint &globalPos) const
 {
     const QPoint relativeDistance = globalPos - m_globalStartPos;
-    const QDesignerDnDItems::const_iterator cend = m_items.constEnd();
-    for (QDesignerDnDItems::const_iterator it =m_items.constBegin(); it != cend; ++it ) {
-        QWidget *w = (*it)->decoration();
+    for (auto *item : m_items) {
+        QWidget *w = item->decoration();
         w->move(w->pos() + relativeDistance);
     }
 }
 
 void QDesignerMimeData::removeMovedWidgetsFromSourceForm(const QDesignerDnDItems &items)
 {
-    typedef QMultiMap<FormWindowBase *, QWidget *> FormWidgetMap;
-    FormWidgetMap formWidgetMap;
+    QMultiMap<FormWindowBase *, QWidget *> formWidgetMap;
     // Find moved widgets per form
-    const QDesignerDnDItems::const_iterator cend = items.constEnd();
-    for (QDesignerDnDItems::const_iterator it = items.constBegin(); it != cend; ++it )
-        if ((*it)->type() ==  QDesignerDnDItemInterface::MoveDrop)
-            if (QWidget *w = (*it)->widget())
-                if (FormWindowBase *fb = qobject_cast<FormWindowBase *>((*it)->source()))
+    for (auto *item : items) {
+        if (item->type() == QDesignerDnDItemInterface::MoveDrop) {
+            if (QWidget *w = item->widget()) {
+                if (FormWindowBase *fb = qobject_cast<FormWindowBase *>(item->source()))
                     formWidgetMap.insert(fb, w);
-    if (formWidgetMap.empty())
-        return;
+            }
+        }
+    }
 
-    foreach (FormWindowBase * fb, formWidgetMap.keys())
+    const auto &formWindows = formWidgetMap.uniqueKeys();
+    for (FormWindowBase *fb : formWindows)
         fb->deleteWidgetList(formWidgetMap.values(fb));
 }
 

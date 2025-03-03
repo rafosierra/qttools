@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qdesigner_appearanceoptions.h"
 #include "ui_qdesigner_appearanceoptions.h"
@@ -37,23 +7,13 @@
 #include "qdesigner_settings.h"
 #include "qdesigner_toolwindow.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtCore/QTimer>
-#include <QtCore/QDebug>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtCore/qtimer.h>
+#include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
 
 // ---------------- AppearanceOptions
-AppearanceOptions::AppearanceOptions() :
-     uiMode(DockedMode)
-{
-}
-
-bool AppearanceOptions::equals(const AppearanceOptions &rhs) const
-{
-    return uiMode == rhs.uiMode && toolWindowFontSettings == rhs.toolWindowFontSettings;
-}
-
 void AppearanceOptions::toSettings(QDesignerSettings &settings) const
 {
     settings.setUiMode(uiMode);
@@ -69,15 +29,14 @@ void AppearanceOptions::fromSettings(const QDesignerSettings &settings)
 // ---------------- QDesignerAppearanceOptionsWidget
 QDesignerAppearanceOptionsWidget::QDesignerAppearanceOptionsWidget(QWidget *parent) :
     QWidget(parent),
-    m_ui(new Ui::AppearanceOptionsWidget),
-    m_initialUIMode(NeutralMode)
+    m_ui(new QT_PREPEND_NAMESPACE(Ui)::AppearanceOptionsWidget)
 {
     m_ui->setupUi(this);
 
     m_ui->m_uiModeCombo->addItem(tr("Docked Window"), QVariant(DockedMode));
     m_ui->m_uiModeCombo->addItem(tr("Multiple Top-Level Windows"), QVariant(TopLevelMode));
-    connect(m_ui->m_uiModeCombo, SIGNAL(currentIndexChanged(int)),
-            this, SLOT(slotUiModeComboChanged()));
+    connect(m_ui->m_uiModeCombo, &QComboBox::currentIndexChanged,
+            this, &QDesignerAppearanceOptionsWidget::slotUiModeComboChanged);
 
     m_ui->m_fontPanel->setCheckable(true);
     m_ui->m_fontPanel->setTitle(tr("Toolwindow Font"));

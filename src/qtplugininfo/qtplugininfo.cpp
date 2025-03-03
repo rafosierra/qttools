@@ -1,36 +1,6 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 Klarälvdalens Datakonsult AB, a KDAB Group company, info@kdab.com, author Volker Krause <volker.krause@kdab.com>
-** Copyright (C) 2015 Intel Corporation.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the tools applications of the Qt Toolkit
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 Klarälvdalens Datakonsult AB, a KDAB Group company, info@kdab.com, author Volker Krause <volker.krause@kdab.com>
+// Copyright (C) 2016 Intel Corporation.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include <QCommandLineParser>
 #include <QCoreApplication>
@@ -60,7 +30,7 @@ int main(int argc, char** argv)
     QCoreApplication::setApplicationVersion(QStringLiteral(QT_VERSION_STR));
 
     QCommandLineParser parser;
-    parser.setApplicationDescription(QStringLiteral("Qt5 plugin meta-data dumper"));
+    parser.setApplicationDescription(QStringLiteral("Qt plugin meta-data dumper"));
     QCommandLineOption jsonFormatOption(QStringList() << "f" << "json-format",
                                         QStringLiteral("Print JSON data as: indented, compact"), QStringLiteral("format"));
     QCommandLineOption fullJsonOption("full-json",
@@ -94,15 +64,19 @@ int main(int argc, char** argv)
     if (printOptionList.contains("userdata"))
         print |= PrintUserData;
 
-    foreach (const QString &plugin, parser.positionalArguments()) {
+    int retval = 0;
+    const QStringList positionalArguments = parser.positionalArguments();
+    for (const QString &plugin : positionalArguments) {
         QByteArray pluginNativeName = QFile::encodeName(QDir::toNativeSeparators(plugin));
         if (!QFile::exists(plugin)) {
             std::cerr << "qtplugininfo: " << pluginNativeName.constData() << ": No such file or directory." << std::endl;
-            return 1;
+            retval = 1;
+            continue;
         }
         if (!QLibrary::isLibrary(plugin)) {
             std::cerr << "qtplugininfo: " << pluginNativeName.constData() << ": Not a plug-in." << std::endl;
-            return 1;
+            retval = 1;
+            continue;
         }
 
         QPluginLoader loader(plugin);
@@ -110,7 +84,8 @@ int main(int argc, char** argv)
         if (metaData.isEmpty()) {
             std::cerr << "qtplugininfo: " << pluginNativeName.constData() << ": No plug-in meta-data found: "
                       << qPrintable(loader.errorString()) << std::endl;
-            return 1;
+            retval = 1;
+            continue;
         }
 
         QString iid = metaData.value("IID").toString();
@@ -123,7 +98,8 @@ int main(int argc, char** argv)
             std::cerr << "qtplugininfo: " << pluginNativeName.constData()
                       << ": Qt version mismatch - got major version " << (version >> 16)
                       << ", expected " << (QT_VERSION >> 16) << std::endl;
-            return 1;
+            retval = 1;
+            continue;
         }
         if (iid.isEmpty() || className.isEmpty() || debug.isNull()) {
             std::cerr << "qtplugininfo: " << pluginNativeName.constData() << ": invalid metadata, missing required fields:";
@@ -134,11 +110,8 @@ int main(int argc, char** argv)
             if (debug.isNull())
                 std::cerr << " debug";
             std::cerr << std::endl;
-            return 1;
-        }
-        if (!userData.isNull() && !userData.isObject()) {
-            std::cerr << "qtplugininfo: " << pluginNativeName.constData() << ": invalid metadata, user data is not a JSON object" << std::endl;
-            return 1;
+            retval = 1;
+            continue;
         }
 
         if (parser.positionalArguments().size() != 1)
@@ -156,10 +129,16 @@ int main(int argc, char** argv)
                 std::cout << "Qt " << (version >> 16) << '.' << ((version >> 8) & 0xFF) << '.' << (version & 0xFF)
                           << (debug.toBool() ? " (debug)" : " (release)");
             std::cout << std::endl;
-            if (print & PrintUserData && userData.isObject())
-                std::cout << "User Data: " << QJsonDocument(userData.toObject()).toJson().constData();
+            if (print & PrintUserData) {
+                if (userData.isObject())
+                    std::cout << "User Data: " << QJsonDocument(userData.toObject()).toJson().constData();
+                else if (!userData.isNull()) {
+                    std::cerr << "qtplugininfo: " << pluginNativeName.constData() << ": invalid metadata, user data is not a JSON object" << std::endl;
+                    retval = 1;
+                }
+            }
         }
     }
 
-    return 0;
+    return retval;
 }

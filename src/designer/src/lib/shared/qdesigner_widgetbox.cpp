@@ -1,47 +1,19 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qdesigner_widgetbox_p.h"
 #include "qdesigner_utils_p.h"
 
 #include <QtDesigner/private/ui4_p.h>
 
-#include <QtCore/QRegExp>
-#include <QtCore/QDebug>
-#include <QtCore/QXmlStreamReader>
-#include <QtCore/QSharedData>
+#include <QtCore/qregularexpression.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qxmlstream.h>
+#include <QtCore/qshareddata.h>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 class QDesignerWidgetBoxWidgetData : public QSharedData
 {
@@ -69,9 +41,7 @@ QDesignerWidgetBoxInterface::Widget::Widget(const QString &aname, const QString 
 {
 }
 
-QDesignerWidgetBoxInterface::Widget::~Widget()
-{
-}
+QDesignerWidgetBoxInterface::Widget::~Widget() = default;
 
 QDesignerWidgetBoxInterface::Widget::Widget(const Widget &w) :
     m_data(w.m_data)
@@ -93,7 +63,8 @@ QString QDesignerWidgetBoxInterface::Widget::name() const
 
 void QDesignerWidgetBoxInterface::Widget::setName(const QString &aname)
 {
-    m_data->m_name = aname;
+    if (m_data->m_name != aname)
+        m_data->m_name = aname;
 }
 
 QString QDesignerWidgetBoxInterface::Widget::domXml() const
@@ -103,7 +74,8 @@ QString QDesignerWidgetBoxInterface::Widget::domXml() const
 
 void QDesignerWidgetBoxInterface::Widget::setDomXml(const QString &xml)
 {
-    m_data->m_xml = xml;
+    if (m_data->m_xml != xml)
+        m_data->m_xml = xml;
 }
 
 QString QDesignerWidgetBoxInterface::Widget::iconName() const
@@ -113,7 +85,8 @@ QString QDesignerWidgetBoxInterface::Widget::iconName() const
 
 void QDesignerWidgetBoxInterface::Widget::setIconName(const QString &icon_name)
 {
-    m_data->m_icon_name = icon_name;
+    if (m_data->m_icon_name != icon_name)
+        m_data->m_icon_name = icon_name;
 }
 
 QDesignerWidgetBoxInterface::Widget::Type QDesignerWidgetBoxInterface::Widget::type() const
@@ -123,7 +96,8 @@ QDesignerWidgetBoxInterface::Widget::Type QDesignerWidgetBoxInterface::Widget::t
 
 void QDesignerWidgetBoxInterface::Widget::setType(Type atype)
 {
-    m_data->m_type = atype;
+    if (m_data->m_type != atype)
+        m_data->m_type = atype;
 }
 
 bool QDesignerWidgetBoxInterface::Widget::isNull() const
@@ -133,8 +107,7 @@ bool QDesignerWidgetBoxInterface::Widget::isNull() const
 
 namespace qdesigner_internal {
 QDesignerWidgetBox::QDesignerWidgetBox(QWidget *parent, Qt::WindowFlags flags)
-    : QDesignerWidgetBoxInterface(parent, flags),
-      m_loadMode(LoadMerge)
+    : QDesignerWidgetBoxInterface(parent, flags)
 {
 
 }
@@ -158,11 +131,10 @@ bool QDesignerWidgetBox::findWidget(const QDesignerWidgetBoxInterface *wbox,
     // Note that entry names do not necessarily match the class name
     // (at least, not for the standard widgets), so,
     // look in the XML for the class name of the first widget to appear
-    const QString widgetTag = QStringLiteral("<widget");
     QString pattern = QStringLiteral("^<widget\\s+class\\s*=\\s*\"");
     pattern += className;
     pattern += QStringLiteral("\".*$");
-    QRegExp regexp(pattern);
+    const QRegularExpression regexp(pattern);
     Q_ASSERT(regexp.isValid());
     const int catCount = wbox->categoryCount();
     for (int c = 0; c < catCount; c++) {
@@ -172,10 +144,10 @@ bool QDesignerWidgetBox::findWidget(const QDesignerWidgetBoxInterface *wbox,
             for (int w = 0; w < widgetCount; w++) {
                 const Widget widget = cat.widget(w);
                 QString xml = widget.domXml(); // Erase the <ui> tag that can be present starting from 4.4
-                const int widgetTagIndex = xml.indexOf(widgetTag);
+                const auto widgetTagIndex = xml.indexOf("<widget"_L1);
                 if (widgetTagIndex != -1) {
                     xml.remove(0, widgetTagIndex);
-                    if (regexp.exactMatch(xml)) {
+                    if (regexp.match(xml).hasMatch()) {
                         *widgetData = widget;
                         return true;
                     }
@@ -191,26 +163,25 @@ DomUI *QDesignerWidgetBox::xmlToUi(const QString &name, const QString &xml, bool
                                    QString *errorMessage)
 {
     QXmlStreamReader reader(xml);
-    DomUI *ui = 0;
+    DomUI *ui = nullptr;
 
     // The xml description must either contain a root element "ui" with a child element "widget"
     // or "widget" as the root element (4.3 legacy)
-    const QString widgetTag = QStringLiteral("widget");
 
     while (!reader.atEnd()) {
         if (reader.readNext() == QXmlStreamReader::StartElement) {
-            const QStringRef name = reader.name();
+            const auto name = reader.name();
             if (ui) {
                 reader.raiseError(tr("Unexpected element <%1>").arg(name.toString()));
                 continue;
             }
 
-            if (name.compare(QStringLiteral("widget"), Qt::CaseInsensitive) == 0) { // 4.3 legacy, wrap into DomUI
+            if (name.compare("widget"_L1, Qt::CaseInsensitive) == 0) { // 4.3 legacy, wrap into DomUI
                 ui = new DomUI;
                 DomWidget *widget = new DomWidget;
                 widget->read(reader);
                 ui->setElementWidget(widget);
-            } else if (name.compare(QStringLiteral("ui"), Qt::CaseInsensitive) == 0) { // 4.4
+            } else if (name.compare("ui"_L1, Qt::CaseInsensitive) == 0) { // 4.4
                 ui = new DomUI;
                 ui->read(reader);
             } else {
@@ -223,21 +194,21 @@ DomUI *QDesignerWidgetBox::xmlToUi(const QString &name, const QString &xml, bool
         delete ui;
         *errorMessage = tr("A parse error occurred at line %1, column %2 of the XML code "
                            "specified for the widget %3: %4\n%5")
-                           .arg(reader.lineNumber()).arg(reader.columnNumber()).arg(name)
-                           .arg(reader.errorString()).arg(xml);
-        return 0;
+                           .arg(reader.lineNumber()).arg(reader.columnNumber())
+                           .arg(name, reader.errorString(), xml);
+        return nullptr;
     }
 
     if (!ui || !ui->elementWidget()) {
         delete ui;
         *errorMessage = tr("The XML code specified for the widget %1 does not contain "
-                           "any widget elements.\n%2").arg(name).arg(xml);
-        return 0;
+                           "any widget elements.\n%2").arg(name, xml);
+        return nullptr;
     }
 
     if (insertFakeTopLevel)  {
         DomWidget *fakeTopLevel = new DomWidget;
-        fakeTopLevel->setAttributeClass(QStringLiteral("QWidget"));
+        fakeTopLevel->setAttributeClass(u"QWidget"_s);
         QList<DomWidget *> children;
         children.push_back(ui->takeElementWidget());
         fakeTopLevel->setElementWidget(children);

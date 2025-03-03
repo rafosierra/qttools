@@ -1,57 +1,29 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "tool_widgeteditor.h"
 #include "formwindow.h"
 
 // sdk
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerWidgetFactoryInterface>
-#include <QtDesigner/QDesignerWidgetBoxInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractwidgetfactory.h>
+#include <QtDesigner/abstractwidgetbox.h>
 
 #include <layoutinfo_p.h>
 #include <qdesigner_dnditem_p.h>
 #include <qdesigner_resource.h>
 
+#include <QtWidgets/qmainwindow.h>
+
+#include <QtGui/qaction.h>
+#include <QtGui/qcursor.h>
 #include <QtGui/qevent.h>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QMainWindow>
-#include <QtGui/QCursor>
+
 #include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
 
-using namespace qdesigner_internal;
+namespace qdesigner_internal {
 
 WidgetEditorTool::WidgetEditorTool(FormWindow *formWindow)
     : QDesignerFormWindowToolInterface(formWindow),
@@ -66,9 +38,7 @@ QAction *WidgetEditorTool::action() const
     return m_action;
 }
 
-WidgetEditorTool::~WidgetEditorTool()
-{
-}
+WidgetEditorTool::~WidgetEditorTool() = default;
 
 QDesignerFormEditorInterface *WidgetEditorTool::core() const
 {
@@ -80,10 +50,11 @@ QDesignerFormWindowInterface *WidgetEditorTool::formWindow() const
     return m_formWindow;
 }
 
+// separators in QMainWindow are no longer widgets
 bool WidgetEditorTool::mainWindowSeparatorEvent(QWidget *widget, QEvent *event)
 {
     QMainWindow *mw = qobject_cast<QMainWindow*>(widget);
-    if (mw == 0)
+    if (mw == nullptr)
         return false;
 
     if (event->type() != QEvent::MouseButtonPress
@@ -94,7 +65,7 @@ bool WidgetEditorTool::mainWindowSeparatorEvent(QWidget *widget, QEvent *event)
     QMouseEvent *e = static_cast<QMouseEvent*>(event);
 
     if (event->type() == QEvent::MouseButtonPress) {
-        if (mw->isSeparator(e->pos())) {
+        if (mw->isSeparator(e->position().toPoint())) {
             m_separator_drag_mw = mw;
             return true;
         }
@@ -107,18 +78,21 @@ bool WidgetEditorTool::mainWindowSeparatorEvent(QWidget *widget, QEvent *event)
     if (event->type() == QEvent::MouseButtonRelease) {
         if (m_separator_drag_mw != mw)
             return false;
-        m_separator_drag_mw = 0;
+        m_separator_drag_mw = nullptr;
         return true;
     }
 
     return false;
 }
 
+bool WidgetEditorTool::isPassiveInteractor(QWidget *widget, QEvent *event)
+{
+    auto *widgetFactory = core()->widgetFactory();
+    return widgetFactory->isPassiveInteractor(widget) || mainWindowSeparatorEvent(widget, event);
+}
+
 bool WidgetEditorTool::handleEvent(QWidget *widget, QWidget *managedWidget, QEvent *event)
 {
-    const bool passive = core()->widgetFactory()->isPassiveInteractor(widget) != 0
-                    || mainWindowSeparatorEvent(widget, event); // separators in QMainWindow
-                                                                // are no longer widgets
     switch (event->type()) {
     case QEvent::Resize:
     case QEvent::Move:
@@ -127,40 +101,48 @@ bool WidgetEditorTool::handleEvent(QWidget *widget, QWidget *managedWidget, QEve
 
     case QEvent::FocusOut:
     case QEvent::FocusIn: // Popup cancelled over a form widget: Reset its focus frame
-        return !(passive || widget == m_formWindow || widget == m_formWindow->mainContainer());
+        return widget != m_formWindow && widget != m_formWindow->mainContainer()
+            && !isPassiveInteractor(widget, event);
 
     case QEvent::Wheel: // Prevent spinboxes and combos from reacting
         if (widget == m_formWindow->formContainer() || widget == m_formWindow
             || widget == m_formWindow->mainContainer()) { // Allow scrolling the form with wheel.
             return false;
         }
-        return !passive;
+        return !isPassiveInteractor(widget, event);
 
     case QEvent::KeyPress:
-        return !passive && handleKeyPressEvent(widget, managedWidget, static_cast<QKeyEvent*>(event));
+        return !isPassiveInteractor(widget, event)
+            && handleKeyPressEvent(widget, managedWidget, static_cast<QKeyEvent*>(event));
 
     case QEvent::KeyRelease:
-        return !passive && handleKeyReleaseEvent(widget, managedWidget, static_cast<QKeyEvent*>(event));
+        return !isPassiveInteractor(widget, event)
+            && handleKeyReleaseEvent(widget, managedWidget, static_cast<QKeyEvent*>(event));
 
     case QEvent::MouseMove:
-        return !passive && handleMouseMoveEvent(widget, managedWidget, static_cast<QMouseEvent*>(event));
+        return !isPassiveInteractor(widget, event)
+            && handleMouseMoveEvent(widget, managedWidget, static_cast<QMouseEvent*>(event));
 
     case QEvent::MouseButtonPress:
-        return !passive && handleMousePressEvent(widget, managedWidget, static_cast<QMouseEvent*>(event));
+        return !isPassiveInteractor(widget, event)
+            && handleMousePressEvent(widget, managedWidget, static_cast<QMouseEvent*>(event));
 
     case QEvent::MouseButtonRelease:
-        return !passive && handleMouseReleaseEvent(widget, managedWidget, static_cast<QMouseEvent*>(event));
+        return !isPassiveInteractor(widget, event)
+            && handleMouseReleaseEvent(widget, managedWidget, static_cast<QMouseEvent*>(event));
 
     case QEvent::MouseButtonDblClick:
-        return !passive && handleMouseButtonDblClickEvent(widget, managedWidget, static_cast<QMouseEvent*>(event));
+        return !isPassiveInteractor(widget, event)
+            && handleMouseButtonDblClickEvent(widget, managedWidget, static_cast<QMouseEvent*>(event));
 
     case QEvent::ContextMenu:
-        return !passive && handleContextMenu(widget, managedWidget, static_cast<QContextMenuEvent*>(event));
+        return !isPassiveInteractor(widget, event)
+            && handleContextMenu(widget, managedWidget, static_cast<QContextMenuEvent*>(event));
 
     case QEvent::DragEnter:
         return handleDragEnterMoveEvent(widget, managedWidget, static_cast<QDragEnterEvent *>(event), true);
     case QEvent::DragMove:
-        return handleDragEnterMoveEvent(widget, managedWidget, static_cast<QDragEnterEvent *>(event), false);
+        return handleDragEnterMoveEvent(widget, managedWidget, static_cast<QDragMoveEvent *>(event), false);
     case QEvent::DragLeave:
         return handleDragLeaveEvent(widget, managedWidget, static_cast<QDragLeaveEvent *>(event));
     case QEvent::Drop:
@@ -229,9 +211,9 @@ void WidgetEditorTool::detectDockDrag(const QDesignerMimeData *mimeData)
     if (!mw)
         return;
 
-    const QList<QDesignerDnDItemInterface*> item_list = mimeData->items();
+    const auto item_list = mimeData->items();
 
-    foreach (QDesignerDnDItemInterface *item, item_list) {
+    for (QDesignerDnDItemInterface *item : item_list) {
         if (item->decoration() && item->decoration()->property("_q_dockDrag").toBool())
             m_specialDockDrag = true;
 
@@ -255,13 +237,13 @@ bool WidgetEditorTool::handleDragEnterMoveEvent(QWidget *widget, QWidget * /*man
 
     QPoint globalPos = QPoint(0, 0);
     if (m_specialDockDrag) {
-        m_lastDropTarget = 0;
+        m_lastDropTarget = nullptr;
         QMainWindow *mw = qobject_cast<QMainWindow*>(m_formWindow->mainContainer());
         if (mw)
             m_lastDropTarget = mw->centralWidget();
     } else {
         // If custom widgets have acceptDrops=true, the event occurs for them
-        const QPoint formPos = widget != m_formWindow ? widget->mapTo(m_formWindow, e->pos()) : e->pos();
+        const QPoint formPos = widget != m_formWindow ? widget->mapTo(m_formWindow, e->position().toPoint()) : e->position().toPoint();
         globalPos = m_formWindow->mapToGlobal(formPos);
         const FormWindowBase::WidgetUnderMouseMode wum = mimeData->items().size() == 1 ? FormWindowBase::FindSingleSelectionDropTarget : FormWindowBase::FindMultiSelectionDropTarget;
         QWidget *dropTarget = m_formWindow->widgetUnderMouse(formPos, wum);
@@ -292,7 +274,7 @@ bool WidgetEditorTool::handleDropEvent(QWidget *widget, QWidget *, QDropEvent *e
         return true;
     }
     // FormWindow determines the position from the decoration.
-    const QPoint globalPos = widget->mapToGlobal(e->pos());
+    const QPoint globalPos = widget->mapToGlobal(e->position().toPoint());
     mimeData->moveDecoration(globalPos);
     if (m_specialDockDrag) {
         if (!m_formWindow->dropDockWidget(mimeData->items().at(0), globalPos)) {
@@ -313,7 +295,7 @@ bool WidgetEditorTool::restoreDropHighlighting()
         return false;
 
     m_formWindow->highlightWidget(m_lastDropTarget, m_lastDropTarget->mapFromGlobal(QCursor::pos()), FormWindow::Restore);
-    m_lastDropTarget = 0;
+    m_lastDropTarget = nullptr;
     return true;
 }
 
@@ -328,7 +310,7 @@ bool WidgetEditorTool::handleDragLeaveEvent(QWidget *, QWidget *, QDragLeaveEven
 
 QWidget *WidgetEditorTool::editor() const
 {
-    Q_ASSERT(formWindow() != 0);
+    Q_ASSERT(formWindow() != nullptr);
     return formWindow()->mainContainer();
 }
 
@@ -337,11 +319,11 @@ void WidgetEditorTool::activated()
     if (core()->widgetBox())
         core()->widgetBox()->setEnabled(true);
 
-    if (m_formWindow == 0)
+    if (m_formWindow == nullptr)
         return;
 
-    QList<QWidget*> sel = m_formWindow->selectedWidgets();
-    foreach (QWidget *w, sel)
+    const QWidgetList &sel = m_formWindow->selectedWidgets();
+    for (QWidget *w : sel)
         m_formWindow->raiseSelection(w);
 }
 
@@ -350,10 +332,12 @@ void WidgetEditorTool::deactivated()
     if (core()->widgetBox())
         core()->widgetBox()->setEnabled(false);
 
-    if (m_formWindow == 0)
+    if (m_formWindow == nullptr)
         return;
 
     m_formWindow->clearSelection();
 }
+
+} // namespace qdesigner_internal
 
 QT_END_NAMESPACE

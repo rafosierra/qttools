@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 //
 //  W A R N I N G
@@ -47,10 +17,12 @@
 
 #include "shared_global_p.h"
 
-#include <QtWidgets/QAction>
-#include <QtWidgets/QMenu>
-#include <QtGui/QPixmap>
-#include <QtCore/QHash>
+#include <QtWidgets/qmenu.h>
+
+#include <QtGui/qaction.h>
+#include <QtGui/qpixmap.h>
+
+#include <QtCore/qhash.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -73,10 +45,10 @@ class QDESIGNER_SHARED_EXPORT QDesignerMenu: public QMenu
 {
     Q_OBJECT
 public:
-    QDesignerMenu(QWidget *parent = 0);
-    virtual ~QDesignerMenu();
+    QDesignerMenu(QWidget *parent = nullptr);
+    ~QDesignerMenu() override;
 
-    bool eventFilter(QObject *object, QEvent *event);
+    bool eventFilter(QObject *object, QEvent *event) override;
 
     QDesignerFormWindowInterface *formWindow() const;
     QDesignerActionProviderExtension *actionProvider();
@@ -84,11 +56,10 @@ public:
     QDesignerMenu *parentMenu() const;
     QDesignerMenuBar *parentMenuBar() const;
 
-    void setVisible(bool visible) Q_DECL_OVERRIDE;
+    void setVisible(bool visible) override;
 
     void adjustSpecialActions();
 
-    bool interactive(bool i);
     void createRealMenuAction(QAction *action);
     void removeRealMenu(QAction *action);
 
@@ -114,15 +85,15 @@ private slots:
     void slotAdjustSizeNow();
 
 protected:
-    void actionEvent(QActionEvent *event) Q_DECL_OVERRIDE;
-    void dragEnterEvent(QDragEnterEvent *event) Q_DECL_OVERRIDE;
-    void dragMoveEvent(QDragMoveEvent *event) Q_DECL_OVERRIDE;
-    void dragLeaveEvent(QDragLeaveEvent *event) Q_DECL_OVERRIDE;
-    void dropEvent(QDropEvent *event) Q_DECL_OVERRIDE;
-    void paintEvent(QPaintEvent *event) Q_DECL_OVERRIDE;
-    void keyPressEvent(QKeyEvent *event) Q_DECL_OVERRIDE;
-    void keyReleaseEvent(QKeyEvent *event) Q_DECL_OVERRIDE;
-    void showEvent(QShowEvent *event) Q_DECL_OVERRIDE;
+    void actionEvent(QActionEvent *event) override;
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dragMoveEvent(QDragMoveEvent *event) override;
+    void dragLeaveEvent(QDragLeaveEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
+    void paintEvent(QPaintEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
+    void keyReleaseEvent(QKeyEvent *event) override;
+    void showEvent(QShowEvent *event) override;
 
     bool handleEvent(QWidget *widget, QEvent *event);
     bool handleMouseDoubleClickEvent(QWidget *widget, QMouseEvent *event);
@@ -179,17 +150,16 @@ private:
     const QPixmap m_subMenuPixmap;
 
     QPoint m_startPosition;
-    int m_currentIndex;
+    int m_currentIndex = 0;
     QAction *m_addItem;
     QAction *m_addSeparator;
     QHash<QAction*, QDesignerMenu*> m_subMenus;
     QTimer *m_showSubMenuTimer;
     QTimer *m_deactivateWindowTimer;
     QTimer *m_adjustSizeTimer;
-    bool m_interactive;
     QLineEdit *m_editor;
-    bool m_dragging;
-    int m_lastSubMenuIndex;
+    bool m_dragging = false;
+    int m_lastSubMenuIndex = -1;
 
     friend class qdesigner_internal::CreateSubmenuCommand;
     friend class qdesigner_internal::ActionInsertionCommand;

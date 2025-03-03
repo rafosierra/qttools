@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #ifndef PROPERTYEDITOR_H
 #define PROPERTYEDITOR_H
@@ -37,10 +7,10 @@
 #include "propertyeditor_global.h"
 #include <qdesigner_propertyeditor_p.h>
 
-#include <QtCore/QPointer>
-#include <QtCore/QMap>
-#include <QtCore/QVector>
-#include <QtCore/QSet>
+#include <QtCore/qlist.h>
+#include <QtCore/qmap.h>
+#include <QtCore/qpointer.h>
+#include <QtCore/qset.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -68,28 +38,28 @@ class QT_PROPERTYEDITOR_EXPORT PropertyEditor: public QDesignerPropertyEditor
 {
     Q_OBJECT
 public:
-    explicit PropertyEditor(QDesignerFormEditorInterface *core, QWidget *parent = 0, Qt::WindowFlags flags = 0);
-    virtual ~PropertyEditor();
+    explicit PropertyEditor(QDesignerFormEditorInterface *core, QWidget *parent = nullptr, Qt::WindowFlags flags = {});
+    ~PropertyEditor() override;
 
-    QDesignerFormEditorInterface *core() const Q_DECL_OVERRIDE;
+    QDesignerFormEditorInterface *core() const override;
 
-    bool isReadOnly() const Q_DECL_OVERRIDE;
-    void setReadOnly(bool readOnly) Q_DECL_OVERRIDE;
-    void setPropertyValue(const QString &name, const QVariant &value, bool changed = true) Q_DECL_OVERRIDE;
-    virtual void updatePropertySheet();
+    bool isReadOnly() const override;
+    void setReadOnly(bool readOnly) override;
+    void setPropertyValue(const QString &name, const QVariant &value, bool changed = true) override;
+    void updatePropertySheet() override;
 
-    void setObject(QObject *object) Q_DECL_OVERRIDE;
+    void setObject(QObject *object) override;
 
-    void reloadResourceProperties();
+    void reloadResourceProperties() override;
 
-    virtual QObject *object() const
+    QObject *object() const override
     { return m_object; }
 
-    QString currentPropertyName() const Q_DECL_OVERRIDE;
+    QString currentPropertyName() const override;
 
 protected:
 
-    bool event(QEvent *event);
+    bool event(QEvent *event) override;
 
 private slots:
     void slotResetProperty(QtProperty *property);
@@ -151,26 +121,26 @@ private:
 
     const Strings m_strings;
     QDesignerFormEditorInterface *m_core;
-    QDesignerPropertySheetExtension *m_propertySheet;
-    QtAbstractPropertyBrowser *m_currentBrowser;
+    QDesignerPropertySheetExtension *m_propertySheet = nullptr;
+    QtAbstractPropertyBrowser *m_currentBrowser = nullptr;
     QtButtonPropertyBrowser *m_buttonBrowser;
-    QtTreePropertyBrowser *m_treeBrowser;
+    QtTreePropertyBrowser *m_treeBrowser = nullptr;
     DesignerPropertyManager *m_propertyManager;
     DesignerEditorFactory *m_treeFactory;
     DesignerEditorFactory *m_groupFactory;
     QPointer<QObject> m_object;
     QMap<QString, QtVariantProperty*> m_nameToProperty;
-    QMap<QtProperty*, QString> m_propertyToGroup;
+    QHash<QtProperty *, QString> m_propertyToGroup;
     QMap<QString, QtVariantProperty*> m_nameToGroup;
     QList<QtProperty *> m_groups;
-    QtProperty *m_dynamicGroup;
+    QtProperty *m_dynamicGroup = nullptr;
     QString m_recentlyAddedDynamicProperty;
-    bool m_updatingBrowser;
+    bool m_updatingBrowser = false;
 
     QStackedWidget *m_stackedWidget;
     QLineEdit *m_filterWidget;
-    int m_buttonIndex;
-    int m_treeIndex;
+    int m_buttonIndex = -1;
+    int m_treeIndex = -1;
     QAction *m_addDynamicAction;
     QAction *m_removeDynamicAction;
     QAction *m_sortingAction;
@@ -179,17 +149,17 @@ private:
     QAction *m_buttonAction;
     ElidingLabel *m_classLabel;
 
-    bool m_sorting;
-    bool m_coloring;
+    bool m_sorting = false;
+    bool m_coloring = false;
 
     QMap<QString, bool> m_expansionState;
 
     QString m_filterPattern;
-    QVector<QPair<QColor, QColor> > m_colors;
-    QPair<QColor, QColor> m_dynamicColor;
-    QPair<QColor, QColor> m_layoutColor;
+    QList<std::pair<QColor, QColor> > m_colors;
+    std::pair<QColor, QColor> m_dynamicColor;
+    std::pair<QColor, QColor> m_layoutColor;
 
-    bool m_brightness;
+    bool m_brightness = false;
 };
 
 }  // namespace qdesigner_internal

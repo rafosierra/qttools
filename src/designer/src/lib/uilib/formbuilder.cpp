@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #include "formbuilder.h"
 #include "formbuilderextra_p.h"
@@ -38,7 +8,13 @@
 #include <QtUiPlugin/customwidget.h>
 #include <QtWidgets/QtWidgets>
 
+#ifdef QT_OPENGLWIDGETS_LIB
+#  include <QtOpenGLWidgets/qopenglwidget.h>
+#endif
+
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 #ifdef QFORMINTERNAL_NAMESPACE
 namespace QFormInternal {
@@ -95,16 +71,12 @@ namespace QFormInternal {
     Constructs a new form builder.
 */
 
-QFormBuilder::QFormBuilder()
-{
-}
+QFormBuilder::QFormBuilder() = default;
 
 /*!
     Destroys the form builder.
 */
-QFormBuilder::~QFormBuilder()
-{
-}
+QFormBuilder::~QFormBuilder() = default;
 
 /*!
     \internal
@@ -116,31 +88,31 @@ QWidget *QFormBuilder::create(DomWidget *ui_widget, QWidget *parentWidget)
     // Is this a QLayoutWidget with a margin of 0: Not a known page-based
     // container and no method for adding pages registered.
     d->setProcessingLayoutWidget(false);
-    if (ui_widget->attributeClass() == QFormBuilderStrings::instance().qWidgetClass && !ui_widget->hasAttributeNative()
+    if (ui_widget->attributeClass() == "QWidget"_L1 && !ui_widget->hasAttributeNative()
             && parentWidget
-#ifndef QT_NO_MAINWINDOW
+#if QT_CONFIG(mainwindow)
             && !qobject_cast<QMainWindow *>(parentWidget)
 #endif
-#ifndef QT_NO_TOOLBOX
+#if QT_CONFIG(toolbox)
             && !qobject_cast<QToolBox *>(parentWidget)
 #endif
-#ifndef QT_NO_STACKEDWIDGET
+#if QT_CONFIG(stackedwidget)
             && !qobject_cast<QStackedWidget *>(parentWidget)
 #endif
-#ifndef QT_NO_STACKEDWIDGET
+#if QT_CONFIG(tabwidget)
             && !qobject_cast<QTabWidget *>(parentWidget)
 #endif
-#ifndef QT_NO_SCROLLAREA
+#if QT_CONFIG(scrollarea)
             && !qobject_cast<QScrollArea *>(parentWidget)
 #endif
-#ifndef QT_NO_MDIAREA
+#if QT_CONFIG(mdiarea)
             && !qobject_cast<QMdiArea *>(parentWidget)
 #endif
-#ifndef QT_NO_DOCKWIDGET
+#if QT_CONFIG(dockwidget)
             && !qobject_cast<QDockWidget *>(parentWidget)
 #endif
         ) {
-        const QString parentClassName = QLatin1String(parentWidget->metaObject()->className());
+        const QString parentClassName = QLatin1StringView(parentWidget->metaObject()->className());
         if (!d->isCustomWidgetContainer(parentClassName))
             d->setProcessingLayoutWidget(true);
     }
@@ -156,27 +128,27 @@ QWidget *QFormBuilder::createWidget(const QString &widgetName, QWidget *parentWi
     if (widgetName.isEmpty()) {
         //: Empty class name passed to widget factory method
         qWarning() << QCoreApplication::translate("QFormBuilder", "An empty class name was passed on to %1 (object name: '%2').").arg(QString::fromUtf8(Q_FUNC_INFO), name);
-        return 0;
+        return nullptr;
     }
 
-    QWidget *w = 0;
+    QWidget *w = nullptr;
 
-#ifndef QT_NO_TABWIDGET
+#if QT_CONFIG(tabwidget)
     if (qobject_cast<QTabWidget*>(parentWidget))
-        parentWidget = 0;
+        parentWidget = nullptr;
 #endif
-#ifndef QT_NO_STACKEDWIDGET
+#if QT_CONFIG(stackedwidget)
     if (qobject_cast<QStackedWidget*>(parentWidget))
-        parentWidget = 0;
+        parentWidget = nullptr;
 #endif
-#ifndef QT_NO_TOOLBOX
+#if QT_CONFIG(toolbox)
     if (qobject_cast<QToolBox*>(parentWidget))
-        parentWidget = 0;
+        parentWidget = nullptr;
 #endif
 
     // ### special-casing for Line (QFrame) -- fix for 4.2
     do {
-        if (widgetName == QFormBuilderStrings::instance().lineClass) {
+        if (widgetName == "Line"_L1) {
             w = new QFrame(parentWidget);
             static_cast<QFrame*>(w)->setFrameStyle(QFrame::HLine | QFrame::Sunken);
             break;
@@ -203,11 +175,11 @@ QWidget *QFormBuilder::createWidget(const QString &widgetName, QWidget *parentWi
 
         // try with a registered custom widget
         QDesignerCustomWidgetInterface *factory = d->m_customWidgets.value(widgetName);
-        if (factory != 0)
+        if (factory != nullptr)
             w = factory->createWidget(parentWidget);
     } while(false);
 
-    if (w == 0) { // Attempt to instantiate base class of promoted/custom widgets
+    if (w == nullptr) { // Attempt to instantiate base class of promoted/custom widgets
         const QString baseClassName = d->customWidgetBaseClass(widgetName);
         if (!baseClassName.isEmpty()) {
             qWarning() << QCoreApplication::translate("QFormBuilder", "QFormBuilder was unable to create a custom widget of the class '%1'; defaulting to base class '%2'.").arg(widgetName, baseClassName);
@@ -215,9 +187,9 @@ QWidget *QFormBuilder::createWidget(const QString &widgetName, QWidget *parentWi
         }
     }
 
-    if (w == 0) { // nothing to do
+    if (w == nullptr) { // nothing to do
         qWarning() << QCoreApplication::translate("QFormBuilder", "QFormBuilder was unable to create a widget of the class '%1'.").arg(widgetName);
-        return 0;
+        return nullptr;
     }
 
     w->setObjectName(name);
@@ -233,7 +205,7 @@ QWidget *QFormBuilder::createWidget(const QString &widgetName, QWidget *parentWi
 */
 QLayout *QFormBuilder::createLayout(const QString &layoutName, QObject *parent, const QString &name)
 {
-    QLayout *l = 0;
+    QLayout *l = nullptr;
 
     QWidget *parentWidget = qobject_cast<QWidget*>(parent);
     QLayout *parentLayout = qobject_cast<QLayout*>(parent);
@@ -244,7 +216,7 @@ QLayout *QFormBuilder::createLayout(const QString &layoutName, QObject *parent, 
 #define DECLARE_COMPAT_WIDGET(W, C)
 
 #define DECLARE_LAYOUT(L, C) \
-    if (layoutName == QLatin1String(#L)) { \
+    if (layoutName == QLatin1StringView(#L)) { \
         Q_ASSERT(l == 0); \
         l = parentLayout \
             ? new L() \
@@ -308,28 +280,23 @@ static QObject *objectByName(QWidget *topLevel, const QString &name)
 */
 void QFormBuilder::createConnections(DomConnections *ui_connections, QWidget *widget)
 {
-    typedef QList<DomConnection*> DomConnectionList;
-    Q_ASSERT(widget != 0);
+    Q_ASSERT(widget != nullptr);
 
-    if (ui_connections == 0)
+    if (ui_connections == nullptr)
         return;
 
-    const DomConnectionList connections = ui_connections->elementConnection();
-    if (!connections.empty()) {
-        const DomConnectionList::const_iterator cend = connections.constEnd();
-        for (DomConnectionList::const_iterator it = connections.constBegin(); it != cend; ++it) {
+    const auto &connections = ui_connections->elementConnection();
+    for (const DomConnection *c : connections) {
+        QObject *sender = objectByName(widget, c->elementSender());
+        QObject *receiver = objectByName(widget, c->elementReceiver());
+        if (!sender || !receiver)
+            continue;
 
-            QObject *sender = objectByName(widget, (*it)->elementSender());
-            QObject *receiver = objectByName(widget, (*it)->elementReceiver());
-            if (!sender || !receiver)
-                continue;
-
-            QByteArray sig = (*it)->elementSignal().toUtf8();
-            sig.prepend("2");
-            QByteArray sl = (*it)->elementSlot().toUtf8();
-            sl.prepend("1");
-            QObject::connect(sender, sig, receiver, sl);
-        }
+        QByteArray sig = c->elementSignal().toUtf8();
+        sig.prepend("2");
+        QByteArray sl = c->elementSlot().toUtf8();
+        sl.prepend("1");
+        QObject::connect(sender, sig, receiver, sl);
     }
 }
 
@@ -351,23 +318,9 @@ QLayout *QFormBuilder::create(DomLayout *ui_layout, QLayout *layout, QWidget *pa
     bool layoutWidget = d->processingLayoutWidget();
     QLayout *l = QAbstractFormBuilder::create(ui_layout, layout, parentWidget);
     if (layoutWidget) {
-        const QFormBuilderStrings &strings = QFormBuilderStrings::instance();
-        int left, top, right, bottom;
-        left = top = right = bottom = 0;
-        const DomPropertyHash properties = propertyMap(ui_layout->elementProperty());
-
-        if (DomProperty *prop = properties.value(strings.leftMarginProperty))
-            left = prop->elementNumber();
-
-        if (DomProperty *prop = properties.value(strings.topMarginProperty))
-            top = prop->elementNumber();
-
-        if (DomProperty *prop = properties.value(strings.rightMarginProperty))
-            right = prop->elementNumber();
-
-        if (DomProperty *prop = properties.value(strings.bottomMarginProperty))
-            bottom = prop->elementNumber();
-
+        int left = 0, top = 0, right = 0, bottom = 0;
+        QFormBuilderExtra::getLayoutMargins(ui_layout->elementProperty(),
+                                            &left, &top, &right, &bottom);
         l->setContentsMargins(left, top, right, bottom);
         d->setProcessingLayoutWidget(false);
     }
@@ -453,7 +406,8 @@ static void insertPlugins(QObject *o, QMap<QString, QDesignerCustomWidgetInterfa
     }
     // step 2) try with a collection of plugins
     if (QDesignerCustomWidgetCollectionInterface *c = qobject_cast<QDesignerCustomWidgetCollectionInterface *>(o)) {
-        foreach (QDesignerCustomWidgetInterface *iface, c->customWidgets())
+        const auto &collectionCustomWidgets = c->customWidgets();
+        for (QDesignerCustomWidgetInterface *iface : collectionCustomWidgets)
             customWidgets->insert(iface->name(), iface);
     }
 }
@@ -465,28 +419,26 @@ void QFormBuilder::updateCustomWidgets()
 {
     d->m_customWidgets.clear();
 
-    foreach (const QString &path, d->m_pluginPaths) {
+#if QT_CONFIG(library)
+    for (const QString &path : std::as_const(d->m_pluginPaths)) {
         const QDir dir(path);
         const QStringList candidates = dir.entryList(QDir::Files);
 
-        foreach (const QString &plugin, candidates) {
+        for (const QString &plugin : candidates) {
             if (!QLibrary::isLibrary(plugin))
                 continue;
 
-            QString loaderPath = path;
-            loaderPath += QLatin1Char('/');
-            loaderPath += plugin;
-
-            QPluginLoader loader(loaderPath);
+            QPluginLoader loader(path + u'/' + plugin);
             if (loader.load())
                 insertPlugins(loader.instance(), &d->m_customWidgets);
         }
     }
+#endif // QT_CONFIG(library)
+
     // Check statically linked plugins
     const QObjectList staticPlugins = QPluginLoader::staticInstances();
-    if (!staticPlugins.empty())
-        foreach (QObject *o, staticPlugins)
-            insertPlugins(o, &d->m_customWidgets);
+    for (QObject *o : staticPlugins)
+        insertPlugins(o, &d->m_customWidgets);
 }
 
 /*!
@@ -505,26 +457,23 @@ QList<QDesignerCustomWidgetInterface*> QFormBuilder::customWidgets() const
 
 void QFormBuilder::applyProperties(QObject *o, const QList<DomProperty*> &properties)
 {
-    typedef QList<DomProperty*> DomPropertyList;
 
-    if (properties.empty())
+    if (properties.isEmpty())
         return;
 
-    const QFormBuilderStrings &strings = QFormBuilderStrings::instance();
-
-    const DomPropertyList::const_iterator cend = properties.constEnd();
-    for (DomPropertyList::const_iterator it = properties.constBegin(); it != cend; ++it) {
-        const QVariant v = toVariant(o->metaObject(), *it);
+    for (DomProperty *p : properties) {
+        const QVariant v = toVariant(o->metaObject(), p);
         if (!v.isValid()) // QTBUG-33130, do not fall for QVariant(QString()).isNull() == true.
             continue;
 
-        const QString attributeName = (*it)->attributeName();
+        const QString attributeName = p->attributeName();
         const bool isWidget = o->isWidgetType();
-        if (isWidget && o->parent() == d->parentWidget() && attributeName == strings.geometryProperty) {
+        if (isWidget && o->parent() == d->parentWidget() && attributeName == "geometry"_L1) {
             // apply only the size part of a geometry for the root widget
             static_cast<QWidget*>(o)->resize(qvariant_cast<QRect>(v).size());
         } else if (d->applyPropertyInternally(o, attributeName, v)) {
-        } else if (isWidget && !qstrcmp("QFrame", o->metaObject()->className ()) && attributeName == strings.orientationProperty) {
+        } else if (isWidget && qstrcmp("QFrame", o->metaObject()->className()) == 0
+                   && attributeName == "orientation"_L1) {
             // ### special-casing for Line (QFrame) -- try to fix me
             o->setProperty("frameShape", v); // v is of QFrame::Shape enum
         } else {

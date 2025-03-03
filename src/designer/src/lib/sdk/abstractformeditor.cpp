@@ -1,64 +1,35 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "abstractformeditor.h"
 #include "abstractdialoggui_p.h"
 #include "abstractintrospection_p.h"
 
-#include <QtDesigner/QDesignerOptionsPageInterface>
-#include <QtDesigner/QDesignerSettingsInterface>
-#include <QtDesigner/QDesignerPropertyEditorInterface>
-#include <QtDesigner/QDesignerFormWindowManagerInterface>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerMetaDataBaseInterface>
-#include <QtDesigner/QDesignerWidgetDataBaseInterface>
-#include <QtDesigner/QDesignerWidgetFactoryInterface>
-#include <QtDesigner/QDesignerObjectInspectorInterface>
-#include <QtDesigner/QDesignerIntegrationInterface>
-#include <QtDesigner/QDesignerActionEditorInterface>
-#include <QtDesigner/QDesignerWidgetBoxInterface>
+#include <QtDesigner/abstractoptionspage.h>
+#include <QtDesigner/abstractsettings.h>
+#include <QtDesigner/abstractpropertyeditor.h>
+#include <QtDesigner/abstractformwindowmanager.h>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractmetadatabase.h>
+#include <QtDesigner/abstractwidgetdatabase.h>
+#include <QtDesigner/abstractwidgetfactory.h>
+#include <QtDesigner/abstractobjectinspector.h>
+#include <QtDesigner/abstractintegration.h>
+#include <QtDesigner/abstractactioneditor.h>
+#include <QtDesigner/abstractwidgetbox.h>
 
+#include <actioneditor_p.h>
 #include <pluginmanager_p.h>
 #include <qtresourcemodel_p.h>
-#include <qtgradientmanager.h>
+#include <qtgradientmanager_p.h>
 #include <widgetfactory_p.h>
 #include <shared_settings_p.h>
 #include <formwindowbase_p.h>
 #include <grid_p.h>
 #include <iconloader_p.h>
-#include <QtDesigner/QDesignerPromotionInterface>
+#include <QtDesigner/abstractpromotioninterface.h>
 
-#include <QtGui/QIcon>
+#include <QtGui/qicon.h>
 
 // Must be done outside of the Qt namespace
 static void initResources()
@@ -75,6 +46,8 @@ static void initResources()
 }
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 class QDesignerFormEditorInterfacePrivate {
 public:
@@ -93,26 +66,17 @@ public:
     QPointer<QDesignerObjectInspectorInterface> m_objectInspector;
     QPointer<QDesignerIntegrationInterface> m_integration;
     QPointer<QDesignerActionEditorInterface> m_actionEditor;
-    QDesignerSettingsInterface *m_settingsManager;
-    QDesignerPluginManager *m_pluginManager;
-    QDesignerPromotionInterface *m_promotion;
-    QDesignerIntrospectionInterface *m_introspection;
-    QDesignerDialogGuiInterface *m_dialogGui;
+    QDesignerSettingsInterface *m_settingsManager = nullptr;
+    QDesignerPluginManager *m_pluginManager = nullptr;
+    QDesignerPromotionInterface *m_promotion = nullptr;
+    QDesignerIntrospectionInterface *m_introspection = nullptr;
+    QDesignerDialogGuiInterface *m_dialogGui = nullptr;
     QPointer<QtResourceModel> m_resourceModel;
     QPointer<QtGradientManager> m_gradientManager; // instantiated and deleted by designer_integration
     QList<QDesignerOptionsPageInterface*> m_optionsPages;
 };
 
-QDesignerFormEditorInterfacePrivate::QDesignerFormEditorInterfacePrivate() :
-    m_settingsManager(0),
-    m_pluginManager(0),
-    m_promotion(0),
-    m_introspection(0),
-    m_dialogGui(0),
-    m_resourceModel(0),
-    m_gradientManager(0)
-{
-}
+QDesignerFormEditorInterfacePrivate::QDesignerFormEditorInterfacePrivate() = default;
 
 QDesignerFormEditorInterfacePrivate::~QDesignerFormEditorInterfacePrivate()
 {
@@ -129,7 +93,7 @@ QDesignerFormEditorInterfacePrivate::~QDesignerFormEditorInterfacePrivate()
     \class QDesignerFormEditorInterface
 
     \brief The QDesignerFormEditorInterface class allows you to access
-    Qt Designer's various components.
+    Qt Widgets Designer's various components.
 
     \inmodule QtDesigner
 
@@ -141,7 +105,7 @@ QDesignerFormEditorInterfacePrivate::~QDesignerFormEditorInterfacePrivate()
     these components. They are typically used to query (and
     manipulate) the respective component. For example:
 
-    \snippet lib/tools_designer_src_lib_sdk_abstractformeditor.cpp 0
+    \snippet lib/tools_designer_src_lib_sdk_abstractobjectinspector.cpp 0
 
     QDesignerFormEditorInterface is not intended to be instantiated
     directly. A pointer to \QD's current QDesignerFormEditorInterface
@@ -182,9 +146,7 @@ QDesignerFormEditorInterface::QDesignerFormEditorInterface(QObject *parent)
 /*!
     Destroys the QDesignerFormEditorInterface object.
 */
-QDesignerFormEditorInterface::~QDesignerFormEditorInterface()
-{
-}
+QDesignerFormEditorInterface::~QDesignerFormEditorInterface() = default;
 
 /*!
     Returns an interface to \QD's widget box.
@@ -349,8 +311,7 @@ QDesignerPromotionInterface *QDesignerFormEditorInterface::promotion() const
 
 void QDesignerFormEditorInterface::setPromotion(QDesignerPromotionInterface *promotion)
 {
-    if (d->m_promotion)
-        delete d->m_promotion;
+    delete d->m_promotion;
     d->m_promotion = promotion;
 }
 
@@ -519,6 +480,7 @@ void QDesignerFormEditorInterface::setSettingsManager(QDesignerSettingsInterface
     // initializations.
     const qdesigner_internal::QDesignerSharedSettings settings(this);
     qdesigner_internal::FormWindowBase::setDefaultDesignerGrid(settings.defaultGrid());
+    qdesigner_internal::ActionEditor::setObjectNamingMode(settings.objectNamingMode());
 }
 
 /*!
@@ -539,8 +501,7 @@ QDesignerIntrospectionInterface *QDesignerFormEditorInterface::introspection() c
 */
 void QDesignerFormEditorInterface::setIntrospection(QDesignerIntrospectionInterface *introspection)
 {
-    if (d->m_introspection)
-        delete d->m_introspection;
+     delete d->m_introspection;
      d->m_introspection = introspection;
 }
 
@@ -551,10 +512,10 @@ void QDesignerFormEditorInterface::setIntrospection(QDesignerIntrospectionInterf
 */
 QString QDesignerFormEditorInterface::resourceLocation() const
 {
-#ifdef Q_OS_MAC
-    return QStringLiteral(":/qt-project.org/formeditor/images/mac");
+#ifdef Q_OS_MACOS
+    return u":/qt-project.org/formeditor/images/mac"_s;
 #else
-    return QStringLiteral(":/qt-project.org/formeditor/images/win");
+    return u":/qt-project.org/formeditor/images/win"_s;
 #endif
 }
 

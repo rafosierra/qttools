@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "globals.h"
 #include "mainwindow.h"
@@ -42,6 +12,7 @@
 #include <QHeaderView>
 #include <QKeyEvent>
 #include <QSettings>
+#include <QShortcut>
 #include <QTreeView>
 #include <QWidget>
 #include <QDebug>
@@ -49,8 +20,7 @@
 
 QT_BEGIN_NAMESPACE
 
-// Maximum number of guesses to display
-static const int MaxCandidates = 5;
+using namespace Qt::Literals::StringLiterals;
 
 static QString phraseViewHeaderKey()
 {
@@ -64,7 +34,7 @@ PhraseView::PhraseView(MultiDataModel *model, QList<QHash<QString, QList<Phrase 
       m_modelIndex(-1),
       m_doGuesses(true)
 {
-    setObjectName(QLatin1String("phrase list view"));
+    setObjectName("phrase list view");
 
     m_phraseModel = new PhraseModel(this);
 
@@ -75,14 +45,19 @@ PhraseView::PhraseView(MultiDataModel *model, QList<QHash<QString, QList<Phrase 
     setRootIsDecorated(false);
     setItemsExpandable(false);
 
-    for (int i = 0; i < 10; i++)
-        (void) new GuessShortcut(i, this, SLOT(guessShortcut(int)));
+    for (int i = 0; i < 9; ++i) {
+        const auto key = static_cast<Qt::Key>(int(Qt::Key_1) + i);
+        auto shortCut = new QShortcut(Qt::CTRL | key, this);
+        connect(shortCut, &QShortcut::activated, this,
+                [i, this]() { this->guessShortcut(i); });
+    }
 
     header()->setSectionResizeMode(QHeaderView::Interactive);
     header()->setSectionsClickable(true);
     header()->restoreState(QSettings().value(phraseViewHeaderKey()).toByteArray());
 
-    connect(this, SIGNAL(activated(QModelIndex)), this, SLOT(selectPhrase(QModelIndex)));
+    connect(this, &QAbstractItemView::activated,
+            this, &PhraseView::selectPhrase);
 }
 
 PhraseView::~PhraseView()
@@ -112,14 +87,23 @@ void PhraseView::contextMenuEvent(QContextMenuEvent *event)
     QMenu *contextMenu = new QMenu(this);
 
     QAction *insertAction = new QAction(tr("Insert"), contextMenu);
-    connect(insertAction, SIGNAL(triggered()), this, SLOT(selectPhrase()));
+    connect(insertAction, &QAction::triggered,
+            this, &PhraseView::selectCurrentPhrase);
 
     QAction *editAction = new QAction(tr("Edit"), contextMenu);
-    connect(editAction, SIGNAL(triggered()), this, SLOT(editPhrase()));
-    editAction->setEnabled(model()->flags(index) & Qt::ItemIsEditable);
+    connect(editAction, &QAction::triggered,
+            this, &PhraseView::editPhrase);
+    Qt::ItemFlags isFromPhraseBook = model()->flags(index) & Qt::ItemIsEditable;
+    editAction->setEnabled(isFromPhraseBook);
+
+    QAction *gotoAction = new QAction(tr("Go to"), contextMenu);
+    connect(gotoAction, &QAction::triggered,
+            this, &PhraseView::gotoMessageFromGuess);
+    gotoAction->setEnabled(!isFromPhraseBook);
 
     contextMenu->addAction(insertAction);
     contextMenu->addAction(editAction);
+    contextMenu->addAction(gotoAction);
 
     contextMenu->exec(event->globalPos());
     event->accept();
@@ -137,7 +121,8 @@ void PhraseView::mouseDoubleClickEvent(QMouseEvent *event)
 
 void PhraseView::guessShortcut(int key)
 {
-    foreach (const Phrase *phrase, m_phraseModel->phraseList())
+    const auto phrases = m_phraseModel->phraseList();
+    for (const Phrase *phrase : phrases)
         if (phrase->shortcut() == key) {
             emit phraseSelected(m_modelIndex, phrase->target());
             return;
@@ -149,7 +134,7 @@ void PhraseView::selectPhrase(const QModelIndex &index)
     emit phraseSelected(m_modelIndex, m_phraseModel->phrase(index)->target());
 }
 
-void PhraseView::selectPhrase()
+void PhraseView::selectCurrentPhrase()
 {
     emit phraseSelected(m_modelIndex, m_phraseModel->phrase(currentIndex())->target());
 }
@@ -157,6 +142,36 @@ void PhraseView::selectPhrase()
 void PhraseView::editPhrase()
 {
     edit(currentIndex());
+}
+
+void PhraseView::gotoMessageFromGuess()
+{
+    emit setCurrentMessageFromGuess(m_modelIndex,
+                                    m_phraseModel->phrase(currentIndex())->candidate());
+}
+
+void PhraseView::setMaxCandidates(const int max)
+{
+    m_maxCandidates = max;
+    emit showFewerGuessesAvailable(m_maxCandidates > DefaultMaxCandidates);
+}
+
+void PhraseView::moreGuesses()
+{
+    setMaxCandidates(m_maxCandidates + DefaultMaxCandidates);
+    setSourceText(m_modelIndex, m_sourceText);
+}
+
+void PhraseView::fewerGuesses()
+{
+    setMaxCandidates(m_maxCandidates - DefaultMaxCandidates);
+    setSourceText(m_modelIndex, m_sourceText);
+}
+
+void PhraseView::resetNumGuesses()
+{
+    setMaxCandidates(DefaultMaxCandidates);
+    setSourceText(m_modelIndex, m_sourceText);
 }
 
 static CandidateList similarTextHeuristicCandidates(MultiDataModel *model, int mi,
@@ -181,10 +196,10 @@ static CandidateList similarTextHeuristicCandidates(MultiDataModel *model, int m
 
         int score = stringmatcher.getSimilarityScore(s);
 
-        if (candidates.count() == maxCandidates && score > scores[maxCandidates - 1])
+        if (candidates.size() == maxCandidates && score > scores[maxCandidates - 1])
             candidates.removeLast();
-        if (candidates.count() < maxCandidates && score >= textSimilarityThreshold ) {
-            Candidate cand(s, mtm.translation());
+        if (candidates.size() < maxCandidates && score >= textSimilarityThreshold ) {
+            Candidate cand(mtm.context(), s, mtm.comment(), mtm.translation());
 
             int i;
             for (i = 0; i < candidates.size(); ++i) {
@@ -217,20 +232,23 @@ void PhraseView::setSourceText(int model, const QString &sourceText)
     if (model < 0)
         return;
 
-    foreach (Phrase *p, getPhrases(model, sourceText))
+    const auto phrases = getPhrases(model, sourceText);
+    for (Phrase *p : phrases)
         m_phraseModel->addPhrase(p);
 
     if (!sourceText.isEmpty() && m_doGuesses) {
-        CandidateList cl = similarTextHeuristicCandidates(m_dataModel, model,
-            sourceText.toLatin1(), MaxCandidates);
+        const CandidateList cl = similarTextHeuristicCandidates(m_dataModel, model,
+            sourceText.toLatin1(), m_maxCandidates);
         int n = 0;
-        foreach (const Candidate &candidate, cl) {
+        for (const Candidate &candidate : cl) {
             QString def;
             if (n < 9)
-                def = tr("Guess (%1)").arg(QKeySequence(Qt::CTRL | (Qt::Key_0 + (n + 1))).toString(QKeySequence::NativeText));
+                def = tr("Guess from '%1' (%2)")
+                      .arg(candidate.context, QKeySequence(Qt::CTRL | (Qt::Key_0 + (n + 1)))
+                                              .toString(QKeySequence::NativeText));
             else
-                def = tr("Guess");
-            Phrase *guess = new Phrase(candidate.source, candidate.target, def, n);
+                def = tr("Guess from '%1'").arg(candidate.context);
+            Phrase *guess = new Phrase(candidate.source, candidate.translation, def, candidate, n);
             m_guesses.append(guess);
             m_phraseModel->addPhrase(guess);
             ++n;
@@ -241,12 +259,13 @@ void PhraseView::setSourceText(int model, const QString &sourceText)
 QList<Phrase *> PhraseView::getPhrases(int model, const QString &source)
 {
     QList<Phrase *> phrases;
-    QString f = MainWindow::friendlyString(source);
-    QStringList lookupWords = f.split(QLatin1Char(' '));
+    const QString f = MainWindow::friendlyString(source);
+    const QStringList lookupWords = f.split(u' ');
 
-    foreach (const QString &s, lookupWords) {
+    for (const QString &s : lookupWords) {
         if (m_phraseDict->at(model).contains(s)) {
-            foreach (Phrase *p, m_phraseDict->at(model).value(s)) {
+            const auto phraseList = m_phraseDict->at(model).value(s);
+            for (Phrase *p : phraseList) {
                 if (f.contains(MainWindow::friendlyString(p->source())))
                     phrases.append(p);
             }

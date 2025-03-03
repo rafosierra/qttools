@@ -1,213 +1,35 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Assistant of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
-#include "qhelpenginecore.h"
 #include "qhelpsearchengine.h"
+#include "qhelpenginecore.h"
+#include "qhelpsearchenginecore.h"
 #include "qhelpsearchquerywidget.h"
 #include "qhelpsearchresultwidget.h"
 
-#include "qhelpsearchindexreader_p.h"
-#if defined(QT_CLUCENE_SUPPORT)
-#   include "qhelpsearchindexreader_clucene_p.h"
-#   include "qhelpsearchindexwriter_clucene_p.h"
-#else
-#   include "qhelpsearchindexreader_default_p.h"
-#   include "qhelpsearchindexwriter_default_p.h"
-#endif
-
-#include <QtCore/QDir>
-#include <QtCore/QFile>
-#include <QtCore/QFileInfo>
-#include <QtCore/QVariant>
-#include <QtCore/QThread>
-#include <QtCore/QPointer>
-
 QT_BEGIN_NAMESPACE
 
-#if defined(QT_CLUCENE_SUPPORT)
-    using namespace fulltextsearch::clucene;
-#else
-    using namespace fulltextsearch::std;
-#endif
-
-class QHelpSearchEnginePrivate : public QObject
+class QHelpSearchEnginePrivate
 {
-    Q_OBJECT
-
-signals:
-    void indexingStarted();
-    void indexingFinished();
-
-    void searchingStarted();
-    void searchingFinished(int hits);
-
-private:
-    QHelpSearchEnginePrivate(QHelpEngineCore *helpEngine)
-        : queryWidget(0)
-        , resultWidget(0)
-        , helpEngine(helpEngine)
-    {
-        indexReader = 0;
-        indexWriter = 0;
-    }
-
-    ~QHelpSearchEnginePrivate()
-    {
-        delete indexReader;
-        delete indexWriter;
-    }
-
-    int hitCount() const
-    {
-        int count = 0;
-        if (indexReader)
-            count = indexReader->hitCount();
-
-        return count;
-    }
-
-    QList<QHelpSearchEngine::SearchHit> hits(int start, int end) const
-    {
-        return indexReader ?
-                indexReader->hits(start, end) :
-                QList<QHelpSearchEngine::SearchHit>();
-    }
-
-    void updateIndex(bool reindex = false)
-    {
-        if (helpEngine.isNull())
-            return;
-
-        if (!QFile::exists(QFileInfo(helpEngine->collectionFile()).path()))
-            return;
-
-        if (!indexWriter) {
-            indexWriter = new QHelpSearchIndexWriter();
-
-            connect(indexWriter, SIGNAL(indexingStarted()), this, SIGNAL(indexingStarted()));
-            connect(indexWriter, SIGNAL(indexingFinished()), this, SIGNAL(indexingFinished()));
-            connect(indexWriter, SIGNAL(indexingFinished()), this, SLOT(optimizeIndex()));
-        }
-
-        indexWriter->cancelIndexing();
-        indexWriter->updateIndex(helpEngine->collectionFile(),
-                                 indexFilesFolder(), reindex);
-    }
-
-    void cancelIndexing()
-    {
-        if (indexWriter)
-            indexWriter->cancelIndexing();
-    }
-
-    void search(const QList<QHelpSearchQuery> &queryList)
-    {
-        if (helpEngine.isNull())
-            return;
-
-        if (!QFile::exists(QFileInfo(helpEngine->collectionFile()).path()))
-            return;
-
-        if (!indexReader) {
-#if defined(QT_CLUCENE_SUPPORT)
-            indexReader = new QHelpSearchIndexReaderClucene();
-#else
-            indexReader = new QHelpSearchIndexReaderDefault();
-#endif // QT_CLUCENE_SUPPORT
-            connect(indexReader, SIGNAL(searchingStarted()), this, SIGNAL(searchingStarted()));
-            connect(indexReader, SIGNAL(searchingFinished(int)), this, SIGNAL(searchingFinished(int)));
-        }
-
-        m_queryList = queryList;
-        indexReader->cancelSearching();
-        indexReader->search(helpEngine->collectionFile(), indexFilesFolder(), queryList);
-    }
-
-    void cancelSearching()
-    {
-        if (indexReader)
-            indexReader->cancelSearching();
-    }
-
-    QString indexFilesFolder() const
-    {
-        QString indexFilesFolder = QLatin1String(".fulltextsearch");
-        if (helpEngine && !helpEngine->collectionFile().isEmpty()) {
-            QFileInfo fi(helpEngine->collectionFile());
-            indexFilesFolder = fi.absolutePath() + QDir::separator()
-                + QLatin1Char('.')
-                + fi.fileName().left(fi.fileName().lastIndexOf(QLatin1String(".qhc")));
-        }
-        return indexFilesFolder;
-    }
-
-private slots:
-    void optimizeIndex()
-    {
-#if defined(QT_CLUCENE_SUPPORT)
-        if (indexWriter && !helpEngine.isNull()) {
-            indexWriter->optimizeIndex();
-        }
-#endif
-    }
-
-private:
-    friend class QHelpSearchEngine;
-
-    QHelpSearchQueryWidget *queryWidget;
-    QHelpSearchResultWidget *resultWidget;
-
-    fulltextsearch::QHelpSearchIndexReader *indexReader;
-    QHelpSearchIndexWriter *indexWriter;
-
-    QPointer<QHelpEngineCore> helpEngine;
-
-    QList<QHelpSearchQuery> m_queryList;
+public:
+    QHelpSearchEngineCore m_searchEngine;
+    QHelpSearchQueryWidget *queryWidget = nullptr;
+    QHelpSearchResultWidget *resultWidget = nullptr;
 };
-
-#include "qhelpsearchengine.moc"
-
 
 /*!
     \class QHelpSearchQuery
+    \deprecated
     \since 4.4
     \inmodule QtHelp
     \brief The QHelpSearchQuery class contains the field name and the associated
-    search term
+    search term.
 
     The QHelpSearchQuery class contains the field name and the associated search
     term. Depending on the field the search term might get split up into separate
     terms to be parsed differently by the search engine.
+
+    \note This class has been deprecated in favor of QString.
 
     \sa QHelpSearchQueryWidget
 */
@@ -230,15 +52,14 @@ private:
 
     \value DEFAULT  the default field provided by the search widget, several terms should be
                     split and stored in the word list except search terms enclosed in quotes.
-    \value FUZZY    a field only provided in use with clucene. Terms should be split in separate
+    \value FUZZY    \deprecated Terms should be split in separate
                     words and passed to the search engine.
-    \value WITHOUT  a field only provided in use with clucene. Terms should be split in separate
+    \value WITHOUT  \deprecated  Terms should be split in separate
                     words and passed to the search engine.
-    \value PHRASE   a field only provided in use with clucene. Terms should not be split in separate
-                    words.
-    \value ALL      a field only provided in use with clucene. Terms should be split in separate
+    \value PHRASE   \deprecated  Terms should not be split in separate words.
+    \value ALL      \deprecated  Terms should be split in separate
                     words and passed to the search engine
-    \value ATLEAST  a field only provided in use with clucene. Terms should be split in separate
+    \value ATLEAST  \deprecated  Terms should be split in separate
                     words and passed to the search engine
 */
 
@@ -258,23 +79,20 @@ private:
     on the end of the indexing process the indexingFinished() is emitted. To stop
     the indexing one can call cancelIndexing().
 
-    While the indexing process has finished, the search engine can now be used to search
-    thru its index for a given term. To do this one may use the possibility of creating the
-    QHelpSearchQuery list by self or reuse the QHelpSearchQueryWidget which has the inbuild
-    functionality to set up a proper search queries list that get's passed to the search engines
-    search() function.
+    When the indexing process has finished, the search engine can be used to
+    search through the index for a given term using the search() function. When
+    the search input is passed to the search engine, the searchingStarted()
+    signal is emitted. When the search finishes, the searchingFinished() signal
+    is emitted. The search process can be stopped by calling cancelSearching().
 
-    After the list of querys has been passed to the search engine, the signal searchingStarted()
-    is emitted and after the search has finished the searchingFinished() signal is emitted. The
-    search process can be stopped by calling cancelSearching().
+    If the search succeeds, searchingFinished() is called with the search result
+    count to fetch the search results from the search engine. Calling the
+    searchResults() function with a range returns a list of QHelpSearchResult
+    objects within the range. The results consist of the document title and URL,
+    as well as a snippet from the document that contains the best match for the
+    search input.
 
-    If the search succeeds, the searchingFinished() will be called with the search hits count,
-    which can be reused to fetch the search hits from the search engine. Calling the hits()
-    function with the range of hits you would like to get will return a list of the requested
-    SearchHits. They basically constist at the moment of a pair of strings where the values
-    of that pair are the documentation file path and the page title.
-
-    To display the given hits use the QHelpSearchResultWidget or build up your own one if you need
+    To display the given search results use the QHelpSearchResultWidget or build up your own one if you need
     more advanced functionality. Note that the QHelpSearchResultWidget can not be instantiated
     directly, you must retrieve the widget from the search engine in use as all connections will be
     established for you by the widget itself.
@@ -299,10 +117,10 @@ private:
 */
 
 /*!
-    \fn void QHelpSearchEngine::searchingFinished(int hits)
+    \fn void QHelpSearchEngine::searchingFinished(int searchResultCount)
 
     This signal is emitted when the search process is complete.
-    The hit count is stored in \a hits.
+    The search result count is stored in \a searchResultCount.
 */
 
 /*!
@@ -314,15 +132,16 @@ private:
 */
 QHelpSearchEngine::QHelpSearchEngine(QHelpEngineCore *helpEngine, QObject *parent)
     : QObject(parent)
+      , d(new QHelpSearchEnginePrivate{QHelpSearchEngineCore(helpEngine)})
 {
-    d = new QHelpSearchEnginePrivate(helpEngine);
-
-    connect(helpEngine, SIGNAL(setupFinished()), this, SLOT(indexDocumentation()));
-
-    connect(d, SIGNAL(indexingStarted()), this, SIGNAL(indexingStarted()));
-    connect(d, SIGNAL(indexingFinished()), this, SIGNAL(indexingFinished()));
-    connect(d, SIGNAL(searchingStarted()), this, SIGNAL(searchingStarted()));
-    connect(d, SIGNAL(searchingFinished(int)), this, SIGNAL(searchingFinished(int)));
+    connect(&d->m_searchEngine, &QHelpSearchEngineCore::indexingStarted,
+            this, &QHelpSearchEngine::indexingStarted);
+    connect(&d->m_searchEngine, &QHelpSearchEngineCore::indexingFinished,
+            this, &QHelpSearchEngine::indexingFinished);
+    connect(&d->m_searchEngine, &QHelpSearchEngineCore::searchingStarted,
+            this, &QHelpSearchEngine::searchingStarted);
+    connect(&d->m_searchEngine, &QHelpSearchEngineCore::searchingFinished,
+            this, [this] { emit searchingFinished(d->m_searchEngine.searchResultCount()); });
 }
 
 /*!
@@ -341,7 +160,6 @@ QHelpSearchQueryWidget* QHelpSearchEngine::queryWidget()
 {
     if (!d->queryWidget)
         d->queryWidget = new QHelpSearchQueryWidget();
-
     return d->queryWidget;
 }
 
@@ -352,31 +170,45 @@ QHelpSearchResultWidget* QHelpSearchEngine::resultWidget()
 {
     if (!d->resultWidget)
         d->resultWidget = new QHelpSearchResultWidget(this);
-
     return d->resultWidget;
 }
 
+#if QT_DEPRECATED_SINCE(5, 9)
 /*!
-    \obsolete
-    Returns the amount of hits the search engine found.
-    \sa hitCount()
+    \deprecated
+    Use searchResultCount() instead.
 */
 int QHelpSearchEngine::hitsCount() const
 {
-    return d->hitCount();
+    return searchResultCount();
 }
 
 /*!
     \since 4.6
-    Returns the amount of hits the search engine found.
+    \deprecated
+    Use searchResultCount() instead.
 */
 int QHelpSearchEngine::hitCount() const
 {
-    return d->hitCount();
+    return searchResultCount();
 }
+#endif // QT_DEPRECATED_SINCE(5, 9)
 
 /*!
+    \since 5.9
+    Returns the number of results the search engine found.
+*/
+int QHelpSearchEngine::searchResultCount() const
+{
+    return d->m_searchEngine.searchResultCount();
+}
+
+#if QT_DEPRECATED_SINCE(5, 9)
+/*!
     \typedef QHelpSearchEngine::SearchHit
+    \deprecated
+
+    Use QHelpSearchResult instead.
 
     Typedef for QPair<QString, QString>.
     The values of that pair are the documentation file path and the page title.
@@ -385,28 +217,58 @@ int QHelpSearchEngine::hitCount() const
 */
 
 /*!
-    Returns a list of search hits within the range of \a start \a end.
+    \deprecated
+    Use searchResults() instead.
 */
 QList<QHelpSearchEngine::SearchHit> QHelpSearchEngine::hits(int start, int end) const
 {
-   return d->hits(start, end);
+    QList<QHelpSearchEngine::SearchHit> hits;
+    for (const QHelpSearchResult &result : searchResults(start, end))
+        hits.append(qMakePair(result.url().toString(), result.title()));
+    return hits;
+}
+#endif // QT_DEPRECATED_SINCE(5, 9)
+
+/*!
+    \since 5.9
+    Returns a list of search results within the range from the index
+    specified by \a start to the index specified by \a end.
+*/
+QList<QHelpSearchResult> QHelpSearchEngine::searchResults(int start, int end) const
+{
+    return d->m_searchEngine.searchResults(start, end);
 }
 
 /*!
-    Returns the list of queries last searched for.
+    \since 5.9
+    Returns the phrase that was last searched for.
+*/
+QString QHelpSearchEngine::searchInput() const
+{
+    return d->m_searchEngine.searchInput();
+}
+
+#if QT_DEPRECATED_SINCE(5, 9)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
+/*!
+    \deprecated
     \since 4.5
+    Use searchInput() instead.
 */
 QList<QHelpSearchQuery> QHelpSearchEngine::query() const
 {
-    return d->m_queryList;
+    return {{QHelpSearchQuery::DEFAULT, searchInput().split(QChar::Space)}};
 }
+QT_WARNING_POP
+#endif // QT_DEPRECATED_SINCE(5, 9)
 
 /*!
     Forces the search engine to reindex all documentation files.
 */
 void QHelpSearchEngine::reindexDocumentation()
 {
-    d->updateIndex(true);
+    d->m_searchEngine.reindexDocumentation();
 }
 
 /*!
@@ -414,7 +276,7 @@ void QHelpSearchEngine::reindexDocumentation()
 */
 void QHelpSearchEngine::cancelIndexing()
 {
-    d->cancelIndexing();
+    d->m_searchEngine.cancelIndexing();
 }
 
 /*!
@@ -422,21 +284,55 @@ void QHelpSearchEngine::cancelIndexing()
 */
 void QHelpSearchEngine::cancelSearching()
 {
-    d->cancelSearching();
+    d->m_searchEngine.cancelSearching();
 }
 
 /*!
-    Starts the search process using the given list of queries \a queryList
-    build by the search field name and the values to search for.
+    \since 5.9
+    Starts the search process using the given search phrase \a searchInput.
+
+    The phrase may consist of several words. By default, the search engine returns
+    the list of documents that contain all the specified words.
+    The phrase may contain any combination of the logical operators AND, OR, and
+    NOT. The operator must be written in all capital letters, otherwise it will
+    be considered a part of the search phrase.
+
+    If double quotation marks are used to group the words,
+    the search engine will search for an exact match of the quoted phrase.
+
+    For more information about the text query syntax,
+    see \l {https://sqlite.org/fts5.html#full_text_query_syntax}
+    {SQLite FTS5 Extension}.
+*/
+void QHelpSearchEngine::search(const QString &searchInput)
+{
+    d->m_searchEngine.search(searchInput);
+}
+
+#if QT_DEPRECATED_SINCE(5, 9)
+/*!
+    \deprecated
+    Use search(const QString &searchInput) instead.
 */
 void QHelpSearchEngine::search(const QList<QHelpSearchQuery> &queryList)
 {
-    d->search(queryList);
+    if (queryList.isEmpty())
+        return;
+
+    d->m_searchEngine.search(queryList.first().wordList.join(QChar::Space));
+}
+#endif // QT_DEPRECATED_SINCE(5, 9)
+
+/*!
+    \internal
+*/
+void QHelpSearchEngine::scheduleIndexDocumentation()
+{
+    d->m_searchEngine.scheduleIndexDocumentation();
 }
 
+// TODO: Deprecate me (but it's private???)
 void QHelpSearchEngine::indexDocumentation()
-{
-    d->updateIndex();
-}
+{}
 
 QT_END_NAMESPACE

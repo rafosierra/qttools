@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 //
 //  W A R N I N G
@@ -46,9 +16,9 @@
 #define QTRESOURCEMODEL_H
 
 #include "shared_global_p.h"
-#include <QtCore/QMap>
-#include <QtCore/QObject>
-#include <QtCore/QScopedPointer>
+#include <QtCore/qmap.h>
+#include <QtCore/qobject.h>
+#include <QtCore/qscopedpointer.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -70,7 +40,7 @@ public:
     // resource set) it is automatically unloaded. The removed file can also be
     // marked as modified (later when another resource set which contains
     // removed path is activated will be reloaded)
-    void activateResourceFilePaths(const QStringList &paths, int *errorCount = 0, QString *errorMessages = 0);
+    void activateResourceFilePaths(const QStringList &paths, int *errorCount = nullptr, QString *errorMessages = nullptr);
 
     bool isModified(const QString &path) const; // for all paths in resource model (redundant here, maybe it should be removed from here)
     void setModified(const QString &path);      // for all paths in resource model (redundant here, maybe it should be removed from here)
@@ -82,14 +52,14 @@ private:
 
     QScopedPointer<class QtResourceSetPrivate> d_ptr;
     Q_DECLARE_PRIVATE(QtResourceSet)
-    Q_DISABLE_COPY(QtResourceSet)
+    Q_DISABLE_COPY_MOVE(QtResourceSet)
 };
 
 class QDESIGNER_SHARED_EXPORT QtResourceModel : public QObject // one instance per whole designer
 {
     Q_OBJECT
 public:
-    QtResourceModel(QObject *parent = 0);
+    QtResourceModel(QObject *parent = nullptr);
     ~QtResourceModel();
 
     QStringList loadedQrcFiles() const;
@@ -99,13 +69,13 @@ public:
     QList<QtResourceSet *> resourceSets() const;
 
     QtResourceSet *currentResourceSet() const;
-    void setCurrentResourceSet(QtResourceSet *resourceSet, int *errorCount = 0, QString *errorMessages = 0);
+    void setCurrentResourceSet(QtResourceSet *resourceSet, int *errorCount = nullptr, QString *errorMessages = nullptr);
 
     QtResourceSet *addResourceSet(const QStringList &paths);
     void removeResourceSet(QtResourceSet *resourceSet);
 
-    void reload(const QString &path, int *errorCount = 0, QString *errorMessages = 0);
-    void reload(int *errorCount = 0, QString *errorMessages = 0);
+    void reload(const QString &path, int *errorCount = nullptr, QString *errorMessages = nullptr);
+    void reload(int *errorCount = nullptr, QString *errorMessages = nullptr);
 
     // Contents of the current resource set (content file to qrc path)
     QMap<QString, QString> contents() const;
@@ -127,9 +97,7 @@ private:
 
     QScopedPointer<class QtResourceModelPrivate> d_ptr;
     Q_DECLARE_PRIVATE(QtResourceModel)
-    Q_DISABLE_COPY(QtResourceModel)
-
-    Q_PRIVATE_SLOT(d_func(), void slotFileChanged(const QString &))
+    Q_DISABLE_COPY_MOVE(QtResourceModel)
 };
 
 QT_END_NAMESPACE

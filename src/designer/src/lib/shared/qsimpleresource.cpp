@@ -1,64 +1,32 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qsimpleresource_p.h"
 #include "widgetfactory_p.h"
 #include "widgetdatabase_p.h"
+#include <qdesigner_utils_p.h>
 
 #include <QtDesigner/private/properties_p.h>
 #include <QtDesigner/private/ui4_p.h>
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerLanguageExtension>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractlanguage.h>
+#include <QtDesigner/qextensionmanager.h>
 #include <QtDesigner/extrainfo.h>
 
-#include <QtUiPlugin/QDesignerCustomWidgetInterface>
+#include <QtUiPlugin/customwidget.h>
 
-#include <QtGui/QIcon>
-#include <QtWidgets/QWidget>
-#include <QtWidgets/QAction>
-#include <QtCore/QDebug>
-#include <QtCore/QCoreApplication>
+#include <QtWidgets/qwidget.h>
 
+#include <QtGui/qaction.h>
+#include <QtGui/qicon.h>
+
+#include <QtCore/qdebug.h>
+#include <QtCore/qcoreapplication.h>
 
 QT_BEGIN_NAMESPACE
 
-namespace {
-    typedef QList<DomWidgetData*> DomWidgetDataList;
-    typedef QList<DomProperty*> DomPropertyList;
-    typedef QList<QDesignerCustomWidgetInterface *> CustomWidgetInterfaces;
-}
+using namespace Qt::StringLiterals;
 
 namespace qdesigner_internal {
 
@@ -68,16 +36,10 @@ QSimpleResource::QSimpleResource(QDesignerFormEditorInterface *core) :
     QAbstractFormBuilder(),
     m_core(core)
 {
-    QString workingDirectory = QDir::homePath();
-    workingDirectory +=  QDir::separator();
-    workingDirectory +=  QStringLiteral(".designer");
-    setWorkingDirectory(QDir(workingDirectory));
+    setWorkingDirectory(QDir(dataDirectory()));
 }
 
-QSimpleResource::~QSimpleResource()
-{
-
-}
+QSimpleResource::~QSimpleResource() = default;
 
 QBrush QSimpleResource::setupBrush(DomBrush *brush)
 {
@@ -87,35 +49,6 @@ QBrush QSimpleResource::setupBrush(DomBrush *brush)
 DomBrush *QSimpleResource::saveBrush(const QBrush &brush)
 {
     return QAbstractFormBuilder::saveBrush(brush);
-}
-
-DomScript *QSimpleResource::createScript(const QString &script, ScriptSource source)
-{
-    if (script.isEmpty())
-        return 0;
-    DomScript *domScript = new DomScript();
-    switch (source) {
-    case ScriptExtension:
-        domScript->setAttributeSource(QStringLiteral("extension"));
-        break;
-    case ScriptDesigner:
-        domScript->setAttributeSource(QStringLiteral("designer"));
-        break;
-    case ScriptCustomWidgetPlugin:
-        domScript->setAttributeSource(QStringLiteral("customwidgetplugin"));
-        break;
-    }
-    domScript->setAttributeLanguage(QStringLiteral("Qt Script"));
-    domScript->setText(script);
-    return domScript;
-}
-
-// Add a script to a list of DomScripts unless empty
-void QSimpleResource::addScript(const QString &script, ScriptSource source, DomScripts &domScripts)
-{
-    if (DomScript *domScript = createScript(script, source)) {
-        domScripts += domScript;
-    }
 }
 
 void QSimpleResource::addExtensionDataToDOM(QAbstractFormBuilder * /* afb */,
@@ -162,13 +95,15 @@ bool QSimpleResource::addFakeMethods(const DomSlots *domSlots, QStringList &fake
         return false;
 
     bool rc = false;
-    foreach (const QString &fakeSlot, domSlots->elementSlot())
+    const QStringList &elementSlots = domSlots->elementSlot();
+    for (const QString &fakeSlot : elementSlots)
         if (fakeSlots.indexOf(fakeSlot) == -1) {
             fakeSlots += fakeSlot;
             rc = true;
         }
 
-    foreach (const QString &fakeSignal, domSlots->elementSignal())
+    const QStringList &elementSignals = domSlots->elementSignal();
+    for (const QString &fakeSignal : elementSignals)
         if (fakeSignals.indexOf(fakeSignal) == -1) {
             fakeSignals += fakeSignal;
             rc = true;
@@ -197,19 +132,19 @@ void QSimpleResource::addFakeMethodsToWidgetDataBase(const DomCustomWidget *domC
 // Classes whose base class could not be found are left in the list.
 
 void QSimpleResource::addCustomWidgetsToWidgetDatabase(const QDesignerFormEditorInterface *core,
-                                                       QList<DomCustomWidget*>& custom_widget_list)
+                                                       QList<DomCustomWidget *> &custom_widget_list)
 {
     QDesignerWidgetDataBaseInterface *db = core->widgetDataBase();
-    for (int i=0; i < custom_widget_list.size(); ) {
+    for (qsizetype i = 0; i < custom_widget_list.size(); ) {
         bool classInserted = false;
-        DomCustomWidget *custom_widget = custom_widget_list[i];
+        DomCustomWidget *custom_widget = custom_widget_list.at(i);
         const QString customClassName = custom_widget->elementClass();
         const QString base_class = custom_widget->elementExtends();
         QString includeFile;
         IncludeType includeType = IncludeLocal;
         if (const DomHeader *header = custom_widget->elementHeader()) {
             includeFile = header->text();
-            if (header->hasAttributeLocation() && header->attributeLocation() == QStringLiteral("global"))
+            if (header->hasAttributeLocation() && header->attributeLocation() == "global"_L1)
                 includeType = IncludeGlobal;
         }
         const bool domIsContainer = custom_widget->elementContainer();
@@ -257,22 +192,21 @@ void QSimpleResource::addCustomWidgetsToWidgetDatabase(const QDesignerFormEditor
 void QSimpleResource::handleDomCustomWidgets(const QDesignerFormEditorInterface *core,
                                              const DomCustomWidgets *dom_custom_widgets)
 {
-    if (dom_custom_widgets == 0)
+    if (dom_custom_widgets == nullptr)
         return;
-    QList<DomCustomWidget*> custom_widget_list = dom_custom_widgets->elementCustomWidget();
+    auto custom_widget_list = dom_custom_widgets->elementCustomWidget();
     // Attempt to insert each item derived from its base class.
     // This should at most require two iterations in the event that the classes are out of order
     // (derived first, max depth: promoted custom plugin = 2)
     for (int iteration = 0;  iteration < 2;  iteration++) {
         addCustomWidgetsToWidgetDatabase(core, custom_widget_list);
-        if (custom_widget_list.empty())
+        if (custom_widget_list.isEmpty())
             return;
     }
     // Oops, there are classes left whose base class could not be found.
     // Default them to QWidget with warnings.
-    const QString fallBackBaseClass = QStringLiteral("QWidget");
-    for (int i=0; i < custom_widget_list.size(); i++ ) {
-        DomCustomWidget *custom_widget = custom_widget_list[i];
+    const QString fallBackBaseClass = u"QWidget"_s;
+    for (DomCustomWidget *custom_widget : std::as_const(custom_widget_list)) {
         const QString customClassName = custom_widget->elementClass();
         const QString base_class = custom_widget->elementExtends();
         qDebug() << "** WARNING The base class " << base_class << " of the custom widget class " << customClassName
@@ -292,7 +226,7 @@ FormBuilderClipboard::FormBuilderClipboard(QWidget *w)
 
 bool FormBuilderClipboard::empty() const
 {
-    return m_widgets.empty() && m_actions.empty();
+    return m_widgets.isEmpty() && m_actions.isEmpty();
 }
 }
 

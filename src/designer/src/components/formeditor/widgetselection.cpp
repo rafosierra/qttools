@@ -1,43 +1,13 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "widgetselection.h"
 #include "formwindow.h"
 #include "formwindowmanager.h"
 
 // sdk
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/qextensionmanager.h>
 
 // shared
 #include <qdesigner_command_p.h>
@@ -47,21 +17,23 @@
 #include <formwindowbase_p.h>
 #include <grid_p.h>
 
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QWidget>
-#include <QtGui/QMouseEvent>
-#include <QtWidgets/QStylePainter>
-#include <QtWidgets/QGridLayout>
-#include <QtWidgets/QFormLayout>
-#include <QtWidgets/QStyleOptionToolButton>
-#include <QtWidgets/QApplication>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qwidget.h>
+#include <QtGui/qevent.h>
+#include <QtWidgets/qstylepainter.h>
+#include <QtWidgets/qgridlayout.h>
+#include <QtWidgets/qformlayout.h>
+#include <QtWidgets/qstyleoption.h>
+#include <QtWidgets/qapplication.h>
 
-#include <QtCore/QVariant>
+#include <QtCore/qvariant.h>
 #include <QtCore/qdebug.h>
 
 #include <algorithm>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 namespace qdesigner_internal {
 enum { debugWidgetSelection = 0 };
@@ -70,18 +42,18 @@ enum { debugWidgetSelection = 0 };
 template <class Layout>
 static inline Layout *managedLayoutOf(const QDesignerFormEditorInterface *core,
                                       QWidget *w,
-                                      const Layout * /* vs6dummy */ = 0)
+                                      const Layout * /* vs6dummy */ = nullptr)
 {
     if (QWidget *p = w->parentWidget())
         if (QLayout *l = LayoutInfo::managedLayout(core, p))
             return qobject_cast<Layout*>(l);
-    return 0;
+    return nullptr;
 }
 
 // ----------- WidgetHandle
 WidgetHandle::WidgetHandle(FormWindow *parent, WidgetHandle::Type t, WidgetSelection *s) :
     InvisibleWidget(parent->formContainer()),
-    m_widget(0),
+    m_widget(nullptr),
     m_type(t),
     m_formWindow( parent),
     m_sel(s),
@@ -98,7 +70,7 @@ WidgetHandle::WidgetHandle(FormWindow *parent, WidgetHandle::Type t, WidgetSelec
 
 void WidgetHandle::updateCursor()
 {
-#ifndef QT_NO_CURSOR
+#if QT_CONFIG(cursor)
     if (!m_active) {
         setCursor(Qt::ArrowCursor);
         return;
@@ -140,7 +112,7 @@ QDesignerFormEditorInterface *WidgetHandle::core() const
     if (m_formWindow)
         return m_formWindow->core();
 
-    return 0;
+    return nullptr;
 }
 
 void WidgetHandle::setActive(bool a)
@@ -181,8 +153,19 @@ void WidgetHandle::mousePressEvent(QMouseEvent *e)
 
     QWidget *container = m_widget->parentWidget();
 
-    m_origPressPos = container->mapFromGlobal(e->globalPos());
+    m_origPressPos = container->mapFromGlobal(e->globalPosition().toPoint());
     m_geom = m_origGeom = m_widget->geometry();
+
+    switch (WidgetSelection::widgetState(m_formWindow->core(), m_widget)) {
+    case WidgetSelection::UnlaidOut:
+    case WidgetSelection::LaidOut:
+        m_formWindow->setHandleOperation(FormWindow::ResizeHandleOperation);
+        break;
+    case WidgetSelection::ManagedGridLayout:
+    case WidgetSelection::ManagedFormLayout:
+        m_formWindow->setHandleOperation(FormWindow::ChangeLayoutSpanHandleOperation);
+        break;
+    }
 }
 
 void WidgetHandle::mouseMoveEvent(QMouseEvent *e)
@@ -194,7 +177,7 @@ void WidgetHandle::mouseMoveEvent(QMouseEvent *e)
 
     QWidget *container = m_widget->parentWidget();
 
-    const QPoint rp = container->mapFromGlobal(e->globalPos());
+    const QPoint rp = container->mapFromGlobal(e->globalPosition().toPoint());
     const QPoint d = rp - m_origPressPos;
 
     const QRect pr = container->rect();
@@ -331,6 +314,8 @@ void WidgetHandle::mouseMoveEvent(QMouseEvent *e)
 
 void WidgetHandle::mouseReleaseEvent(QMouseEvent *e)
 {
+    m_formWindow->setHandleOperation(FormWindow::NoHandleOperation);
+
     if (e->button() != Qt::LeftButton || !m_active)
         return;
 
@@ -343,7 +328,7 @@ void WidgetHandle::mouseReleaseEvent(QMouseEvent *e)
     case WidgetSelection::UnlaidOut:
        if (m_geom != m_widget->geometry()) {
            SetPropertyCommand *cmd = new SetPropertyCommand(m_formWindow);
-           cmd->init(m_widget, QStringLiteral("geometry"), m_widget->geometry());
+           cmd->init(m_widget, u"geometry"_s, m_widget->geometry());
            cmd->setOldValue(m_origGeom);
            m_formWindow->commandHistory()->push(cmd);
            m_formWindow->emitSelectionChanged();
@@ -388,7 +373,7 @@ static inline int formLayoutRightHandleOperation(int dx, unsigned possibleOperat
 // Change form layout item horizontal span
 void WidgetHandle::changeFormLayoutItemSpan()
 {
-    QUndoCommand *cmd = 0;
+    QUndoCommand *cmd = nullptr;
     // Figure out command according to the movement
     const int dx = m_widget->geometry().center().x() - m_origGeom.center().x();
     if (qAbs(dx) >= QApplication::startDragDistance()) {
@@ -442,7 +427,7 @@ void WidgetHandle::changeGridLayoutItemSpan()
 
     const QPoint pt = m_origGeom.center() - m_widget->geometry().center();
 
-    ChangeLayoutItemGeometry *cmd = 0;
+    ChangeLayoutItemGeometry *cmd = nullptr;
 
     switch (m_type) {
     default:
@@ -482,7 +467,7 @@ void WidgetHandle::changeGridLayoutItemSpan()
        break;
 
     case WidgetHandle::Bottom: {
-       if (pt.y() > 0 && info.width() > 1) {
+       if (pt.y() > 0 && info.height() > 1) {
            cmd = new ChangeLayoutItemGeometry(m_formWindow);
            cmd->init(m_widget, info.y(), info.x(), info.height() - 1, info.width());
        } else if (pt.y() < 0 && bottom != -1 && grid->itemAt(bottom)->spacerItem()) {
@@ -493,7 +478,7 @@ void WidgetHandle::changeGridLayoutItemSpan()
        break;
     }
 
-    if (cmd != 0) {
+    if (cmd != nullptr) {
        m_formWindow->commandHistory()->push(cmd);
     } else {
        grid->invalidate();
@@ -560,7 +545,7 @@ WidgetSelection::WidgetState WidgetSelection::widgetState(const QDesignerFormEdi
 }
 
 WidgetSelection::WidgetSelection(FormWindow *parent)   :
-    m_widget(0),
+    m_widget(nullptr),
     m_formWindow(parent)
 {
     for (int i = WidgetHandle::LeftTop; i < WidgetHandle::TypeCount; ++i)
@@ -570,12 +555,12 @@ WidgetSelection::WidgetSelection(FormWindow *parent)   :
 
 void WidgetSelection::setWidget(QWidget *w)
 {
-    if (m_widget != 0)
+    if (m_widget != nullptr)
         m_widget->removeEventFilter(this);
 
-    if (w == 0) {
+    if (w == nullptr) {
         hide();
-        m_widget = 0;
+        m_widget = nullptr;
         return;
     }
 
@@ -621,7 +606,7 @@ void WidgetSelection::updateActive()
 
 bool WidgetSelection::isUsed() const
 {
-    return m_widget != 0;
+    return m_widget != nullptr;
 }
 
 void WidgetSelection::updateGeometry()
@@ -673,8 +658,7 @@ void WidgetSelection::updateGeometry()
 
 void WidgetSelection::hide()
 {
-    for (int i = WidgetHandle::LeftTop; i < WidgetHandle::TypeCount; ++i) {
-        WidgetHandle *h = m_handles[ i ];
+    for (WidgetHandle *h : m_handles) {
         if (h)
             h->hide();
     }
@@ -682,8 +666,7 @@ void WidgetSelection::hide()
 
 void WidgetSelection::show()
 {
-    for (int i = WidgetHandle::LeftTop; i < WidgetHandle::TypeCount; ++i) {
-        WidgetHandle *h = m_handles[ i ];
+    for (WidgetHandle *h : m_handles) {
         if (h) {
             h->show();
             h->raise();
@@ -693,8 +676,7 @@ void WidgetSelection::show()
 
 void WidgetSelection::update()
 {
-    for (int i = WidgetHandle::LeftTop; i < WidgetHandle::TypeCount; ++i) {
-        WidgetHandle *h = m_handles[ i ];
+    for (WidgetHandle *h : m_handles) {
         if (h)
             h->update();
     }
@@ -710,7 +692,7 @@ QDesignerFormEditorInterface *WidgetSelection::core() const
     if (m_formWindow)
         return m_formWindow->core();
 
-    return 0;
+    return nullptr;
 }
 
 bool WidgetSelection::eventFilter(QObject *object, QEvent *event)

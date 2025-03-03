@@ -48,6 +48,8 @@
         <xsl:when test="$text='pointsize'">pointSize</xsl:when>
         <xsl:when test="$text='strikeout'">strikeOut</xsl:when>
         <xsl:when test="$text='stylestrategy'">styleStrategy</xsl:when>
+        <xsl:when test="$text='hintingpreference'">hintingPreference</xsl:when>
+        <xsl:when test="$text='fontweight'">fontWeight</xsl:when>
         <xsl:when test="$text='hsizetype'">hSizeType</xsl:when>
         <xsl:when test="$text='vsizetype'">vSizeType</xsl:when>
         <xsl:when test="$text='horstretch'">horStretch</xsl:when>
@@ -142,7 +144,7 @@
             </xsl:when>
             <xsl:when test="$xs-type='xs:boolean'">
                 <xsl:value-of select="$val"/>
-                <xsl:text> == QLatin1String("true")</xsl:text>
+                <xsl:text> == u"true"_s</xsl:text>
             </xsl:when>
             <xsl:when test="$xs-type='xs:long'">
                 <xsl:value-of select="$val"/>
@@ -157,6 +159,23 @@
                 <xsl:text>.toULongLong()</xsl:text>
             </xsl:when>
             <xsl:otherwise>### BZZZZT! ###</xsl:otherwise>
+        </xsl:choose>
+    </xsl:template>
+
+    <xsl:template name="xs-type-from-qstringref-func">
+        <xsl:param name="xs-type"/>
+        <xsl:param name="val"/>
+        <xsl:choose>
+            <xsl:when test="$xs-type='xs:string'">
+                <xsl:value-of select="$val"/>
+                <xsl:text>.toString()</xsl:text>
+            </xsl:when>
+            <xsl:otherwise>
+                <xsl:call-template name="xs-type-from-qstring-func">
+                    <xsl:with-param name="xs-type" select="$xs-type"/>
+                    <xsl:with-param name="val" select="$val"/>
+                </xsl:call-template>
+            </xsl:otherwise>
         </xsl:choose>
     </xsl:template>
 
@@ -200,9 +219,7 @@
             <xsl:when test="$xs-type='xs:boolean'">
                 <xsl:text>(</xsl:text>
                 <xsl:value-of select="$val"/>
-                <!-- Note: Do not use QStringLiteral here as the types are not compatible:
-                     QConstStringData<5> vs QConstStringData<4> -->
-                <xsl:text> ? QLatin1String("true") : QLatin1String("false"))</xsl:text>
+                <xsl:text> ? u"true"_s : u"false"_s)</xsl:text>
             </xsl:when>
             <xsl:otherwise>### BZZZZT! ###</xsl:otherwise>
         </xsl:choose>
@@ -243,7 +260,7 @@
                     <xsl:when test="$xs-type='xs:long'">QList&lt;qlonglong&gt;</xsl:when>
                     <xsl:when test="$xs-type='xs:unsignedInt'">QList&lt;uint&gt;</xsl:when>
                     <xsl:when test="$xs-type='xs:unsignedLong'">QList&lt;qulonglong&gt;</xsl:when>
-                    <xsl:otherwise>QList&lt;Dom<xsl:value-of select="$xs-type"/>*&gt;</xsl:otherwise>
+                    <xsl:otherwise>QList&lt;Dom<xsl:value-of select="$xs-type"/> *&gt;</xsl:otherwise>
                 </xsl:choose>
             </xsl:when>
             <xsl:otherwise>
@@ -268,28 +285,28 @@
         <xsl:choose>
             <xsl:when test="$array">
                 <xsl:choose>
-                    <xsl:when test="$xs-type='xs:string'">QStringList</xsl:when>
-                    <xsl:when test="$xs-type='xs:integer'">QList&lt;int&gt;</xsl:when>
-                    <xsl:when test="$xs-type='xs:float'">QList&lt;float&gt;</xsl:when>
-                    <xsl:when test="$xs-type='xs:double'">QList&lt;double&gt;</xsl:when>
-                    <xsl:when test="$xs-type='xs:boolean'">QList&lt;bool&gt;</xsl:when>
-                    <xsl:when test="$xs-type='xs:long'">QList&lt;qlonglong&gt;</xsl:when>
-                    <xsl:when test="$xs-type='xs:unsignedInt'">QList&lt;uint&gt;</xsl:when>
-                    <xsl:when test="$xs-type='xs:unsignedLong'">QList&lt;qulonglong&gt;</xsl:when>
-                    <xsl:otherwise>QList&lt;Dom<xsl:value-of select="$xs-type"/>*&gt;</xsl:otherwise>
+                    <xsl:when test="$xs-type='xs:string'">QStringList </xsl:when>
+                    <xsl:when test="$xs-type='xs:integer'">QList&lt;int&gt; </xsl:when>
+                    <xsl:when test="$xs-type='xs:float'">QList&lt;float&gt; </xsl:when>
+                    <xsl:when test="$xs-type='xs:double'">QList&lt;double&gt; </xsl:when>
+                    <xsl:when test="$xs-type='xs:boolean'">QList&lt;bool&gt; </xsl:when>
+                    <xsl:when test="$xs-type='xs:long'">QList&lt;qlonglong&gt; </xsl:when>
+                    <xsl:when test="$xs-type='xs:unsignedInt'">QList&lt;uint&gt; </xsl:when>
+                    <xsl:when test="$xs-type='xs:unsignedLong'">QList&lt;qulonglong&gt; </xsl:when>
+                    <xsl:otherwise>QList&lt;Dom<xsl:value-of select="$xs-type"/> *&gt; </xsl:otherwise>
                 </xsl:choose>
             </xsl:when>
             <xsl:otherwise>
                 <xsl:choose>
-                    <xsl:when test="$xs-type='xs:string'">QString</xsl:when>
-                    <xsl:when test="$xs-type='xs:integer'">int</xsl:when>
-                    <xsl:when test="$xs-type='xs:float'">float</xsl:when>
-                    <xsl:when test="$xs-type='xs:double'">double</xsl:when>
-                    <xsl:when test="$xs-type='xs:boolean'">bool</xsl:when>
-                    <xsl:when test="$xs-type='xs:long'">qlonglong</xsl:when>
-                    <xsl:when test="$xs-type='xs:unsignedInt'">uint</xsl:when>
-                    <xsl:when test="$xs-type='xs:unsignedLong'">qulonglong</xsl:when>
-                    <xsl:otherwise>Dom<xsl:value-of select="$xs-type"/>*</xsl:otherwise>
+                    <xsl:when test="$xs-type='xs:string'">QString </xsl:when>
+                    <xsl:when test="$xs-type='xs:integer'">int </xsl:when>
+                    <xsl:when test="$xs-type='xs:float'">float </xsl:when>
+                    <xsl:when test="$xs-type='xs:double'">double </xsl:when>
+                    <xsl:when test="$xs-type='xs:boolean'">bool </xsl:when>
+                    <xsl:when test="$xs-type='xs:long'">qlonglong </xsl:when>
+                    <xsl:when test="$xs-type='xs:unsignedInt'">uint </xsl:when>
+                    <xsl:when test="$xs-type='xs:unsignedLong'">qulonglong </xsl:when>
+                    <xsl:otherwise>Dom<xsl:value-of select="$xs-type"/> *</xsl:otherwise>
                 </xsl:choose>
             </xsl:otherwise>
         </xsl:choose>
@@ -301,28 +318,28 @@
         <xsl:choose>
             <xsl:when test="$array">
                 <xsl:choose>
-                    <xsl:when test="$xs-type='xs:string'">const QStringList&amp;</xsl:when>
-                    <xsl:when test="$xs-type='xs:integer'">const QList&lt;int&gt;&amp;</xsl:when>
-                    <xsl:when test="$xs-type='xs:float'">const QList&lt;float&gt;&amp;</xsl:when>
-                    <xsl:when test="$xs-type='xs:double'">const QList&lt;double&gt;&amp;</xsl:when>
-                    <xsl:when test="$xs-type='xs:boolean'">const QList&lt;bool&gt;&amp;</xsl:when>
-                    <xsl:when test="$xs-type='xs:long'">const QList&lt;qlonglong&gt;&amp;</xsl:when>
-                    <xsl:when test="$xs-type='xs:unsignedInt'">const QList&lt;uint&gt;&amp;</xsl:when>
-                    <xsl:when test="$xs-type='xs:unsignedLong'">const QList&lt;qulonglong&gt;&amp;</xsl:when>
-                    <xsl:otherwise>const QList&lt;Dom<xsl:value-of select="$xs-type"/>*&gt;&amp;</xsl:otherwise>
+                    <xsl:when test="$xs-type='xs:string'">const QStringList &amp;</xsl:when>
+                    <xsl:when test="$xs-type='xs:integer'">const QList&lt;int&gt; &amp;</xsl:when>
+                    <xsl:when test="$xs-type='xs:float'">const QList&lt;float&gt; &amp;</xsl:when>
+                    <xsl:when test="$xs-type='xs:double'">const QList&lt;double&gt; &amp;</xsl:when>
+                    <xsl:when test="$xs-type='xs:boolean'">const QList&lt;bool&gt; &amp;</xsl:when>
+                    <xsl:when test="$xs-type='xs:long'">const QList&lt;qlonglong&gt; &amp;</xsl:when>
+                    <xsl:when test="$xs-type='xs:unsignedInt'">const QList&lt;uint&gt; &amp;</xsl:when>
+                    <xsl:when test="$xs-type='xs:unsignedLong'">const QList&lt;qulonglong&gt; &amp;</xsl:when>
+                    <xsl:otherwise>const QList&lt;Dom<xsl:value-of select="$xs-type"/> *&gt; &amp;</xsl:otherwise>
                 </xsl:choose>
             </xsl:when>
             <xsl:otherwise>
                 <xsl:choose>
-                    <xsl:when test="$xs-type='xs:string'">const QString&amp;</xsl:when>
-                    <xsl:when test="$xs-type='xs:integer'">int</xsl:when>
-                    <xsl:when test="$xs-type='xs:float'">float</xsl:when>
-                    <xsl:when test="$xs-type='xs:double'">double</xsl:when>
-                    <xsl:when test="$xs-type='xs:boolean'">bool</xsl:when>
-                    <xsl:when test="$xs-type='xs:long'">qlonglong</xsl:when>
-                    <xsl:when test="$xs-type='xs:unsignedInt'">uint</xsl:when>
-                    <xsl:when test="$xs-type='xs:unsignedLong'">qulonglong</xsl:when>
-                    <xsl:otherwise>Dom<xsl:value-of select="$xs-type"/>*</xsl:otherwise>
+                    <xsl:when test="$xs-type='xs:string'">const QString &amp;</xsl:when>
+                    <xsl:when test="$xs-type='xs:integer'">int </xsl:when>
+                    <xsl:when test="$xs-type='xs:float'">float </xsl:when>
+                    <xsl:when test="$xs-type='xs:double'">double </xsl:when>
+                    <xsl:when test="$xs-type='xs:boolean'">bool </xsl:when>
+                    <xsl:when test="$xs-type='xs:long'">qlonglong </xsl:when>
+                    <xsl:when test="$xs-type='xs:unsignedInt'">uint </xsl:when>
+                    <xsl:when test="$xs-type='xs:unsignedLong'">qulonglong </xsl:when>
+                    <xsl:otherwise>Dom<xsl:value-of select="$xs-type"/> *</xsl:otherwise>
                 </xsl:choose>
             </xsl:otherwise>
         </xsl:choose>

@@ -1,2 +1,3 @@
 TEMPLATE = subdirs
-SUBDIRS += uiloader
+SUBDIRS += \
+    qtattributionsscanner

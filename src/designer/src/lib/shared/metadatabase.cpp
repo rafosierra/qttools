@@ -1,44 +1,14 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "metadatabase_p.h"
 #include "widgetdatabase_p.h"
 
 // sdk
-#include <QtDesigner/QDesignerFormEditorInterface>
+#include <QtDesigner/abstractformeditor.h>
 
 // Qt
-#include <QtWidgets/QWidget>
+#include <QtWidgets/qwidget.h>
 #include <QtCore/qalgorithms.h>
 #include <QtCore/qdebug.h>
 
@@ -56,9 +26,7 @@ MetaDataBaseItem::MetaDataBaseItem(QObject *object)
 {
 }
 
-MetaDataBaseItem::~MetaDataBaseItem()
-{
-}
+MetaDataBaseItem::~MetaDataBaseItem() = default;
 
 QString MetaDataBaseItem::name() const
 {
@@ -82,12 +50,12 @@ void MetaDataBaseItem::setCustomClassName(const QString &customClassName)
 }
 
 
-MetaDataBaseItem::TabOrder  MetaDataBaseItem::tabOrder() const
+QWidgetList MetaDataBaseItem::tabOrder() const
 {
     return m_tabOrder;
 }
 
-void MetaDataBaseItem::setTabOrder(const TabOrder &tabOrder)
+void MetaDataBaseItem::setTabOrder(const QWidgetList &tabOrder)
 {
     m_tabOrder = tabOrder;
 }
@@ -137,15 +105,15 @@ MetaDataBase::~MetaDataBase()
 MetaDataBaseItem *MetaDataBase::metaDataBaseItem(QObject *object) const
 {
     MetaDataBaseItem *i = m_items.value(object);
-    if (i == 0 || !i->enabled())
-        return 0;
+    if (i == nullptr || !i->enabled())
+        return nullptr;
     return i;
 }
 
 void MetaDataBase::add(QObject *object)
 {
     MetaDataBaseItem *item = m_items.value(object);
-    if (item != 0) {
+    if (item != nullptr) {
         item->setEnabled(true);
         if (debugMetaDatabase) {
             qDebug() << "MetaDataBase::add: Existing item for " << object->metaObject()->className() << item->name();
@@ -158,8 +126,7 @@ void MetaDataBase::add(QObject *object)
     if (debugMetaDatabase) {
         qDebug() << "MetaDataBase::add: New item " << object->metaObject()->className() << item->name();
     }
-    connect(object, SIGNAL(destroyed(QObject*)),
-        this, SLOT(slotDestroyed(QObject*)));
+    connect(object, &QObject::destroyed, this, &MetaDataBase::slotDestroyed);
 
     emit changed();
 }
@@ -174,12 +141,11 @@ void MetaDataBase::remove(QObject *object)
     }
 }
 
-QList<QObject*> MetaDataBase::objects() const
+QObjectList MetaDataBase::objects() const
 {
-    QList<QObject*> result;
+    QObjectList result;
 
-    ItemMap::const_iterator it = m_items.begin();
-    for (; it != m_items.end(); ++it) {
+    for (auto it = m_items.cbegin(), cend = m_items.cend(); it != cend; ++it) {
         if (it.value()->enabled())
             result.append(it.key());
     }

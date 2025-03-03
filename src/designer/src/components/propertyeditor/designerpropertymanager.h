@@ -1,56 +1,27 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #ifndef DESIGNERPROPERTYMANAGER_H
 #define DESIGNERPROPERTYMANAGER_H
 
-#include "qtvariantproperty.h"
+#include "qtvariantproperty_p.h"
 #include "brushpropertymanager.h"
 #include "fontpropertymanager.h"
 
 #include <qdesigner_utils_p.h>
 #include <shared_enums_p.h>
 
-#include <QtCore/QUrl>
-#include <QtCore/QMap>
-#include <QtGui/QFont>
-#include <QtGui/QIcon>
+#include <QtCore/qurl.h>
+#include <QtCore/qhash.h>
+#include <QtGui/qfont.h>
+#include <QtGui/qicon.h>
 
 QT_BEGIN_NAMESPACE
 
-typedef QPair<QString, uint> DesignerIntPair;
-typedef QList<DesignerIntPair> DesignerFlagList;
+using DesignerIntPair = std::pair<QString, uint>;
+using DesignerFlagList = QList<DesignerIntPair>;
 
+class QComboBox;
 class QDesignerFormEditorInterface;
 class QLineEdit;
 class QUrl;
@@ -71,7 +42,7 @@ class ResetDecorator : public QObject
 {
     Q_OBJECT
 public:
-    explicit ResetDecorator(const QDesignerFormEditorInterface *core, QObject *parent = Q_NULLPTR);
+    explicit ResetDecorator(const QDesignerFormEditorInterface *core, QObject *parent = nullptr);
     ~ResetDecorator();
 
     void connectPropertyManager(QtAbstractPropertyManager *manager);
@@ -85,8 +56,8 @@ private slots:
     void slotPropertyChanged(QtProperty *property);
     void slotEditorDestroyed(QObject *object);
 private:
-    QMap<QtProperty *, QList<ResetWidget *> > m_createdResetWidgets;
-    QMap<ResetWidget *, QtProperty *> m_resetWidgetToProperty;
+    QHash<const QtProperty *, QList<ResetWidget *>> m_createdResetWidgets;
+    QHash<ResetWidget *, QtProperty *> m_resetWidgetToProperty;
     int m_spacing;
     const QDesignerFormEditorInterface *m_core;
 };
@@ -109,14 +80,16 @@ public:
                  int expectedTypeId, const QVariant &value);
 
 private:
-    QMap<QtProperty *, PropertySheetValue> m_values;
-    QMap<QtProperty *, QtProperty *> m_valueToComment;
-    QMap<QtProperty *, QtProperty *> m_valueToTranslatable;
-    QMap<QtProperty *, QtProperty *> m_valueToDisambiguation;
+    QHash<const QtProperty *, PropertySheetValue> m_values;
+    QHash<const QtProperty *, QtProperty *> m_valueToComment;
+    QHash<const QtProperty *, QtProperty *> m_valueToTranslatable;
+    QHash<const QtProperty *, QtProperty *> m_valueToDisambiguation;
+    QHash<const QtProperty *, QtProperty *> m_valueToId;
 
-    QMap<QtProperty *, QtProperty *> m_commentToValue;
-    QMap<QtProperty *, QtProperty *> m_translatableToValue;
-    QMap<QtProperty *, QtProperty *> m_disambiguationToValue;
+    QHash<const QtProperty *, QtProperty *> m_commentToValue;
+    QHash<const QtProperty *, QtProperty *> m_translatableToValue;
+    QHash<const QtProperty *, QtProperty *> m_disambiguationToValue;
+    QHash<const QtProperty *, QtProperty *> m_idToValue;
 };
 
 class DesignerPropertyManager : public QtVariantPropertyManager
@@ -125,19 +98,20 @@ class DesignerPropertyManager : public QtVariantPropertyManager
 public:
     enum ValueChangedResult { NoMatch, Unchanged, Changed };
 
-    explicit DesignerPropertyManager(QDesignerFormEditorInterface *core, QObject *parent = 0);
+    explicit DesignerPropertyManager(QDesignerFormEditorInterface *core, QObject *parent = nullptr);
     ~DesignerPropertyManager();
 
-    QStringList attributes(int propertyType) const Q_DECL_OVERRIDE;
-    int attributeType(int propertyType, const QString &attribute) const Q_DECL_OVERRIDE;
+    QStringList attributes(int propertyType) const override;
+    int attributeType(int propertyType, const QString &attribute) const override;
 
-    QVariant attributeValue(const QtProperty *property, const QString &attribute) const Q_DECL_OVERRIDE;
-    bool isPropertyTypeSupported(int propertyType) const Q_DECL_OVERRIDE;
-    QVariant value(const QtProperty *property) const Q_DECL_OVERRIDE;
-    int valueType(int propertyType) const Q_DECL_OVERRIDE;
-    QString valueText(const QtProperty *property) const Q_DECL_OVERRIDE;
-    QIcon valueIcon(const QtProperty *property) const Q_DECL_OVERRIDE;
+    QVariant attributeValue(const QtProperty *property, const QString &attribute) const override;
+    bool isPropertyTypeSupported(int propertyType) const override;
+    QVariant value(const QtProperty *property) const override;
+    int valueType(int propertyType) const override;
+    QString valueText(const QtProperty *property) const override;
+    QIcon valueIcon(const QtProperty *property) const override;
 
+    bool resetTextAlignmentProperty(QtProperty *property);
     bool resetFontSubProperty(QtProperty *property);
     bool resetIconSubProperty(QtProperty *subProperty);
 
@@ -154,39 +128,43 @@ public:
 
     void setObject(QObject *object) { m_object = object; }
 
+    static void setUseIdBasedTranslations(bool v)
+        { m_IdBasedTranslations = v; }
+    static bool useIdBasedTranslations()
+        { return m_IdBasedTranslations; }
+
+    static QString alignDefaultAttribute();
+
+    static uint alignDefault(const QtVariantProperty *prop);
+
 public Q_SLOTS:
-    virtual void setAttribute(QtProperty *property,
-                const QString &attribute, const QVariant &value);
-    void setValue(QtProperty *property, const QVariant &value) Q_DECL_OVERRIDE;
+    void setAttribute(QtProperty *property, const QString &attribute, const QVariant &value) override;
+    void setValue(QtProperty *property, const QVariant &value) override;
 Q_SIGNALS:
     // sourceOfChange - a subproperty (or just property) which caused a change
     //void valueChanged(QtProperty *property, const QVariant &value, QtProperty *sourceOfChange);
     void valueChanged(QtProperty *property, const QVariant &value, bool enableSubPropertyHandling);
 protected:
-    void initializeProperty(QtProperty *property) Q_DECL_OVERRIDE;
-    void uninitializeProperty(QtProperty *property) Q_DECL_OVERRIDE;
+    void initializeProperty(QtProperty *property) override;
+    void uninitializeProperty(QtProperty *property) override;
 private Q_SLOTS:
     void slotValueChanged(QtProperty *property, const QVariant &value);
     void slotPropertyDestroyed(QtProperty *property);
 private:
     void createIconSubProperty(QtProperty *iconProperty, QIcon::Mode mode, QIcon::State state, const QString &subName);
 
-    typedef QMap<QtProperty *, bool> PropertyBoolMap;
-    PropertyBoolMap m_resetMap;
+    QHash<const QtProperty *, bool> m_resetMap;
 
-    int bitCount(int mask) const;
     struct FlagData
     {
-        FlagData() : val(0) {}
-        uint val;
+        uint val{0};
         DesignerFlagList flags;
         QList<uint> values;
     };
-    typedef QMap<QtProperty *, FlagData> PropertyFlagDataMap;
-    PropertyFlagDataMap m_flagValues;
-    typedef  QMap<QtProperty *, QList<QtProperty *> > PropertyToPropertyListMap;
-    PropertyToPropertyListMap m_propertyToFlags;
-    QMap<QtProperty *, QtProperty *> m_flagToProperty;
+
+    QHash<const QtProperty *, FlagData> m_flagValues;
+    QHash<const QtProperty *, QList<QtProperty *>> m_propertyToFlags;
+    QHash<const QtProperty *, QtProperty *> m_flagToProperty;
 
     int alignToIndexH(uint align) const;
     int alignToIndexV(uint align) const;
@@ -194,17 +172,19 @@ private:
     uint indexVToAlign(int idx) const;
     QString indexHToString(int idx) const;
     QString indexVToString(int idx) const;
-    QMap<QtProperty *, uint> m_alignValues;
-    typedef QMap<QtProperty *, QtProperty *> PropertyToPropertyMap;
+    QHash<const QtProperty *, uint> m_alignValues;
+    using PropertyToPropertyMap = QHash<const QtProperty *, QtProperty *>;
     PropertyToPropertyMap m_propertyToAlignH;
     PropertyToPropertyMap m_propertyToAlignV;
     PropertyToPropertyMap m_alignHToProperty;
     PropertyToPropertyMap m_alignVToProperty;
+    QHash<const QtProperty *, Qt::Alignment> m_alignDefault;
 
-    QMap<QtProperty *, QMap<QPair<QIcon::Mode, QIcon::State>, QtProperty *> > m_propertyToIconSubProperties;
-    QMap<QtProperty *, QPair<QIcon::Mode, QIcon::State> > m_iconSubPropertyToState;
+    QHash<const QtProperty *, QMap<std::pair<QIcon::Mode, QIcon::State>, QtProperty *>> m_propertyToIconSubProperties;
+    QHash<const QtProperty *, std::pair<QIcon::Mode, QIcon::State>> m_iconSubPropertyToState;
     PropertyToPropertyMap m_iconSubPropertyToProperty;
     PropertyToPropertyMap m_propertyToTheme;
+    PropertyToPropertyMap m_propertyToThemeEnum;
 
     TranslatablePropertyManager<PropertySheetStringValue> m_stringManager;
     TranslatablePropertyManager<PropertySheetKeySequenceValue> m_keySequenceManager;
@@ -215,29 +195,28 @@ private:
         QPalette val;
         QPalette superPalette;
     };
-    typedef QMap<QtProperty *, PaletteData>  PropertyPaletteDataMap;
-    PropertyPaletteDataMap m_paletteValues;
+    QHash<const QtProperty *, PaletteData> m_paletteValues;
 
-    QMap<QtProperty *, qdesigner_internal::PropertySheetPixmapValue> m_pixmapValues;
-    QMap<QtProperty *, qdesigner_internal::PropertySheetIconValue> m_iconValues;
+    QHash<const QtProperty *, qdesigner_internal::PropertySheetPixmapValue> m_pixmapValues;
+    QHash<const QtProperty *, qdesigner_internal::PropertySheetIconValue> m_iconValues;
 
-    QMap<QtProperty *, uint> m_uintValues;
-    QMap<QtProperty *, qlonglong> m_longLongValues;
-    QMap<QtProperty *, qulonglong> m_uLongLongValues;
-    QMap<QtProperty *, QUrl> m_urlValues;
-    QMap<QtProperty *, QByteArray> m_byteArrayValues;
+    QHash<const QtProperty *, int> m_intValues;
+    QHash<const QtProperty *, uint> m_uintValues;
+    QHash<const QtProperty *, qlonglong> m_longLongValues;
+    QHash<const QtProperty *, qulonglong> m_uLongLongValues;
+    QHash<const QtProperty *, QUrl> m_urlValues;
+    QHash<const QtProperty *, QByteArray> m_byteArrayValues;
 
-    typedef QMap<QtProperty *, int>  PropertyIntMap;
-    PropertyIntMap m_stringAttributes;
-    typedef QMap<QtProperty *, QFont>  PropertyFontMap;
-    PropertyFontMap m_stringFontAttributes;
-    PropertyBoolMap m_stringThemeAttributes;
+    QHash<const QtProperty *, int> m_stringAttributes;
+    QHash<const QtProperty *, QFont> m_stringFontAttributes;
+    QHash<const QtProperty *, bool> m_stringThemeAttributes;
+    QHash<const QtProperty *, bool> m_intThemeEnumAttributes;
 
     BrushPropertyManager m_brushManager;
     FontPropertyManager m_fontManager;
 
-    QMap<QtProperty *, QPixmap> m_defaultPixmaps;
-    QMap<QtProperty *, QIcon> m_defaultIcons;
+    QHash<const QtProperty *, QPixmap> m_defaultPixmaps;
+    QHash<const QtProperty *, QIcon> m_defaultIcons;
 
     bool m_changingSubValue;
     QDesignerFormEditorInterface *m_core;
@@ -245,23 +224,24 @@ private:
     QObject *m_object;
 
     QtProperty *m_sourceOfChange;
+    static bool m_IdBasedTranslations;
 };
 
 class DesignerEditorFactory : public QtVariantEditorFactory
 {
     Q_OBJECT
 public:
-    explicit DesignerEditorFactory(QDesignerFormEditorInterface *core, QObject *parent = 0);
+    explicit DesignerEditorFactory(QDesignerFormEditorInterface *core, QObject *parent = nullptr);
     ~DesignerEditorFactory();
     void setSpacing(int spacing);
     void setFormWindowBase(FormWindowBase *fwb);
 signals:
     void resetProperty(QtProperty *property);
 protected:
-    void connectPropertyManager(QtVariantPropertyManager *manager);
+    void connectPropertyManager(QtVariantPropertyManager *manager) override;
     QWidget *createEditor(QtVariantPropertyManager *manager, QtProperty *property,
-                QWidget *parent);
-    void disconnectPropertyManager(QtVariantPropertyManager *manager);
+                QWidget *parent) override;
+    void disconnectPropertyManager(QtVariantPropertyManager *manager) override;
 private slots:
     void slotEditorDestroyed(QObject *object);
     void slotAttributeChanged(QtProperty *property, const QString &attribute, const QVariant &value);
@@ -273,7 +253,9 @@ private slots:
     void slotPixmapChanged(const QString &value);
     void slotIconChanged(const QString &value);
     void slotIconThemeChanged(const QString &value);
+    void slotIconThemeEnumChanged(int value);
     void slotUintChanged(const QString &value);
+    void slotIntChanged(int);
     void slotLongLongChanged(const QString &value);
     void slotULongLongChanged(const QString &value);
     void slotUrlChanged(const QString &value);
@@ -283,34 +265,36 @@ private:
     TextEditor *createTextEditor(QWidget *parent, TextPropertyValidationMode vm, const QString &value);
 
     ResetDecorator *m_resetDecorator;
-    bool m_changingPropertyValue;
+    bool m_changingPropertyValue = false;
     QDesignerFormEditorInterface *m_core;
-    FormWindowBase *m_fwb;
+    FormWindowBase *m_fwb = nullptr;
 
-    int m_spacing;
+    int m_spacing = -1;
 
-    QMap<QtProperty *, QList<TextEditor *> >                m_stringPropertyToEditors;
-    QMap<TextEditor *, QtProperty *>                        m_editorToStringProperty;
-    QMap<QtProperty *, QList<QKeySequenceEdit *> >         m_keySequencePropertyToEditors;
-    QMap<QKeySequenceEdit *, QtProperty *>                 m_editorToKeySequenceProperty;
-    QMap<QtProperty *, QList<PaletteEditorButton *> >       m_palettePropertyToEditors;
-    QMap<PaletteEditorButton *, QtProperty *>               m_editorToPaletteProperty;
-    QMap<QtProperty *, QList<PixmapEditor *> >              m_pixmapPropertyToEditors;
-    QMap<PixmapEditor *, QtProperty *>                      m_editorToPixmapProperty;
-    QMap<QtProperty *, QList<PixmapEditor *> >              m_iconPropertyToEditors;
-    QMap<PixmapEditor *, QtProperty *>                      m_editorToIconProperty;
-    QMap<QtProperty *, QList<QLineEdit *> >                 m_uintPropertyToEditors;
-    QMap<QLineEdit *, QtProperty *>                         m_editorToUintProperty;
-    QMap<QtProperty *, QList<QLineEdit *> >                 m_longLongPropertyToEditors;
-    QMap<QLineEdit *, QtProperty *>                         m_editorToLongLongProperty;
-    QMap<QtProperty *, QList<QLineEdit *> >                 m_uLongLongPropertyToEditors;
-    QMap<QLineEdit *, QtProperty *>                         m_editorToULongLongProperty;
-    QMap<QtProperty *, QList<TextEditor *> >                m_urlPropertyToEditors;
-    QMap<TextEditor *, QtProperty *>                        m_editorToUrlProperty;
-    QMap<QtProperty *, QList<TextEditor *> >                m_byteArrayPropertyToEditors;
-    QMap<TextEditor *, QtProperty *>                        m_editorToByteArrayProperty;
-    QMap<QtProperty *, QList<StringListEditorButton *> >    m_stringListPropertyToEditors;
-    QMap<StringListEditorButton *, QtProperty *>            m_editorToStringListProperty;
+    QHash<const QtProperty *, QList<TextEditor *>>             m_stringPropertyToEditors;
+    QHash<TextEditor *, QtProperty *>                          m_editorToStringProperty;
+    QHash<const QtProperty *, QList<QKeySequenceEdit *>>       m_keySequencePropertyToEditors;
+    QHash<QKeySequenceEdit *, QtProperty *>                    m_editorToKeySequenceProperty;
+    QHash<const QtProperty *, QList<PaletteEditorButton *>>    m_palettePropertyToEditors;
+    QHash<PaletteEditorButton *, QtProperty *>                 m_editorToPaletteProperty;
+    QHash<const QtProperty *, QList<PixmapEditor *>>           m_pixmapPropertyToEditors;
+    QHash<PixmapEditor *, QtProperty *>                        m_editorToPixmapProperty;
+    QHash<const QtProperty *, QList<PixmapEditor *>>           m_iconPropertyToEditors;
+    QHash<PixmapEditor *, QtProperty *>                        m_editorToIconProperty;
+    QHash<const QtProperty *, QList<QComboBox *>>              m_intPropertyToComboEditors;
+    QHash<QComboBox *, QtProperty *>                           m_comboEditorToIntProperty;
+    QHash<const QtProperty *, QList<QLineEdit *>>              m_uintPropertyToEditors;
+    QHash<QLineEdit *, QtProperty *>                           m_editorToUintProperty;
+    QHash<const QtProperty *, QList<QLineEdit *>>              m_longLongPropertyToEditors;
+    QHash<QLineEdit *, QtProperty *>                           m_editorToLongLongProperty;
+    QHash<const QtProperty *, QList<QLineEdit *>>              m_uLongLongPropertyToEditors;
+    QHash<QLineEdit *, QtProperty *>                           m_editorToULongLongProperty;
+    QHash<const QtProperty *, QList<TextEditor *>>             m_urlPropertyToEditors;
+    QHash<TextEditor *, QtProperty *>                          m_editorToUrlProperty;
+    QHash<const QtProperty *, QList<TextEditor *>>             m_byteArrayPropertyToEditors;
+    QHash<TextEditor *, QtProperty *>                          m_editorToByteArrayProperty;
+    QHash<const QtProperty *, QList<StringListEditorButton *>> m_stringListPropertyToEditors;
+    QHash<StringListEditorButton *, QtProperty *>              m_editorToStringListProperty;
 };
 
 } // namespace qdesigner_internal

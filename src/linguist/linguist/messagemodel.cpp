@@ -1,37 +1,10 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "messagemodel.h"
+
+#include "globals.h"
+#include "statistics.h"
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QDebug>
@@ -45,6 +18,71 @@
 
 #include <limits.h>
 
+using namespace Qt::Literals::StringLiterals;
+
+static QString resolveNcr(QStringView str)
+{
+    constexpr QStringView notation = u"&#";
+    constexpr QChar cx = u'x';
+    constexpr QChar ce = u';';
+
+    QString result;
+    result.reserve(str.size());
+    qsizetype offset = str.indexOf(notation);
+    while (offset >= 0) {
+
+        qsizetype metaLen = 2;
+        if (str.size() <= offset + metaLen)
+            break;
+
+        int base = 10;
+        if (const QChar ch = str[offset + metaLen]; ch == cx) {
+            metaLen++;
+            base = 16;
+        }
+        offset += metaLen;
+
+        const qsizetype end = str.sliced(offset).indexOf(ce);
+        if (end > 0) {
+            bool valid;
+            if (const uint c = str.sliced(offset, end).toUInt(&valid, base);
+                valid && c <= QChar::LastValidCodePoint) {
+                if (QChar::requiresSurrogates(c))
+                    result += str.sliced(0, offset - metaLen) + QChar(QChar::highSurrogate(c))
+                            + QChar(QChar::lowSurrogate(c));
+                else
+                    result += str.sliced(0, offset - metaLen) + QChar(c);
+                str.slice(offset + end + 1);
+                offset = str.indexOf(notation);
+                continue;
+            }
+        }
+        result += str.sliced(0, offset);
+        str.slice(offset);
+        offset = str.indexOf(notation);
+    }
+    result += str;
+    return result;
+}
+
+static QString showNcr(const QString &str)
+{
+    QString result;
+    result.reserve(str.size());
+    for (const QChar ch : str) {
+        if (uint c = ch.unicode(); Q_UNLIKELY(!ch.isPrint() && c > 0x20))
+            result += QString("&#x%1;"_L1).arg(c, 0, 16);
+        else
+            result += ch;
+    }
+    return result;
+}
+
+static QString adjustNcrVisibility(const QString &str, bool ncrMode)
+{
+    return ncrMode ? showNcr(str) : resolveNcr(str);
+}
+
 QT_BEGIN_NAMESPACE
 
 /******************************************************************************
@@ -54,8 +92,7 @@ QT_BEGIN_NAMESPACE
  *****************************************************************************/
 
 MessageItem::MessageItem(const TranslatorMessage &message)
-  : m_message(message),
-    m_danger(false)
+    : m_message(message), m_danger(false), m_ncrMode(false)
 {
     if (m_message.translation().isEmpty())
         m_message.setTranslation(QString());
@@ -68,6 +105,45 @@ bool MessageItem::compare(const QString &findText, bool matchSubstring,
     return matchSubstring
         ? text().indexOf(findText, 0, cs) >= 0
         : text().compare(findText, cs) == 0;
+}
+
+void MessageItem::setTranslation(const QString &translation)
+{
+    m_message.setTranslation(resolveNcr(translation));
+}
+
+QString MessageItem::text() const
+{
+    return adjustNcrVisibility(m_message.sourceText(), m_ncrMode);
+}
+
+QString MessageItem::pluralText() const
+{
+    return adjustNcrVisibility(m_message.extra("po-msgid_plural"_L1), m_ncrMode);
+}
+
+QString MessageItem::translation() const
+{
+    return adjustNcrVisibility(m_message.translation(), m_ncrMode);
+}
+
+QStringList MessageItem::translations() const
+{
+    QStringList translations;
+    translations.reserve(m_message.translations().size());
+    for (QString &trans : m_message.translations())
+        translations.append(adjustNcrVisibility(trans, m_ncrMode));
+    return translations;
+}
+
+void MessageItem::setTranslations(const QStringList &translations)
+{
+    QStringList trans;
+    trans.reserve(translations.size());
+    for (const QString &t : translations)
+        trans.append(resolveNcr(t));
+
+    m_message.setTranslations(trans);
 }
 
 /******************************************************************************
@@ -87,15 +163,15 @@ ContextItem::ContextItem(const QString &context)
 void ContextItem::appendToComment(const QString &str)
 {
     if (!m_comment.isEmpty())
-        m_comment += QLatin1String("\n\n");
+        m_comment += "\n\n"_L1;
     m_comment += str;
 }
 
 MessageItem *ContextItem::messageItem(int i) const
 {
-    if (i >= 0 && i < msgItemList.count())
+    if (i >= 0 && i < msgItemList.size())
         return const_cast<MessageItem *>(&msgItemList[i]);
-    Q_ASSERT(i >= 0 && i < msgItemList.count());
+    Q_ASSERT(i >= 0 && i < msgItemList.size());
     return 0;
 }
 
@@ -124,20 +200,26 @@ DataModel::DataModel(QObject *parent)
     m_srcCharsSpc(0),
     m_language(QLocale::Language(-1)),
     m_sourceLanguage(QLocale::Language(-1)),
-    m_country(QLocale::Country(-1)),
-    m_sourceCountry(QLocale::Country(-1))
+    m_territory(QLocale::Territory(-1)),
+    m_sourceTerritory(QLocale::Territory(-1))
 {}
 
 QStringList DataModel::normalizedTranslations(const MessageItem &m) const
 {
-    return Translator::normalizedTranslations(m.message(), m_numerusForms.count());
+    QStringList translations =
+            Translator::normalizedTranslations(m.message(), m_numerusForms.size());
+    QStringList ncrTranslations;
+    ncrTranslations.reserve(translations.size());
+    for (const QString &translate : translations)
+        ncrTranslations.append(adjustNcrVisibility(translate, m.ncrMode()));
+    return ncrTranslations;
 }
 
 ContextItem *DataModel::contextItem(int context) const
 {
-    if (context >= 0 && context < m_contextList.count())
+    if (context >= 0 && context < m_contextList.size())
         return const_cast<ContextItem *>(&m_contextList[context]);
-    Q_ASSERT(context >= 0 && context < m_contextList.count());
+    Q_ASSERT(context >= 0 && context < m_contextList.size());
     return 0;
 }
 
@@ -150,7 +232,7 @@ MessageItem *DataModel::messageItem(const DataIndex &index) const
 
 ContextItem *DataModel::findContext(const QString &context) const
 {
-    for (int c = 0; c < m_contextList.count(); ++c) {
+    for (int c = 0; c < m_contextList.size(); ++c) {
         ContextItem *ctx = contextItem(c);
         if (ctx->context() == context)
             return ctx;
@@ -194,7 +276,7 @@ bool DataModel::load(const QString &fileName, bool *langGuessed, QWidget *parent
 {
     Translator tor;
     ConversionData cd;
-    bool ok = tor.load(fileName, cd, QLatin1String("auto"));
+    bool ok = tor.load(fileName, cd, "auto"_L1);
     if (!ok) {
         QMessageBox::warning(parent, QObject::tr("Qt Linguist"), cd.error());
         return false;
@@ -207,19 +289,19 @@ bool DataModel::load(const QString &fileName, bool *langGuessed, QWidget *parent
         return false;
     }
 
-    Translator::Duplicates dupes = tor.resolveDuplicates();
+    const Translator::Duplicates dupes = tor.resolveDuplicates();
     if (!dupes.byId.isEmpty() || !dupes.byContents.isEmpty()) {
         QString err = tr("<qt>Duplicate messages found in '%1':").arg(fileName.toHtmlEscaped());
         int numdups = 0;
-        foreach (int i, dupes.byId) {
+        for (auto it = dupes.byId.begin(); it != dupes.byId.end(); ++it) {
             if (++numdups >= 5) {
                 err += tr("<p>[more duplicates omitted]");
                 goto doWarn;
             }
-            err += tr("<p>* ID: %1").arg(tor.message(i).id().toHtmlEscaped());
+            err += tr("<p>* ID: %1").arg(tor.message(it.key()).id().toHtmlEscaped());
         }
-        foreach (int j, dupes.byContents) {
-            const TranslatorMessage &msg = tor.message(j);
+        for (auto it = dupes.byContents.begin(); it != dupes.byContents.end(); ++it) {
+            const TranslatorMessage &msg = tor.message(it.key());
             if (++numdups >= 5) {
                 err += tr("<p>[more duplicates omitted]");
                 break;
@@ -245,7 +327,7 @@ bool DataModel::load(const QString &fileName, bool *langGuessed, QWidget *parent
     m_srcChars = 0;
     m_srcCharsSpc = 0;
 
-    foreach (const TranslatorMessage &msg, tor.messages()) {
+    for (const TranslatorMessage &msg : tor.messages()) {
         if (!contexts.contains(msg.context())) {
             contexts.insert(msg.context(), m_contextList.size());
             m_contextList.append(ContextItem(msg.context()));
@@ -279,23 +361,23 @@ bool DataModel::load(const QString &fileName, bool *langGuessed, QWidget *parent
     QString lang = tor.languageCode();
     if (lang.isEmpty()) {
         lang = QFileInfo(fileName).baseName();
-        int pos = lang.indexOf(QLatin1Char('_'));
-        if (pos != -1 && pos + 3 == lang.length())
-            lang = fileName.mid(pos + 1);
+        int pos = lang.indexOf(u'_');
+        if (pos != -1)
+            lang.remove(0, pos + 1);
         else
             lang.clear();
         *langGuessed = true;
     }
     QLocale::Language l;
-    QLocale::Country c;
-    Translator::languageAndCountry(lang, &l, &c);
+    QLocale::Territory c;
+    Translator::languageAndTerritory(lang, &l, &c);
     if (l == QLocale::C) {
         QLocale sys;
         l = sys.language();
-        c = sys.country();
+        c = sys.territory();
         *langGuessed = true;
     }
-    if (!setLanguageAndCountry(l, c))
+    if (!setLanguageAndTerritory(l, c))
         QMessageBox::warning(parent, QObject::tr("Qt Linguist"),
                              tr("Linguist does not know the plural rules for '%1'.\n"
                                 "Will assume a single universal form.")
@@ -307,11 +389,11 @@ bool DataModel::load(const QString &fileName, bool *langGuessed, QWidget *parent
     lang = tor.sourceLanguageCode();
     if (lang.isEmpty()) {
         l = QLocale::C;
-        c = QLocale::AnyCountry;
+        c = QLocale::AnyTerritory;
     } else {
-        Translator::languageAndCountry(lang, &l, &c);
+        Translator::languageAndTerritory(lang, &l, &c);
     }
-    setSourceLanguageAndCountry(l, c);
+    setSourceLanguageAndTerritory(l, c);
 
     setModified(false);
 
@@ -324,14 +406,14 @@ bool DataModel::save(const QString &fileName, QWidget *parent)
     for (DataModelIterator it(this); it.isValid(); ++it)
         tor.append(it.current()->message());
 
-    tor.setLanguageCode(Translator::makeLanguageCode(m_language, m_country));
-    tor.setSourceLanguageCode(Translator::makeLanguageCode(m_sourceLanguage, m_sourceCountry));
+    tor.setLanguageCode(Translator::makeLanguageCode(m_language, m_territory));
+    tor.setSourceLanguageCode(Translator::makeLanguageCode(m_sourceLanguage, m_sourceTerritory));
     tor.setLocationsType(m_relativeLocations ? Translator::RelativeLocations
                                              : Translator::AbsoluteLocations);
     tor.setExtras(m_extra);
     ConversionData cd;
     tor.normalizeTranslations(cd);
-    bool ok = tor.save(fileName, cd, QLatin1String("auto"));
+    bool ok = tor.save(fileName, cd, "auto"_L1);
     if (ok)
         setModified(false);
     if (!cd.error().isEmpty())
@@ -357,7 +439,7 @@ bool DataModel::release(const QString &fileName, bool verbose, bool ignoreUnfini
         return false;
     }
     Translator tor;
-    QLocale locale(m_language, m_country);
+    QLocale locale(m_language, m_territory);
     tor.setLanguageCode(locale.name());
     for (DataModelIterator it(this); it.isValid(); ++it)
         tor.append(it.current()->message());
@@ -373,10 +455,10 @@ bool DataModel::release(const QString &fileName, bool verbose, bool ignoreUnfini
 
 void DataModel::doCharCounting(const QString &text, int &trW, int &trC, int &trCS)
 {
-    trCS += text.length();
+    trCS += text.size();
     bool inWord = false;
-    for (int i = 0; i < text.length(); ++i) {
-        if (text[i].isLetterOrNumber() || text[i] == QLatin1Char('_')) {
+    for (int i = 0; i < text.size(); ++i) {
+        if (text[i].isLetterOrNumber() || text[i] == u'_') {
             if (!inWord) {
                 ++trW;
                 inWord = true;
@@ -389,18 +471,31 @@ void DataModel::doCharCounting(const QString &text, int &trW, int &trC, int &trC
     }
 }
 
-bool DataModel::setLanguageAndCountry(QLocale::Language lang, QLocale::Country country)
+bool DataModel::setLanguageAndTerritory(QLocale::Language lang, QLocale::Territory territory)
 {
-    if (m_language == lang && m_country == country)
+    if (m_language == lang && m_territory == territory)
         return true;
     m_language = lang;
-    m_country = country;
+    m_territory = territory;
 
     if (lang == QLocale::C || uint(lang) > uint(QLocale::LastLanguage)) // XXX does this make any sense?
         lang = QLocale::English;
     QByteArray rules;
-    bool ok = getNumerusInfo(lang, country, &rules, &m_numerusForms, 0);
-    m_localizedLanguage = QCoreApplication::translate("MessageEditor", QLocale::languageToString(lang).toLatin1());
+    bool ok = getNumerusInfo(lang, territory, &rules, &m_numerusForms, 0);
+    QLocale loc(lang, territory);
+    // Add territory name if we couldn't match the (lang, territory) combination,
+    // or if the language is used in more than one territory.
+    const bool mentionTerritory = (loc.territory() != territory) || [lang, territory]() {
+        const auto locales = QLocale::matchingLocales(lang, QLocale::AnyScript,
+                                                      QLocale::AnyTerritory);
+        return std::any_of(locales.cbegin(), locales.cend(), [territory](const QLocale &locale) {
+            return locale.territory() != territory;
+        });
+    }();
+    m_localizedLanguage = mentionTerritory
+            //: <language> (<territory>)
+            ? tr("%1 (%2)").arg(loc.nativeLanguageName(), loc.nativeTerritoryName())
+            : loc.nativeLanguageName();
     m_countRefNeeds.clear();
     for (int i = 0; i < rules.size(); ++i) {
         m_countRefNeeds.append(!(rules.at(i) == Q_EQ && (i == (rules.size() - 2) || rules.at(i + 2) == (char)Q_NEWRULE)));
@@ -416,29 +511,48 @@ bool DataModel::setLanguageAndCountry(QLocale::Language lang, QLocale::Country c
     return ok;
 }
 
-void DataModel::setSourceLanguageAndCountry(QLocale::Language lang, QLocale::Country country)
+void DataModel::setSourceLanguageAndTerritory(QLocale::Language lang, QLocale::Territory territory)
 {
-    if (m_sourceLanguage == lang && m_sourceCountry == country)
+    if (m_sourceLanguage == lang && m_sourceTerritory == territory)
         return;
     m_sourceLanguage = lang;
-    m_sourceCountry = country;
+    m_sourceTerritory = territory;
     setModified(true);
 }
 
 void DataModel::updateStatistics()
 {
-    int trW = 0;
-    int trC = 0;
-    int trCS = 0;
-
+    StatisticalData stats {};
     for (DataModelIterator it(this); it.isValid(); ++it) {
         const MessageItem *mi = it.current();
-        if (mi->isFinished())
-            foreach (const QString &trnsl, mi->translations())
-                doCharCounting(trnsl, trW, trC, trCS);
+        if (mi->isObsolete()) {
+            stats.obsoleteMsg++;
+        } else if (mi->isFinished()) {
+            bool hasDanger = false;
+            for (const QString &trnsl : mi->translations()) {
+                doCharCounting(trnsl, stats.wordsFinished, stats.charsFinished, stats.charsSpacesFinished);
+                hasDanger |= mi->danger();
+            }
+            if (hasDanger)
+                stats.translatedMsgDanger++;
+            else
+                stats.translatedMsgNoDanger++;
+        } else if (mi->isUnfinished()) {
+            bool hasDanger = false;
+            for (const QString &trnsl : mi->translations()) {
+                doCharCounting(trnsl, stats.wordsUnfinished, stats.charsUnfinished, stats.charsSpacesUnfinished);
+                hasDanger |= mi->danger();
+            }
+            if (hasDanger)
+                stats.unfinishedMsgDanger++;
+            else
+                stats.unfinishedMsgNoDanger++;
+        }
     }
-
-    emit statsChanged(m_srcWords, m_srcChars, m_srcCharsSpc, trW, trC, trCS);
+    stats.wordsSource = m_srcWords;
+    stats.charsSource = m_srcChars;
+    stats.charsSpacesSource = m_srcCharsSpc;
+    emit statsChanged(stats);
 }
 
 void DataModel::setModified(bool isModified)
@@ -451,15 +565,15 @@ void DataModel::setModified(bool isModified)
 
 QString DataModel::prettifyPlainFileName(const QString &fn)
 {
-    static QString workdir = QDir::currentPath() + QLatin1Char('/');
+    static QString workdir = QDir::currentPath() + u'/';
 
-    return QDir::toNativeSeparators(fn.startsWith(workdir) ? fn.mid(workdir.length()) : fn);
+    return QDir::toNativeSeparators(fn.startsWith(workdir) ? fn.mid(workdir.size()) : fn);
 }
 
 QString DataModel::prettifyFileName(const QString &fn)
 {
-    if (fn.startsWith(QLatin1Char('=')))
-        return QLatin1Char('=') + prettifyPlainFileName(fn.mid(1));
+    if (fn.startsWith(u'='))
+        return u'=' + prettifyPlainFileName(fn.mid(1));
     else
         return prettifyPlainFileName(fn);
 }
@@ -477,7 +591,7 @@ DataModelIterator::DataModelIterator(DataModel *model, int context, int message)
 
 bool DataModelIterator::isValid() const
 {
-    return m_context < m_model->m_contextList.count();
+    return m_context < m_model->m_contextList.size();
 }
 
 void DataModelIterator::operator++()
@@ -585,18 +699,18 @@ void MultiContextItem::putMessageItem(int pos, MessageItem *m)
 void MultiContextItem::appendMessageItems(const QList<MessageItem *> &m)
 {
     QList<MessageItem *> nullItems = m; // Basically, just a reservation
-    for (int i = 0; i < nullItems.count(); ++i)
+    for (int i = 0; i < nullItems.size(); ++i)
         nullItems[i] = 0;
-    for (int i = 0; i < m_messageLists.count() - 1; ++i)
+    for (int i = 0; i < m_messageLists.size() - 1; ++i)
         m_messageLists[i] += nullItems;
     m_messageLists.last() += m;
-    foreach (MessageItem *mi, m)
+    for (MessageItem *mi : m)
         m_multiMessageList.append(MultiMessageItem(mi));
 }
 
 void MultiContextItem::removeMultiMessageItem(int pos)
 {
-    for (int i = 0; i < m_messageLists.count(); ++i)
+    for (int i = 0; i < m_messageLists.size(); ++i)
         m_messageLists[i].removeAt(pos);
     m_multiMessageList.removeAt(pos);
 }
@@ -635,14 +749,24 @@ int MultiContextItem::findMessageById(const QString &id) const
  *
  *****************************************************************************/
 
-static const uchar paletteRGBs[7][3] = {
-    { 236, 244, 255 }, // blue
-    { 236, 255, 255 }, // cyan
-    { 236, 255, 232 }, // green
-    { 255, 255, 230 }, // yellow
-    { 255, 242, 222 }, // orange
-    { 255, 236, 236 }, // red
-    { 252, 236, 255 }  // purple
+static const QColor lightPaletteColors[7]{
+    QColor(210, 235, 250), // blue
+    QColor(210, 250, 220), // green
+    QColor(250, 240, 210), // yellow
+    QColor(210, 250, 250), // cyan
+    QColor(250, 230, 200), // orange
+    QColor(250, 210, 210), // red
+    QColor(235, 210, 250), // purple
+};
+
+static const QColor darkPaletteColors[7] = {
+    QColor(60, 80, 100), // blue
+    QColor(50, 90, 70), // green
+    QColor(100, 90, 50), // yellow
+    QColor(50, 90, 90), // cyan
+    QColor(100, 70, 50), // orange
+    QColor(90, 50, 50), // red
+    QColor(70, 50, 90), // purple
 };
 
 MultiDataModel::MultiDataModel(QObject *parent) :
@@ -652,8 +776,7 @@ MultiDataModel::MultiDataModel(QObject *parent) :
     m_numMessages(0),
     m_modified(false)
 {
-    for (int i = 0; i < 7; ++i)
-        m_colors[i] = QColor(paletteRGBs[i][0], paletteRGBs[i][1], paletteRGBs[i][2]);
+    updateColors();
 
     m_bitmap = QBitmap(8, 8);
     m_bitmap.clear();
@@ -675,6 +798,11 @@ QBrush MultiDataModel::brushForModel(int model) const
     if (!isModelWritable(model))
         brush.setTexture(m_bitmap);
     return brush;
+}
+
+void MultiDataModel::updateColors()
+{
+    m_colors = isDarkMode() ? darkPaletteColors : lightPaletteColors;
 }
 
 bool MultiDataModel::isWellMergeable(const DataModel *dm) const
@@ -768,15 +896,18 @@ void MultiDataModel::append(DataModel *dm, bool readWrite)
     }
     dm->setWritable(readWrite);
     updateCountsOnAdd(modelCount() - 1, readWrite);
-    connect(dm, SIGNAL(modifiedChanged()), SLOT(onModifiedChanged()));
-    connect(dm, SIGNAL(languageChanged()), SLOT(onLanguageChanged()));
-    connect(dm, SIGNAL(statsChanged(int,int,int,int,int,int)), SIGNAL(statsChanged(int,int,int,int,int,int)));
+    connect(dm, &DataModel::modifiedChanged,
+            this, &MultiDataModel::onModifiedChanged);
+    connect(dm, &DataModel::languageChanged,
+            this, &MultiDataModel::onLanguageChanged);
+    connect(dm, &DataModel::statsChanged,
+            this, &MultiDataModel::statsChanged);
     emit modelAppended();
 }
 
 void MultiDataModel::close(int model)
 {
-    if (m_dataModels.count() == 1) {
+    if (m_dataModels.size() == 1) {
         closeAll();
     } else {
         updateCountsOnRemove(model, isModelWritable(model));
@@ -838,7 +969,7 @@ QStringList MultiDataModel::prettifyFileNames(const QStringList &names)
 {
     QStringList out;
 
-    foreach (const QString &name, names)
+    for (const QString &name : names)
         out << DataModel::prettifyFileName(name);
     return out;
 }
@@ -848,62 +979,62 @@ QString MultiDataModel::condenseFileNames(const QStringList &names)
     if (names.isEmpty())
         return QString();
 
-    if (names.count() < 2)
+    if (names.size() < 2)
         return names.first();
 
     QString prefix = names.first();
-    if (prefix.startsWith(QLatin1Char('=')))
+    if (prefix.startsWith(u'='))
         prefix.remove(0, 1);
     QString suffix = prefix;
-    for (int i = 1; i < names.count(); ++i) {
+    for (int i = 1; i < names.size(); ++i) {
         QString fn = names[i];
-        if (fn.startsWith(QLatin1Char('=')))
+        if (fn.startsWith(u'='))
             fn.remove(0, 1);
-        for (int j = 0; j < prefix.length(); ++j)
+        for (int j = 0; j < prefix.size(); ++j)
             if (fn[j] != prefix[j]) {
-                if (j < prefix.length()) {
+                if (j < prefix.size()) {
                     while (j > 0 && prefix[j - 1].isLetterOrNumber())
                         --j;
                     prefix.truncate(j);
                 }
                 break;
             }
-        int fnl = fn.length() - 1;
-        int sxl = suffix.length() - 1;
+        int fnl = fn.size() - 1;
+        int sxl = suffix.size() - 1;
         for (int k = 0; k <= sxl; ++k)
             if (fn[fnl - k] != suffix[sxl - k]) {
                 if (k < sxl) {
                     while (k > 0 && suffix[sxl - k + 1].isLetterOrNumber())
                         --k;
-                    if (prefix.length() + k > fnl)
+                    if (prefix.size() + k > fnl)
                         --k;
                     suffix.remove(0, sxl - k + 1);
                 }
                 break;
             }
     }
-    QString ret = prefix + QLatin1Char('{');
-    int pxl = prefix.length();
-    int sxl = suffix.length();
-    for (int j = 0; j < names.count(); ++j) {
+    QString ret = prefix + u'{';
+    int pxl = prefix.size();
+    int sxl = suffix.size();
+    for (int j = 0; j < names.size(); ++j) {
         if (j)
-            ret += QLatin1Char(',');
+            ret += u',';
         int off = pxl;
         QString fn = names[j];
-        if (fn.startsWith(QLatin1Char('='))) {
-            ret += QLatin1Char('=');
+        if (fn.startsWith(u'=')) {
+            ret += u'=';
             ++off;
         }
-        ret += fn.mid(off, fn.length() - sxl - off);
+        ret += fn.mid(off, fn.size() - sxl - off);
     }
-    ret += QLatin1Char('}') + suffix;
+    ret += u'}' + suffix;
     return ret;
 }
 
 QStringList MultiDataModel::srcFileNames(bool pretty) const
 {
     QStringList names;
-    foreach (DataModel *dm, m_dataModels)
+    for (DataModel *dm : m_dataModels)
         names << (dm->isWritable() ? QString() : QString::fromLatin1("=")) + dm->srcFileName(pretty);
     return names;
 }
@@ -915,7 +1046,7 @@ QString MultiDataModel::condensedSrcFileNames(bool pretty) const
 
 bool MultiDataModel::isModified() const
 {
-    foreach (const DataModel *mdl, m_dataModels)
+    for (const DataModel *mdl : m_dataModels)
         if (mdl->isModified())
             return true;
     return false;
@@ -968,7 +1099,8 @@ MultiContextItem *MultiDataModel::findContext(const QString &context) const
 
 MessageItem *MultiDataModel::messageItem(const MultiDataIndex &index, int model) const
 {
-    if (index.context() < contextCount() && model >= 0 && model < modelCount()) {
+    if (index.context() < contextCount() && index.context() >= 0 && model >= 0
+        && model < modelCount()) {
         MultiContextItem *mc = multiContextItem(index.context());
         if (index.message() < mc->messageCount())
             return mc->messageItem(model, index.message());
@@ -1162,7 +1294,7 @@ void MultiDataModelIterator::operator++()
 
 bool MultiDataModelIterator::isValid() const
 {
-    return m_context < m_dataModel->m_multiContextList.count();
+    return m_context < m_dataModel->m_multiContextList.size();
 }
 
 MessageItem *MultiDataModelIterator::current() const
@@ -1181,12 +1313,12 @@ MessageModel::MessageModel(QObject *parent, MultiDataModel *data)
   : QAbstractItemModel(parent), m_data(data)
 {
     data->m_msgModel = this;
-    connect(m_data, SIGNAL(multiContextDataChanged(MultiDataIndex)),
-                    SLOT(multiContextItemChanged(MultiDataIndex)));
-    connect(m_data, SIGNAL(contextDataChanged(MultiDataIndex)),
-                    SLOT(contextItemChanged(MultiDataIndex)));
-    connect(m_data, SIGNAL(messageDataChanged(MultiDataIndex)),
-                    SLOT(messageItemChanged(MultiDataIndex)));
+    connect(m_data, &MultiDataModel::multiContextDataChanged,
+            this, &MessageModel::multiContextItemChanged);
+    connect(m_data, &MultiDataModel::contextDataChanged,
+            this, &MessageModel::contextItemChanged);
+    connect(m_data, &MultiDataModel::messageDataChanged,
+            this, &MessageModel::messageItemChanged);
 }
 
 QModelIndex MessageModel::index(int row, int column, const QModelIndex &parent) const
@@ -1248,18 +1380,26 @@ int MessageModel::columnCount(const QModelIndex &parent) const
 
 QVariant MessageModel::data(const QModelIndex &index, int role) const
 {
-    static QVariant pxOn  =
-        QVariant::fromValue(QPixmap(QLatin1String(":/images/s_check_on.png")));
-    static QVariant pxOff =
-        QVariant::fromValue(QPixmap(QLatin1String(":/images/s_check_off.png")));
-    static QVariant pxObsolete =
-        QVariant::fromValue(QPixmap(QLatin1String(":/images/s_check_obsolete.png")));
-    static QVariant pxDanger =
-        QVariant::fromValue(QPixmap(QLatin1String(":/images/s_check_danger.png")));
-    static QVariant pxWarning =
-        QVariant::fromValue(QPixmap(QLatin1String(":/images/s_check_warning.png")));
-    static QVariant pxEmpty =
-        QVariant::fromValue(QPixmap(QLatin1String(":/images/s_check_empty.png")));
+    static QVariant pxOn;
+    static QVariant pxOff;
+    static QVariant pxObsolete;
+    static QVariant pxDanger;
+    static QVariant pxWarning;
+    static QVariant pxEmpty;
+
+    static Qt::ColorScheme mode = Qt::ColorScheme::Unknown; // to prevent creating new QPixmaps
+                                                            // every time the method is called
+
+    if (bool dark = isDarkMode();
+        (dark && mode != Qt::ColorScheme::Dark) || (!dark && mode != Qt::ColorScheme::Light)) {
+        pxOn = MarkIcon::create(MarkIcon::onMark, dark);
+        pxOff = MarkIcon::create(MarkIcon::offMark, dark);
+        pxObsolete = MarkIcon::create(MarkIcon::obsoleteMark, dark);
+        pxDanger = MarkIcon::create(MarkIcon::dangerMark, dark);
+        pxWarning = MarkIcon::create(MarkIcon::warningMark, dark);
+        pxEmpty = MarkIcon::create(MarkIcon::emptyMark, dark);
+        mode = dark ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light;
+    }
 
     int row = index.row();
     int column = index.column() - 1;
@@ -1282,13 +1422,18 @@ QVariant MessageModel::data(const QModelIndex &index, int role) const
             case 0: // Source text
                 {
                     MultiMessageItem *msgItem = mci->multiMessageItem(row);
-                    if (msgItem->text().isEmpty()) {
+
+                    auto text = msgItem->text();
+                    if (text.isEmpty())
+                        text = msgItem->id();
+
+                    if (text.isEmpty()) {
                         if (mci->context().isEmpty())
                             return tr("<file header>");
                         else
                             return tr("<context comment>");
                     }
-                    return msgItem->text().simplified();
+                    return text.simplified();
                 }
             default: // Status or dummy column => no text
                 return QVariant();
@@ -1316,7 +1461,7 @@ QVariant MessageModel::data(const QModelIndex &index, int role) const
         else if (role == SortRole) {
             switch (column - numLangs) {
             case 0: // Source text
-                return mci->multiMessageItem(row)->text().simplified().remove(QLatin1Char('&'));
+                return mci->multiMessageItem(row)->text().simplified().remove(u'&');
             case 1: // Dummy column
                 return QVariant();
             default:
@@ -1352,7 +1497,7 @@ QVariant MessageModel::data(const QModelIndex &index, int role) const
 
         MultiContextItem *mci = m_data->multiContextItem(row);
 
-        if (role == Qt::DisplayRole || (role == Qt::ToolTipRole && column == numLangs)) {
+        if (role == Qt::DisplayRole || role == Qt::ToolTipRole) {
             switch (column - numLangs) {
             case 0: // Context
                 {
@@ -1362,9 +1507,11 @@ QVariant MessageModel::data(const QModelIndex &index, int role) const
                 }
             case 1:
                 {
-                    QString s;
-                    s.sprintf("%d/%d", mci->getNumFinished(), mci->getNumEditable());
-                    return s;
+                    if (role == Qt::ToolTipRole) {
+                        return tr("%n unfinished message(s) left.", 0,
+                                  mci->getNumEditable() - mci->getNumFinished());
+                    }
+                    return QString::asprintf("%d/%d", mci->getNumFinished(), mci->getNumEditable());
                 }
             default:
                 return QVariant(); // Status => no text

@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #include <QtCore/QDir>
 #include <QtCore/QDebug>
@@ -44,7 +14,7 @@ class tst_lrelease : public QObject
 
 public:
     tst_lrelease()
-         : binDir(QLibraryInfo::location(QLibraryInfo::BinariesPath))
+         : lrelease(QLibraryInfo::path(QLibraryInfo::BinariesPath) + "/lrelease")
          , dataDir(QFINDTESTDATA("testdata/"))
     {}
 
@@ -56,11 +26,12 @@ private slots:
     void idbased();
     void markuntranslated();
     void dupes();
+    void noTranslations();
 
 private:
     void doCompare(const QStringList &actual, const QString &expectedFn);
 
-    QString binDir;
+    QString lrelease;
     QString dataDir;
 };
 
@@ -80,14 +51,14 @@ void tst_lrelease::doCompare(const QStringList &actual, const QString &expectedF
         } else if (i == ei) {
             ei = 0;
             break;
-        } else if (!QRegExp(expected.at(i)).exactMatch(actual.at(i))) {
+        } else if (!QRegularExpression(QRegularExpression::anchoredPattern(expected.at(i))).match(actual.at(i)).hasMatch()) {
             while ((ei - 1) >= i && (gi - 1) >= i &&
-                     (QRegExp(expected.at(ei - 1)).exactMatch(actual.at(gi - 1))))
+                     (QRegularExpression(QRegularExpression::anchoredPattern(expected.at(ei - 1))).match(actual.at(gi - 1))).hasMatch())
                 ei--, gi--;
             break;
         }
     }
-    QByteArray diff;
+    QString diff;
     for (int j = qMax(0, i - 3); j < i; j++)
         diff += expected.at(j) + '\n';
     diff += "<<<<<<< got\n";
@@ -114,7 +85,7 @@ void tst_lrelease::doCompare(const QStringList &actual, const QString &expectedF
 
 void tst_lrelease::translate()
 {
-    QVERIFY(!QProcess::execute(binDir + "/lrelease " + dataDir + "translate.ts"));
+    QVERIFY(!QProcess::execute(lrelease, QStringList() << (dataDir + "translate.ts")));
 
     QTranslator translator;
     QVERIFY(translator.load(dataDir + "translate.qm"));
@@ -164,7 +135,7 @@ void tst_lrelease::translate()
 
 void tst_lrelease::compressed()
 {
-    QVERIFY(!QProcess::execute(binDir + "/lrelease -compress " + dataDir + "compressed.ts"));
+    QVERIFY(!QProcess::execute(lrelease, QStringList() << "-compress" << (dataDir + "compressed.ts")));
 
     QTranslator translator;
     QVERIFY(translator.load(dataDir + "compressed.qm"));
@@ -181,7 +152,7 @@ void tst_lrelease::compressed()
 
 void tst_lrelease::idbased()
 {
-    QVERIFY(!QProcess::execute(binDir + "/lrelease -idbased " + dataDir + "idbased.ts"));
+    QVERIFY(!QProcess::execute(lrelease, QStringList{ (dataDir + "idbased.ts") }));
 
     QTranslator translator;
     QVERIFY(translator.load(dataDir + "idbased.qm"));
@@ -193,7 +164,8 @@ void tst_lrelease::idbased()
 
 void tst_lrelease::markuntranslated()
 {
-    QVERIFY(!QProcess::execute(binDir + "/lrelease -markuntranslated # -idbased " + dataDir + "idbased.ts"));
+    QVERIFY(!QProcess::execute(lrelease,
+                               QStringList{ "-markuntranslated", "#", (dataDir + "idbased.ts") }));
 
     QTranslator translator;
     QVERIFY(translator.load(dataDir + "idbased.qm"));
@@ -206,10 +178,21 @@ void tst_lrelease::markuntranslated()
 void tst_lrelease::dupes()
 {
     QProcess proc;
-    proc.start(binDir + "/lrelease " + dataDir + "dupes.ts", QIODevice::ReadWrite | QIODevice::Text);
+    proc.start(lrelease, QStringList() << (dataDir + "dupes.ts"), QIODevice::ReadWrite | QIODevice::Text);
     QVERIFY(proc.waitForFinished());
     QVERIFY(proc.exitStatus() == QProcess::NormalExit);
     doCompare(QString(proc.readAllStandardError()).trimmed().split('\n'), dataDir + "dupes.errors");
+}
+
+void tst_lrelease::noTranslations()
+{
+    QProcess proc;
+    proc.start(lrelease, { dataDir + "no-translations.pro" });
+    QVERIFY(proc.waitForFinished());
+    QCOMPARE(proc.exitStatus(), QProcess::NormalExit);
+    QCOMPARE(proc.exitCode(), 0);
+    auto stderrOutput = proc.readAllStandardError();
+    QVERIFY(stderrOutput.contains("lrelease warning: Met no 'TRANSLATIONS' entry in project file"));
 }
 
 QTEST_MAIN(tst_lrelease)

@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 //
 //  W A R N I N G
@@ -48,7 +18,7 @@
 #include "shared_global_p.h"
 #include "qdesigner_formwindowcommand_p.h"
 
-#include <QtWidgets/QWidget>
+#include <QtWidgets/qwidget.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -64,17 +34,17 @@ class BreakLayoutCommand;
  * QLayoutWidget's. */
 
 class QDESIGNER_SHARED_EXPORT MorphLayoutCommand : public QDesignerFormWindowCommand {
-    Q_DISABLE_COPY(MorphLayoutCommand)
+    Q_DISABLE_COPY_MOVE(MorphLayoutCommand)
 public:
     explicit MorphLayoutCommand(QDesignerFormWindowInterface *formWindow);
-    virtual ~MorphLayoutCommand();
+    ~MorphLayoutCommand() override;
 
     bool init(QWidget *w, int newType);
 
-    static bool canMorph(const QDesignerFormWindowInterface *formWindow, QWidget *w, int *ptrToCurrentType = 0);
+    static bool canMorph(const QDesignerFormWindowInterface *formWindow, QWidget *w, int *ptrToCurrentType = nullptr);
 
-    virtual void redo();
-    virtual void undo();
+    void redo() override;
+    void undo() override;
 
 private:
     static QString formatDescription(QDesignerFormEditorInterface *core, const QWidget *w, int oldType, int newType);
@@ -88,17 +58,17 @@ private:
 
 // Change the alignment of a widget in a managed grid/box layout cell.
 class LayoutAlignmentCommand : public QDesignerFormWindowCommand {
-    Q_DISABLE_COPY(LayoutAlignmentCommand)
+    Q_DISABLE_COPY_MOVE(LayoutAlignmentCommand)
 public:
     explicit LayoutAlignmentCommand(QDesignerFormWindowInterface *formWindow);
 
     bool init(QWidget *w, Qt::Alignment alignment);
 
-    virtual void redo();
-    virtual void undo();
+    void redo() override;
+    void undo() override;
 
     // Find out alignment and return whether command is enabled.
-    static Qt::Alignment alignmentOf(const QDesignerFormEditorInterface *core, QWidget *w, bool *enabled = 0);
+    static Qt::Alignment alignmentOf(const QDesignerFormEditorInterface *core, QWidget *w, bool *enabled = nullptr);
 
 private:
     static void applyAlignment(const QDesignerFormEditorInterface *core, QWidget *w, Qt::Alignment a);

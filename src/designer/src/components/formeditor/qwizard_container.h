@@ -1,46 +1,15 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #ifndef QWIZARD_CONTAINER_H
 #define QWIZARD_CONTAINER_H
 
-#include <QtDesigner/QDesignerContainerExtension>
+#include <QtDesigner/container.h>
 
 #include <qdesigner_propertysheet_p.h>
 #include <extensionfactory_p.h>
 
-#include <QtWidgets/QWizard>
-#include <QtWidgets/QWizardPage>
+#include <QtWidgets/qwizard.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -56,15 +25,17 @@ class QWizardContainer: public QObject, public QDesignerContainerExtension
     Q_OBJECT
     Q_INTERFACES(QDesignerContainerExtension)
 public:
-    explicit QWizardContainer(QWizard *widget, QObject *parent = 0);
+    explicit QWizardContainer(QWizard *widget, QObject *parent = nullptr);
 
-    int count() const Q_DECL_OVERRIDE;
-    QWidget *widget(int index) const Q_DECL_OVERRIDE;
-    int currentIndex() const Q_DECL_OVERRIDE;
-    void setCurrentIndex(int index) Q_DECL_OVERRIDE;
-    void addWidget(QWidget *widget) Q_DECL_OVERRIDE;
-    void insertWidget(int index, QWidget *widget) Q_DECL_OVERRIDE;
-    void remove(int index) Q_DECL_OVERRIDE;
+    int count() const override;
+    QWidget *widget(int index) const override;
+    int currentIndex() const override;
+    void setCurrentIndex(int index) override;
+    bool canAddWidget() const override { return true; }
+    void addWidget(QWidget *widget) override;
+    void insertWidget(int index, QWidget *widget) override;
+    bool canRemove(int) const override { return true; }
+    void remove(int index) override;
 
 private:
     QWizard *m_wizard;
@@ -79,9 +50,9 @@ class QWizardPagePropertySheet: public QDesignerPropertySheet
 {
     Q_OBJECT
 public:
-    explicit QWizardPagePropertySheet(QWizardPage *object, QObject *parent = 0);
+    explicit QWizardPagePropertySheet(QWizardPage *object, QObject *parent = nullptr);
 
-    bool reset(int index) Q_DECL_OVERRIDE;
+    bool reset(int index) override;
 
     static const char *pageIdProperty;
 
@@ -97,17 +68,17 @@ class QWizardPropertySheet: public QDesignerPropertySheet
 {
     Q_OBJECT
 public:
-    explicit QWizardPropertySheet(QWizard *object, QObject *parent = 0);
-    bool isVisible(int index) const Q_DECL_OVERRIDE;
+    explicit QWizardPropertySheet(QWizard *object, QObject *parent = nullptr);
+    bool isVisible(int index) const override;
 
 private:
     const QString m_startId;
 };
 
 // Factories
-typedef QDesignerPropertySheetFactory<QWizard, QWizardPropertySheet>  QWizardPropertySheetFactory;
-typedef QDesignerPropertySheetFactory<QWizardPage, QWizardPagePropertySheet>  QWizardPagePropertySheetFactory;
-typedef ExtensionFactory<QDesignerContainerExtension,  QWizard,  QWizardContainer> QWizardContainerFactory;
+using QWizardPropertySheetFactory = QDesignerPropertySheetFactory<QWizard, QWizardPropertySheet>;
+using QWizardPagePropertySheetFactory = QDesignerPropertySheetFactory<QWizardPage, QWizardPagePropertySheet>;
+using QWizardContainerFactory = ExtensionFactory<QDesignerContainerExtension,  QWizard,  QWizardContainer>;
 }  // namespace qdesigner_internal
 
 QT_END_NAMESPACE

@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 //
 //  W A R N I N G
@@ -45,13 +15,14 @@
 #ifndef QSIMPLERESOURCE_H
 #define QSIMPLERESOURCE_H
 
-#include "shared_global_p.h"
 #include "abstractformbuilder.h"
-#include <QtCore/QStringList>
+#include "shared_global_p.h"
+
+#include <QtCore/qlist.h>
+#include <QtCore/qstringlist.h>
 
 QT_BEGIN_NAMESPACE
 
-class DomScript;
 class DomCustomWidgets;
 class DomCustomWidget;
 class DomSlots;
@@ -66,7 +37,7 @@ class QDESIGNER_SHARED_EXPORT QSimpleResource : public QAbstractFormBuilder
 {
 public:
     explicit QSimpleResource(QDesignerFormEditorInterface *core);
-    virtual ~QSimpleResource();
+    ~QSimpleResource() override;
 
     QBrush setupBrush(DomBrush *brush);
     DomBrush *saveBrush(const QBrush &brush);
@@ -92,16 +63,11 @@ public:
                                        const DomCustomWidgets *dom_custom_widgets);
 
 protected:
-    enum ScriptSource { ScriptDesigner, ScriptExtension, ScriptCustomWidgetPlugin };
-    static DomScript*createScript(const QString &script, ScriptSource source);
-    typedef QList<DomScript*> DomScripts;
-    static void addScript(const QString &script, ScriptSource source, DomScripts &domScripts);
-
     static bool addFakeMethods(const DomSlots *domSlots, QStringList &fakeSlots, QStringList &fakeSignals);
 
 private:
     static void addCustomWidgetsToWidgetDatabase(const QDesignerFormEditorInterface *core,
-                                                 QList<DomCustomWidget*>& custom_widget_list);
+                                                 QList<DomCustomWidget *> &custom_widget_list);
     static void addFakeMethodsToWidgetDataBase(const DomCustomWidget *domCustomWidget, WidgetDataBaseItem *item);
 
     static bool m_warningsEnabled;
@@ -111,9 +77,9 @@ private:
 // Contents of clipboard for formbuilder copy and paste operations
 // (Actions and widgets)
 struct QDESIGNER_SHARED_EXPORT FormBuilderClipboard {
-    typedef QList<QAction*> ActionList;
+    using ActionList = QList<QAction *>;
 
-    FormBuilderClipboard() {}
+    FormBuilderClipboard() = default;
     FormBuilderClipboard(QWidget *w);
 
     bool empty() const;
@@ -134,8 +100,8 @@ public:
 
     // A widget parent needs to be specified, otherwise, the widget factory cannot locate the form window via parent
     // and thus is not able to construct special widgets (QLayoutWidget).
-    virtual FormBuilderClipboard paste(DomUI *ui, QWidget *widgetParent, QObject *actionParent = 0) = 0;
-    virtual FormBuilderClipboard paste(QIODevice *dev, QWidget *widgetParent, QObject *actionParent = 0) = 0;
+    virtual FormBuilderClipboard paste(DomUI *ui, QWidget *widgetParent, QObject *actionParent = nullptr) = 0;
+    virtual FormBuilderClipboard paste(QIODevice *dev, QWidget *widgetParent, QObject *actionParent = nullptr) = 0;
 };
 
 } // namespace qdesigner_internal

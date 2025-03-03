@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
@@ -38,8 +8,12 @@
 #include "ui_mainwindow.h"
 #include "recentfiles.h"
 #include "messagemodel.h"
+#include "finddialog.h"
+
+#include <QtCore/private/qconfig_p.h>
 
 #include <QtCore/QHash>
+#include <QtCore/QMap>
 #include <QtCore/QLocale>
 
 #include <QtWidgets/QMainWindow>
@@ -61,7 +35,6 @@ class QTreeView;
 
 class BatchTranslationDialog;
 class ErrorsView;
-class FindDialog;
 class FocusWatcher;
 class FormPreviewView;
 class MessageEditor;
@@ -76,21 +49,22 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 public:
     enum {PhraseCloseMenu, PhraseEditMenu, PhrasePrintMenu};
+    enum FindDirection {FindNext, FindPrev};
 
     MainWindow();
     ~MainWindow();
 
     bool openFiles(const QStringList &names, bool readWrite = true);
-    static RecentFiles &recentFiles();
     static QString friendlyString(const QString &str);
 
 protected:
     void readConfig();
     void writeConfig();
-    void closeEvent(QCloseEvent *);
-    bool eventFilter(QObject *object, QEvent *event);
+    void closeEvent(QCloseEvent *) override;
+    bool eventFilter(QObject *object, QEvent *event) override;
 
 private slots:
+    void done();
     void doneAndNext();
     void prev();
     void next();
@@ -104,10 +78,8 @@ private slots:
     void releaseAll();
     void release();
     void releaseAs();
-    void print();
     void closeFile();
     bool closeAll();
-    void findAgain();
     void showTranslateDialog();
     void showBatchTranslateDialog();
     void showTranslationSettings();
@@ -117,14 +89,12 @@ private slots:
     void openPhraseBook();
     void closePhraseBook(QAction *action);
     void editPhraseBook(QAction *action);
-    void printPhraseBook(QAction *action);
     void addToPhraseBook();
     void manual();
     void resetSorting();
     void about();
     void aboutQt();
 
-    void updateViewMenu();
     void fileAboutToShow();
     void editAboutToShow();
 
@@ -144,6 +114,7 @@ private slots:
     void updateLatestModel(const QModelIndex &index);
     void selectedContextChanged(const QModelIndex &sortedIndex, const QModelIndex &oldIndex);
     void selectedMessageChanged(const QModelIndex &sortedIndex, const QModelIndex &oldIndex);
+    void setCurrentMessageFromGuess(int modelIndex, const Candidate &tm);
 
     // To synchronize from the message editor to the model ...
     void updateTranslation(const QStringList &translations);
@@ -155,21 +126,28 @@ private slots:
     void prevUnfinished();
     void nextUnfinished();
     void findNext(const QString &text, DataModel::FindLocation where,
-                  bool matchCase, bool ignoreAccelerators, bool skipObsolete);
+                  FindDialog::FindOptions options, int statusFilter);
     void revalidate();
-    void toggleStatistics();
+    void showStatistics();
     void toggleVisualizeWhitespace();
     void onWhatsThis();
     void updatePhraseDicts();
     void updatePhraseDict(int model);
 
+#if QT_CONFIG(printsupport)
+    void print();
+    void printPhraseBook(QAction *action);
+#endif
+
 private:
     QModelIndex nextContext(const QModelIndex &index) const;
     QModelIndex prevContext(const QModelIndex &index) const;
+    QModelIndex firstMessage() const;
     QModelIndex nextMessage(const QModelIndex &currentIndex, bool checkUnfinished = false) const;
     QModelIndex prevMessage(const QModelIndex &currentIndex, bool checkUnfinished = false) const;
-    bool next(bool checkUnfinished);
-    bool prev(bool checkUnfinished);
+    bool doNext(bool checkUnfinished);
+    bool doPrev(bool checkUnfinished);
+    void findAgain(FindDirection direction = FindNext);
 
     void updateStatistics();
     void initViewHeaders();
@@ -181,21 +159,23 @@ private:
     QModelIndex setMessageViewRoot(const QModelIndex &index);
     QModelIndex currentContextIndex() const;
     QModelIndex currentMessageIndex() const;
-    PhraseBook *openPhraseBook(const QString &name);
+    PhraseBook *doOpenPhraseBook(const QString &name);
     bool isPhraseBookOpen(const QString &name);
     bool savePhraseBook(QString *name, PhraseBook &pb);
     bool maybeSavePhraseBook(PhraseBook *phraseBook);
     bool maybeSavePhraseBooks();
     QStringList pickTranslationFiles();
-    void showTranslationSettings(int model);
-    void updateLatestModel(int model);
+    void doShowTranslationSettings(int model);
+    void doUpdateLatestModel(int model);
     void updateSourceView(int model, MessageItem *item);
     void updatePhraseBookActions();
     void updatePhraseDictInternal(int model);
     void releaseInternal(int model);
     void saveInternal(int model);
 
+#if QT_CONFIG(printsupport)
     QPrinter *printer();
+#endif
 
     // FIXME: move to DataModel
     void updateDanger(const MultiDataIndex &index, bool verbose);
@@ -223,19 +203,20 @@ private:
     QList<QHash<QString, QList<Phrase *> > > m_phraseDict;
     QList<PhraseBook *> m_phraseBooks;
     QMap<QAction *, PhraseBook *> m_phraseBookMenu[3];
-    QPrinter *m_printer;
+#if QT_CONFIG(printsupport)
+    QPrinter *m_printer = nullptr;
+#endif
 
     FindDialog *m_findDialog;
     QString m_findText;
-    Qt::CaseSensitivity m_findMatchCase;
-    bool m_findIgnoreAccelerators;
-    bool m_findSkipObsolete;
+    FindDialog::FindOptions m_findOptions;
+    int m_findStatusFilter = -1;
     DataModel::FindLocation m_findWhere;
 
     TranslateDialog *m_translateDialog;
     QString m_latestFindText;
     int m_latestCaseSensitivity;
-    int m_remainingCount;
+    QModelIndex m_searchIndex;
     int m_hitCount;
 
     BatchTranslationDialog *m_batchTranslateDialog;
@@ -254,6 +235,7 @@ private:
 
     Ui::MainWindow m_ui;    // menus and actions
     Statistics *m_statistics;
+    RecentFiles m_recentFiles;
 };
 
 QT_END_NAMESPACE

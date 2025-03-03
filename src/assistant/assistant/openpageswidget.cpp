@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Assistant module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "openpageswidget.h"
 
@@ -57,8 +27,11 @@ void OpenPagesDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opt
 {
     TRACE_OBJ
     if (option.state & QStyle::State_MouseOver) {
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
         if ((QApplication::mouseButtons() & Qt::LeftButton) == 0)
             pressedIndex = QModelIndex();
+QT_WARNING_POP
         QBrush brush = option.palette.alternateBase();
         if (index == pressedIndex)
             brush = option.palette.dark();
@@ -106,12 +79,12 @@ OpenPagesWidget::OpenPagesWidget(OpenPagesModel *model)
     setUniformRowHeights(true);
     setContextMenuPolicy(Qt::CustomContextMenu);
 
-    connect(this, SIGNAL(clicked(QModelIndex)), this,
-        SLOT(handleClicked(QModelIndex)));
-    connect(this, SIGNAL(pressed(QModelIndex)), this,
-        SLOT(handlePressed(QModelIndex)));
-    connect(this, SIGNAL(customContextMenuRequested(QPoint)), this,
-        SLOT(contextMenuRequested(QPoint)));
+    connect(this, &QAbstractItemView::clicked,
+            this, &OpenPagesWidget::handleClicked);
+    connect(this, &QAbstractItemView::pressed,
+            this, &OpenPagesWidget::handlePressed);
+    connect(this, &QWidget::customContextMenuRequested,
+            this, &OpenPagesWidget::contextMenuRequested);
 }
 
 OpenPagesWidget::~OpenPagesWidget()
@@ -189,7 +162,7 @@ void OpenPagesWidget::handleClicked(const QModelIndex &index)
         QWidget *vp = viewport();
         const QPoint &cursorPos = QCursor::pos();
         QMouseEvent e(QEvent::MouseMove, vp->mapFromGlobal(cursorPos), cursorPos,
-            Qt::NoButton, 0, 0);
+                      Qt::NoButton, {}, {});
         QCoreApplication::sendEvent(vp, &e);
     }
 }

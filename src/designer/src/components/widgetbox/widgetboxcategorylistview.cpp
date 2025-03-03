@@ -1,60 +1,34 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "widgetboxcategorylistview.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerWidgetDataBaseInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractwidgetdatabase.h>
 
-#include <QtXml/QDomDocument>
+#include <QtXml/qdom.h>
 
-#include <QtGui/QIcon>
-#include <QtWidgets/QListView>
-#include <QtWidgets/QLineEdit>
-#include <QtWidgets/QItemDelegate>
-#include <QtCore/QSortFilterProxyModel>
+#include <QtGui/qicon.h>
+#include <QtGui/qvalidator.h>
+#include <QtWidgets/qlistview.h>
+#include <QtWidgets/qlineedit.h>
+#include <QtWidgets/qstyleditemdelegate.h>
+#include <QtCore/qsortfilterproxymodel.h>
 
-#include <QtCore/QAbstractListModel>
-#include <QtCore/QList>
-#include <QtCore/QTextStream>
-#include <QtCore/QRegExp>
-
-static const char *widgetElementC = "widget";
-static const char *nameAttributeC = "name";
-static const char *uiOpeningTagC = "<ui>";
-static const char *uiClosingTagC = "</ui>";
+#include <QtCore/qabstractitemmodel.h>
+#include <QtCore/qiodevice.h>
+#include <QtCore/qlist.h>
+#include <QtCore/qtextstream.h>
+#include <QtCore/qregularexpression.h>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
+
+static constexpr auto widgetElementC = "widget"_L1;
+static constexpr auto nameAttributeC = "name"_L1;
+static constexpr auto uiOpeningTagC = "<ui>"_L1;
+static constexpr auto uiClosingTagC = "</ui>"_L1;
 
 enum { FilterRole = Qt::UserRole + 11 };
 
@@ -79,7 +53,7 @@ namespace qdesigner_internal {
 // Entry of the model list
 
 struct WidgetBoxCategoryEntry {
-    WidgetBoxCategoryEntry();
+    WidgetBoxCategoryEntry() = default;
     explicit WidgetBoxCategoryEntry(const QDesignerWidgetBoxInterface::Widget &widget,
                                     const QString &filter,
                                     const QIcon &icon,
@@ -90,14 +64,8 @@ struct WidgetBoxCategoryEntry {
     QString whatsThis;
     QString filter;
     QIcon icon;
-    bool editable;
+    bool editable{false};
 };
-
-
-WidgetBoxCategoryEntry::WidgetBoxCategoryEntry() :
-    editable(false)
-{
-}
 
 WidgetBoxCategoryEntry::WidgetBoxCategoryEntry(const QDesignerWidgetBoxInterface::Widget &w,
                                                const QString &filterIn,
@@ -115,14 +83,14 @@ WidgetBoxCategoryEntry::WidgetBoxCategoryEntry(const QDesignerWidgetBoxInterface
 
 class WidgetBoxCategoryModel : public QAbstractListModel {
 public:
-    explicit WidgetBoxCategoryModel(QDesignerFormEditorInterface *core, QObject *parent = 0);
+    explicit WidgetBoxCategoryModel(QDesignerFormEditorInterface *core, QObject *parent = nullptr);
 
     // QAbstractListModel
-    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const Q_DECL_OVERRIDE;
-    int rowCount(const QModelIndex &parent = QModelIndex()) const Q_DECL_OVERRIDE;
-    bool setData(const QModelIndex & index, const QVariant & value, int role = Qt::EditRole) Q_DECL_OVERRIDE;
-    Qt::ItemFlags flags (const QModelIndex & index ) const Q_DECL_OVERRIDE;
-    bool removeRows(int row, int count, const QModelIndex &parent = QModelIndex()) Q_DECL_OVERRIDE;
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
+    int rowCount(const QModelIndex &parent = QModelIndex()) const override;
+    bool setData(const QModelIndex & index, const QVariant & value, int role = Qt::EditRole) override;
+    Qt::ItemFlags flags (const QModelIndex & index ) const override;
+    bool removeRows(int row, int count, const QModelIndex &parent = QModelIndex()) override;
 
     // The model returns no text in icon mode, so, it also needs to know it
     QListView::ViewMode viewMode() const;
@@ -139,21 +107,16 @@ public:
     bool removeCustomWidgets();
 
 private:
-    typedef QList<WidgetBoxCategoryEntry> WidgetBoxCategoryEntrys;
-
-    QRegExp m_classNameRegExp;
     QDesignerFormEditorInterface *m_core;
-    WidgetBoxCategoryEntrys m_items;
+    QList<WidgetBoxCategoryEntry> m_items;
     QListView::ViewMode m_viewMode;
 };
 
 WidgetBoxCategoryModel::WidgetBoxCategoryModel(QDesignerFormEditorInterface *core, QObject *parent) :
     QAbstractListModel(parent),
-    m_classNameRegExp(QStringLiteral("<widget +class *= *\"([^\"]+)\"")),
     m_core(core),
     m_viewMode(QListView::ListMode)
 {
-    Q_ASSERT(m_classNameRegExp.isValid());
 }
 
 QListView::ViewMode WidgetBoxCategoryModel::viewMode() const
@@ -175,8 +138,7 @@ void WidgetBoxCategoryModel::setViewMode(QListView::ViewMode vm)
 
 int WidgetBoxCategoryModel::indexOfWidget(const QString &name)
 {
-    const int count = m_items.size();
-    for (int  i = 0; i < count; i++)
+    for (qsizetype i = 0, count = m_items.size(); i < count; ++i)
         if (m_items.at(i).widget.name() == name)
             return i;
     return -1;
@@ -185,9 +147,8 @@ int WidgetBoxCategoryModel::indexOfWidget(const QString &name)
 QDesignerWidgetBoxInterface::Category WidgetBoxCategoryModel::category() const
 {
     QDesignerWidgetBoxInterface::Category rc;
-    const WidgetBoxCategoryEntrys::const_iterator cend = m_items.constEnd();
-    for (WidgetBoxCategoryEntrys::const_iterator it = m_items.constBegin(); it != cend; ++it)
-        rc.addWidget(it->widget);
+    for (const auto &c : m_items)
+        rc.addWidget(c.widget);
     return rc;
 }
 
@@ -196,7 +157,7 @@ bool WidgetBoxCategoryModel::removeCustomWidgets()
     // Typically, we are a whole category of custom widgets, so, remove all
     // and do reset.
     bool changed = false;
-    for (WidgetBoxCategoryEntrys::iterator it = m_items.begin(); it != m_items.end(); )
+    for (auto it = m_items.begin(); it != m_items.end(); )
         if (it->widget.type() == QDesignerWidgetBoxInterface::Widget::Custom) {
             if (!changed)
                 beginResetModel();
@@ -212,16 +173,21 @@ bool WidgetBoxCategoryModel::removeCustomWidgets()
 
 void WidgetBoxCategoryModel::addWidget(const QDesignerWidgetBoxInterface::Widget &widget, const QIcon &icon,bool editable)
 {
-    // build item. Filter on name + class name if it is different and not a layout.
+    static const QRegularExpression classNameRegExp(QStringLiteral("<widget +class *= *\"([^\"]+)\""));
+    Q_ASSERT(classNameRegExp.isValid());
+    const auto match = classNameRegExp.match(widget.domXml());
+    const QString className = match.hasMatch() ? match.captured(1) : QString{};
+
+    // Filter on name + class name if it is different and not a layout.
     QString filter = widget.name();
-    if (!filter.contains(QStringLiteral("Layout")) && m_classNameRegExp.indexIn(widget.domXml()) != -1) {
-        const QString className = m_classNameRegExp.cap(1);
-        if (!filter.contains(className))
-            filter += className;
-    }
+    if (!className.isEmpty() && !filter.contains("Layout"_L1) && !filter.contains(className))
+        filter += className;
+
     WidgetBoxCategoryEntry item(widget, filter, icon, editable);
     const QDesignerWidgetDataBaseInterface *db = m_core->widgetDataBase();
-    const int dbIndex = db->indexOfClassName(widget.name());
+    int dbIndex = className.isEmpty() ? -1 : db->indexOfClassName(className);
+    if (dbIndex == -1)
+        dbIndex = db->indexOfClassName(widget.name());
     if (dbIndex != -1) {
         const QDesignerWidgetDataBaseItemInterface *dbItem = db->item(dbIndex);
         const QString toolTip = dbItem->toolTip();
@@ -258,10 +224,8 @@ QVariant WidgetBoxCategoryModel::data(const QModelIndex &index, int role) const
             return QVariant(item.toolTip);
         // Icon mode tooltip should contain the  class name
         QString tt =  item.widget.name();
-        if (!item.toolTip.isEmpty()) {
-            tt += QLatin1Char('\n');
-            tt += item.toolTip;
-        }
+        if (!item.toolTip.isEmpty())
+            tt += u'\n' + item.toolTip;
         return QVariant(tt);
 
     }
@@ -276,17 +240,19 @@ QVariant WidgetBoxCategoryModel::data(const QModelIndex &index, int role) const
 bool WidgetBoxCategoryModel::setData(const QModelIndex &index, const QVariant &value, int role)
 {
     const int row = index.row();
-    if (role != Qt::EditRole || row < 0 || row >=  m_items.size() || value.type() != QVariant::String)
+    if (role != Qt::EditRole || row < 0 || row >=  m_items.size()
+        || value.metaType().id() != QMetaType::QString) {
         return false;
+    }
     // Set name and adapt Xml
     WidgetBoxCategoryEntry &item = m_items[row];
     const QString newName = value.toString();
     item.widget.setName(newName);
 
     const QDomDocument doc = stringToDom(WidgetBoxCategoryListView::widgetDomXml(item.widget));
-    QDomElement widget_elt = doc.firstChildElement(QLatin1String(widgetElementC));
+    QDomElement widget_elt = doc.firstChildElement(widgetElementC);
     if (!widget_elt.isNull()) {
-        widget_elt.setAttribute(QLatin1String(nameAttributeC), newName);
+        widget_elt.setAttribute(nameAttributeC, newName);
         item.widget.setDomXml(domToString(widget_elt));
     }
     emit dataChanged(index, index);
@@ -341,24 +307,24 @@ QDesignerWidgetBoxInterface::Widget WidgetBoxCategoryModel::widgetAt(int row) co
 
 /* WidgetSubBoxItemDelegate, ensures a valid name using a regexp validator */
 
-class WidgetBoxCategoryEntryDelegate : public QItemDelegate
+class WidgetBoxCategoryEntryDelegate : public QStyledItemDelegate
 {
 public:
-    explicit WidgetBoxCategoryEntryDelegate(QWidget *parent = 0) : QItemDelegate(parent) {}
+    explicit WidgetBoxCategoryEntryDelegate(QWidget *parent = nullptr) : QStyledItemDelegate(parent) {}
     QWidget *createEditor(QWidget *parent,
                           const QStyleOptionViewItem &option,
-                          const QModelIndex &index) const;
+                          const QModelIndex &index) const override;
 };
 
 QWidget *WidgetBoxCategoryEntryDelegate::createEditor(QWidget *parent,
                                                 const QStyleOptionViewItem &option,
                                                 const QModelIndex &index) const
 {
-    QWidget *result = QItemDelegate::createEditor(parent, option, index);
+    QWidget *result = QStyledItemDelegate::createEditor(parent, option, index);
     if (QLineEdit *line_edit = qobject_cast<QLineEdit*>(result)) {
-        QRegExp re = QRegExp(QStringLiteral("[_a-zA-Z][_a-zA-Z0-9]*"));
+        static const QRegularExpression re(u"^[_a-zA-Z][_a-zA-Z0-9]*$"_s);
         Q_ASSERT(re.isValid());
-        line_edit->setValidator(new QRegExpValidator(re, line_edit));
+        line_edit->setValidator(new QRegularExpressionValidator(re, line_edit));
     }
     return result;
 }
@@ -382,13 +348,15 @@ WidgetBoxCategoryListView::WidgetBoxCategoryListView(QDesignerFormEditorInterfac
 
     setItemDelegate(new WidgetBoxCategoryEntryDelegate(this));
 
-    connect(this, SIGNAL(pressed(QModelIndex)), this, SLOT(slotPressed(QModelIndex)));
+    connect(this, &QListView::pressed, this,
+            &WidgetBoxCategoryListView::slotPressed);
     setEditTriggers(QAbstractItemView::AnyKeyPressed);
 
     m_proxyModel->setSourceModel(m_model);
     m_proxyModel->setFilterRole(FilterRole);
     setModel(m_proxyModel);
-    connect(m_model, SIGNAL(dataChanged(QModelIndex,QModelIndex)), this, SIGNAL(scratchPadChanged()));
+    connect(m_model, &QAbstractItemModel::dataChanged,
+            this, &WidgetBoxCategoryListView::scratchPadChanged);
 }
 
 void WidgetBoxCategoryListView::setViewMode(ViewMode vm)
@@ -412,7 +380,7 @@ void WidgetBoxCategoryListView::slotPressed(const QModelIndex &index)
     const QDesignerWidgetBoxInterface::Widget wgt = m_model->widgetAt(m_proxyModel->mapToSource(index));
     if (wgt.isNull())
         return;
-    emit pressed(wgt.name(), widgetDomXml(wgt), QCursor::pos());
+    emit widgetBoxPressed(wgt.name(), widgetDomXml(wgt), QCursor::pos());
 }
 
 void WidgetBoxCategoryListView::removeCurrentItem()
@@ -478,19 +446,15 @@ QString WidgetBoxCategoryListView::widgetDomXml(const QDesignerWidgetBoxInterfac
 {
     QString domXml = widget.domXml();
 
-    if (domXml.isEmpty()) {
-        domXml = QLatin1String(uiOpeningTagC);
-        domXml += QStringLiteral("<widget class=\"");
-        domXml += widget.name();
-        domXml += QStringLiteral("\"/>");
-        domXml += QLatin1String(uiClosingTagC);
-    }
+    if (domXml.isEmpty())
+        domXml = uiOpeningTagC + "<widget class=\""_L1 + widget.name() +"\"/>"_L1 + uiClosingTagC;
     return domXml;
 }
 
-void WidgetBoxCategoryListView::filter(const QRegExp &re)
+void WidgetBoxCategoryListView::filter(const QString &needle, Qt::CaseSensitivity caseSensitivity)
 {
-    m_proxyModel->setFilterRegExp(re);
+    m_proxyModel->setFilterFixedString(needle);
+    m_proxyModel->setFilterCaseSensitivity(caseSensitivity);
 }
 
 QDesignerWidgetBoxInterface::Category WidgetBoxCategoryListView::category() const

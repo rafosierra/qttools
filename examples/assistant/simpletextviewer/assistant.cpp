@@ -1,65 +1,25 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the examples of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:BSD$
-** You may use this file under the terms of the BSD license as follows:
-**
-** "Redistribution and use in source and binary forms, with or without
-** modification, are permitted provided that the following conditions are
-** met:
-**   * Redistributions of source code must retain the above copyright
-**     notice, this list of conditions and the following disclaimer.
-**   * Redistributions in binary form must reproduce the above copyright
-**     notice, this list of conditions and the following disclaimer in
-**     the documentation and/or other materials provided with the
-**     distribution.
-**   * Neither the name of The Qt Company Ltd nor the names of its
-**     contributors may be used to endorse or promote products derived
-**     from this software without specific prior written permission.
-**
-**
-** THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-** "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-** LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-** A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-** OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-** SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-** LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-** DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-** THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-** (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-** OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
-
-#include <QtCore/QByteArray>
-#include <QtCore/QDir>
-#include <QtCore/QLibraryInfo>
-#include <QtCore/QProcess>
-
-#include <QtWidgets/QMessageBox>
+// Copyright (C) 2017 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
 
 #include "assistant.h"
 
-Assistant::Assistant()
-    : proc(0)
-{
-}
+#include <QApplication>
+#include <QByteArray>
+#include <QDir>
+#include <QLibraryInfo>
+#include <QMessageBox>
+#include <QStandardPaths>
+
+using namespace Qt::StringLiterals;
 
 //! [0]
 Assistant::~Assistant()
 {
-    if (proc && proc->state() == QProcess::Running) {
-        proc->terminate();
-        proc->waitForFinished(3000);
+    if (!m_process.isNull() && m_process->state() == QProcess::Running) {
+        QObject::disconnect(m_process.data(), &QProcess::finished, nullptr, nullptr);
+        m_process->terminate();
+        m_process->waitForFinished(3000);
     }
-    delete proc;
 }
 //! [0]
 
@@ -72,38 +32,78 @@ void Assistant::showDocumentation(const QString &page)
     QByteArray ba("SetSource ");
     ba.append("qthelp://org.qt-project.examples.simpletextviewer/doc/");
 
-    proc->write(ba + page.toLocal8Bit() + '\n');
+    m_process->write(ba + page.toLocal8Bit() + '\n');
 }
 //! [1]
+
+static QString documentationDirectory()
+{
+    QStringList paths;
+#ifdef SRCDIR
+    paths.append(QLatin1StringView(SRCDIR));
+#endif
+    paths.append(QLibraryInfo::path(QLibraryInfo::ExamplesPath));
+    paths.append(QCoreApplication::applicationDirPath());
+    paths.append(QStandardPaths::standardLocations(QStandardPaths::AppDataLocation));
+    for (const auto &dir : std::as_const(paths)) {
+        const QString path = dir + "/documentation"_L1;
+        if (QFileInfo::exists(path))
+            return path;
+    }
+    return {};
+}
 
 //! [2]
 bool Assistant::startAssistant()
 {
-    if (!proc)
-        proc = new QProcess();
+    if (m_process.isNull()) {
+        m_process.reset(new QProcess);
+        QObject::connect(m_process.data(), &QProcess::finished,
+                         m_process.data(), [this](int exitCode, QProcess::ExitStatus status) {
+            finished(exitCode, status);
+        });
+    }
 
-    if (proc->state() != QProcess::Running) {
-        QString app = QLibraryInfo::location(QLibraryInfo::BinariesPath) + QDir::separator();
-#if !defined(Q_OS_MAC)
-        app += QLatin1String("assistant");
+    if (m_process->state() != QProcess::Running) {
+        QString app = QLibraryInfo::path(QLibraryInfo::BinariesPath);
+#ifndef Q_OS_DARWIN
+        app += "/assistant"_L1;
 #else
-        app += QLatin1String("Assistant.app/Contents/MacOS/Assistant");
+        app += "/Assistant.app/Contents/MacOS/Assistant"_L1;
 #endif
 
-        QStringList args;
-        args << QLatin1String("-collectionFile")
-            << QLibraryInfo::location(QLibraryInfo::ExamplesPath)
-            + QLatin1String("/assistant/simpletextviewer/documentation/simpletextviewer.qhc")
-            << QLatin1String("-enableRemoteControl");
+        const QString collectionDirectory = documentationDirectory();
+        if (collectionDirectory.isEmpty()) {
+            showError(tr("The documentation directory cannot be found"));
+            return false;
+        }
 
-        proc->start(app, args);
+        const QStringList args{"-collectionFile"_L1,
+                               collectionDirectory + "/simpletextviewer.qhc"_L1,
+                               "-enableRemoteControl"_L1};
 
-        if (!proc->waitForStarted()) {
-            QMessageBox::critical(0, QObject::tr("Simple Text Viewer"),
-                QObject::tr("Unable to launch Qt Assistant (%1)").arg(app));
+        m_process->start(app, args);
+
+        if (!m_process->waitForStarted(3000)) {
+            showError(tr("Unable to launch Qt Assistant (%1): %2")
+                      .arg(QDir::toNativeSeparators(app), m_process->errorString()));
             return false;
         }
     }
     return true;
 }
 //! [2]
+
+void Assistant::showError(const QString &message)
+{
+    QMessageBox::critical(QApplication::activeWindow(), tr("Simple Text Viewer"), message);
+}
+
+void Assistant::finished(int exitCode, QProcess::ExitStatus status)
+{
+    const QString stdErr = QString::fromLocal8Bit(m_process->readAllStandardError());
+    if (status != QProcess::NormalExit)
+        showError(tr("Assistant crashed: %1").arg(stdErr));
+    else if (exitCode != 0)
+        showError(tr("Assistant exited with %1: %2").arg(exitCode).arg(stdErr));
+}

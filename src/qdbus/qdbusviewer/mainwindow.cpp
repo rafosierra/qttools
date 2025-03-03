@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd and/or its subsidiary(-ies).
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the tools applications of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2020 The Qt Company Ltd and/or its subsidiary(-ies).
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "mainwindow.h"
 
@@ -39,36 +9,43 @@
 #include <QtWidgets/QTabWidget>
 #include <QtWidgets/QMenuBar>
 #include <QtWidgets/QMenu>
-#include <QtWidgets/QAction>
+#include <QtGui/QAction>
 #include <QtWidgets/QMessageBox>
 
 #include <QtDBus/QDBusConnection>
 #include <QtCore/QSettings>
 
+using namespace Qt::StringLiterals;
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
+    , systemBusViewer(nullptr)
 {
     QMenu *fileMenu = menuBar()->addMenu(tr("&File"));
-    QAction *quitAction = fileMenu->addAction(tr("&Quit"), this, SLOT(close()));
+    QAction *quitAction = fileMenu->addAction(tr("&Quit"), this, &QWidget::close);
     quitAction->setShortcut(QKeySequence::Quit);
     quitAction->setMenuRole(QAction::QuitRole);
 
     QMenu *helpMenu = menuBar()->addMenu(tr("&Help"));
     QAction *aboutAction = helpMenu->addAction(tr("&About"));
     aboutAction->setMenuRole(QAction::AboutRole);
-    QObject::connect(aboutAction, SIGNAL(triggered()), this, SLOT(about()));
+    QObject::connect(aboutAction, &QAction::triggered, this, &MainWindow::about);
 
     QAction *aboutQtAction = helpMenu->addAction(tr("About &Qt"));
     aboutQtAction->setMenuRole(QAction::AboutQtRole);
-    QObject::connect(aboutQtAction, SIGNAL(triggered()), qApp, SLOT(aboutQt()));
+    QObject::connect(aboutQtAction, &QAction::triggered, qApp, &QApplication::aboutQt);
 
     tabWidget = new QTabWidget;
     setCentralWidget(tabWidget);
 
     sessionBusViewer = new QDBusViewer(QDBusConnection::sessionBus());
-    systemBusViewer = new QDBusViewer(QDBusConnection::systemBus());
     tabWidget->addTab(sessionBusViewer, tr("Session Bus"));
-    tabWidget->addTab(systemBusViewer, tr("System Bus"));
+
+    QDBusConnection connection = QDBusConnection::systemBus();
+    if (connection.isConnected()) {
+        systemBusViewer = new QDBusViewer(connection);
+        tabWidget->addTab(systemBusViewer, tr("System Bus"));
+    }
 
     restoreSettings();
 }
@@ -91,18 +68,29 @@ void MainWindow::about()
 {
     QMessageBox box(this);
 
-    box.setText(QString::fromLatin1("<center><img src=\":/qt-project.org/qdbusviewer/images/qdbusviewer-128.png\">"
-                "<h3>%1</h3>"
-                "<p>Version %2</p></center>"
-                "<p>Copyright (C) %3 The Qt Company Ltd.</p>")
-            .arg(tr("D-Bus Viewer"), QLatin1String(QT_VERSION_STR), QStringLiteral("2015")));
+    box.setText(tr("<center><img src=\":/qt-project.org/qdbusviewer/images/qdbusviewer-128.png\">"
+                   "<h3>%1</h3>"
+                   "<p>Version %2</p></center>"
+                   "<p>Copyright (C) The Qt Company Ltd. and other contributors.</p>")
+                        .arg(tr("D-Bus Viewer"), QLatin1String(QT_VERSION_STR)));
     box.setWindowTitle(tr("D-Bus Viewer"));
     box.exec();
 }
 
-static inline QString windowGeometryKey() { return QStringLiteral("WindowGeometry"); }
-static inline QString sessionTabGroup() { return QStringLiteral("SessionTab"); }
-static inline QString systemTabGroup() { return QStringLiteral("SystemTab"); }
+static inline QString windowGeometryKey()
+{
+    return u"WindowGeometry"_s;
+}
+
+static inline QString sessionTabGroup()
+{
+    return u"SessionTab"_s;
+}
+
+static inline QString systemTabGroup()
+{
+    return u"SystemTab"_s;
+}
 
 void MainWindow::saveSettings()
 {
@@ -114,9 +102,11 @@ void MainWindow::saveSettings()
     sessionBusViewer->saveState(&settings);
     settings.endGroup();
 
-    settings.beginGroup(systemTabGroup());
-    systemBusViewer->saveState(&settings);
-    settings.endGroup();
+    if (systemBusViewer) {
+        settings.beginGroup(systemTabGroup());
+        systemBusViewer->saveState(&settings);
+        settings.endGroup();
+    }
 }
 
 void MainWindow::restoreSettings()
@@ -129,7 +119,9 @@ void MainWindow::restoreSettings()
     sessionBusViewer->restoreState(&settings);
     settings.endGroup();
 
-    settings.beginGroup(systemTabGroup());
-    systemBusViewer->restoreState(&settings);
-    settings.endGroup();
+    if (systemBusViewer) {
+        settings.beginGroup(systemTabGroup());
+        systemBusViewer->restoreState(&settings);
+        settings.endGroup();
+    }
 }

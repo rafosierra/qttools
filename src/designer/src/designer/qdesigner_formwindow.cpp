@@ -1,70 +1,40 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qdesigner_formwindow.h"
 #include "qdesigner_workbench.h"
 #include "formwindowbase_p.h"
 
 // sdk
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerPropertySheetExtension>
-#include <QtDesigner/QDesignerPropertyEditorInterface>
-#include <QtDesigner/QDesignerFormWindowManagerInterface>
-#include <QtDesigner/QDesignerTaskMenuExtension>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/propertysheet.h>
+#include <QtDesigner/abstractpropertyeditor.h>
+#include <QtDesigner/abstractformwindowmanager.h>
+#include <QtDesigner/taskmenu.h>
+#include <QtDesigner/qextensionmanager.h>
 
-#include <QtCore/QEvent>
-#include <QtCore/QFile>
+#include <QtWidgets/qfiledialog.h>
+#include <QtWidgets/qmessagebox.h>
+#include <QtWidgets/qpushbutton.h>
+#include <QtWidgets/qboxlayout.h>
 
-#include <QtWidgets/QAction>
-#include <QtGui/QCloseEvent>
-#include <QtWidgets/QFileDialog>
-#include <QtWidgets/QMessageBox>
-#include <QtWidgets/QPushButton>
-#include <QtWidgets/QVBoxLayout>
-#include <QtWidgets/QUndoCommand>
-#include <QtGui/QWindowStateChangeEvent>
+#include <QtGui/qaction.h>
+#include <QtGui/qevent.h>
+#include <QtGui/qundostack.h>
+
+#include <QtCore/qfile.h>
+#include <QtCore/qregularexpression.h>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 QDesignerFormWindow::QDesignerFormWindow(QDesignerFormWindowInterface *editor, QDesignerWorkbench *workbench, QWidget *parent, Qt::WindowFlags flags)
     : QWidget(parent, flags),
       m_editor(editor),
       m_workbench(workbench),
-      m_action(new QAction(this)),
-      m_initialized(false),
-      m_windowTitleInitialized(false)
+      m_action(new QAction(this))
 {
     Q_ASSERT(workbench);
 
@@ -78,13 +48,14 @@ QDesignerFormWindow::QDesignerFormWindow(QDesignerFormWindowInterface *editor, Q
     }
 
     QVBoxLayout *l = new QVBoxLayout(this);
-    l->setMargin(0);
+    l->setContentsMargins(QMargins());
     l->addWidget(m_editor);
 
     m_action->setCheckable(true);
 
-    connect(m_editor->commandHistory(), SIGNAL(indexChanged(int)), this, SLOT(updateChanged()));
-    connect(m_editor, SIGNAL(geometryChanged()), this, SLOT(geometryChanged()));
+    connect(m_editor->commandHistory(), &QUndoStack::indexChanged, this, &QDesignerFormWindow::updateChanged);
+    connect(m_editor.data(), &QDesignerFormWindowInterface::geometryChanged,
+            this, &QDesignerFormWindow::slotGeometryChanged);
 }
 
 QDesignerFormWindow::~QDesignerFormWindow()
@@ -102,7 +73,7 @@ void QDesignerFormWindow::changeEvent(QEvent *e)
 {
     switch (e->type()) {
         case QEvent::WindowTitleChange:
-            m_action->setText(windowTitle().remove(QStringLiteral("[*]")));
+            m_action->setText(windowTitle().remove("[*]"_L1));
             break;
         case QEvent::WindowIconChange:
             m_action->setIcon(windowIcon());
@@ -148,7 +119,8 @@ void QDesignerFormWindow::firstShow()
     if (!m_windowTitleInitialized) {
         m_windowTitleInitialized = true;
         if (m_editor) {
-            connect(m_editor, SIGNAL(fileNameChanged(QString)), this, SLOT(updateWindowTitle(QString)));
+            connect(m_editor.data(), &QDesignerFormWindowInterface::fileNameChanged,
+                    this, &QDesignerFormWindow::updateWindowTitle);
             updateWindowTitle(m_editor->fileName());
             updateChanged();
         }
@@ -166,16 +138,18 @@ int QDesignerFormWindow::getNumberOfUntitledWindows() const
     // Find the number of untitled windows excluding ourselves.
     // Do not fall for 'untitled.ui', match with modified place holder.
     // This will cause some problems with i18n, but for now I need the string to be "static"
-    QRegExp rx(QStringLiteral("untitled( (\\d+))?\\[\\*\\]"));
+    static const QRegularExpression rx(u"untitled( (\\d+))?\\[\\*\\]$"_s);
+    Q_ASSERT(rx.isValid());
     for (int i = 0; i < totalWindows; ++i) {
         QDesignerFormWindow *fw =  m_workbench->formWindow(i);
         if (fw != this) {
             const QString title = m_workbench->formWindow(i)->windowTitle();
-            if (rx.indexIn(title) != -1) {
+            const QRegularExpressionMatch match = rx.match(title);
+            if (match.hasMatch()) {
                 if (maxUntitled == 0)
                     ++maxUntitled;
-                if (rx.captureCount() > 1) {
-                    const QString numberCapture = rx.cap(2);
+                if (match.lastCapturedIndex() >= 2) {
+                    const auto numberCapture = match.capturedView(2);
                     if (!numberCapture.isEmpty())
                         maxUntitled = qMax(numberCapture.toInt(), maxUntitled);
                 }
@@ -190,15 +164,15 @@ void QDesignerFormWindow::updateWindowTitle(const QString &fileName)
     if (!m_windowTitleInitialized) {
         m_windowTitleInitialized = true;
         if (m_editor)
-            connect(m_editor, SIGNAL(fileNameChanged(QString)), this, SLOT(updateWindowTitle(QString)));
+            connect(m_editor.data(), &QDesignerFormWindowInterface::fileNameChanged,
+                    this, &QDesignerFormWindow::updateWindowTitle);
     }
 
     QString fileNameTitle;
     if (fileName.isEmpty()) {
-        fileNameTitle = QStringLiteral("untitled");
+        fileNameTitle += "untitled"_L1;
         if (const int maxUntitled = getNumberOfUntitledWindows()) {
-            fileNameTitle += QLatin1Char(' ');
-            fileNameTitle += QString::number(maxUntitled + 1);
+            fileNameTitle += u' ' + QString::number(maxUntitled + 1);
         }
     } else {
         fileNameTitle = QFileInfo(fileName).fileName();
@@ -206,7 +180,7 @@ void QDesignerFormWindow::updateWindowTitle(const QString &fileName)
 
     if (const QWidget *mc = m_editor->mainContainer()) {
         setWindowIcon(mc->windowIcon());
-        setWindowTitle(tr("%1 - %2[*]").arg(mc->windowTitle()).arg(fileNameTitle));
+        setWindowTitle(tr("%1 - %2[*]").arg(mc->windowTitle(), fileNameTitle));
     } else {
         setWindowTitle(fileNameTitle);
     }
@@ -261,16 +235,16 @@ void QDesignerFormWindow::resizeEvent(QResizeEvent *rev)
     QWidget::resizeEvent(rev);
 }
 
-void QDesignerFormWindow::geometryChanged()
+void QDesignerFormWindow::slotGeometryChanged()
 {
     // If the form window changes, re-update the geometry of the current widget in the property editor.
     // Note that in the case of layouts, non-maincontainer widgets must also be updated,
     // so, do not do it for the main container only
     const QDesignerFormEditorInterface *core = m_editor->core();
     QObject *object = core->propertyEditor()->object();
-    if (object == 0 || !object->isWidgetType())
+    if (object == nullptr || !object->isWidgetType())
         return;
-    static const QString geometryProperty = QStringLiteral("geometry");
+    static const QString geometryProperty = u"geometry"_s;
     const QDesignerPropertySheetExtension *sheet = qt_extension<QDesignerPropertySheetExtension*>(core->extensionManager(), object);
     const int geometryIndex = sheet->indexOf(geometryProperty);
     if (geometryIndex == -1)

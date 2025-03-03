@@ -1,35 +1,8 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+
+
+
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 //
 //  W A R N I N G
@@ -49,12 +22,11 @@
 #include "shared_global_p.h"
 #include "pluginmanager_p.h"
 
-#include <QtDesigner/QDesignerWidgetFactoryInterface>
+#include <QtDesigner/abstractwidgetfactory.h>
 
-#include <QtCore/QMap>
-#include <QtCore/QHash>
-#include <QtCore/QVariant>
-#include <QtCore/QPointer>
+#include <QtCore/qmap.h>
+#include <QtCore/qhash.h>
+#include <QtCore/qvariant.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -72,24 +44,24 @@ class QDESIGNER_SHARED_EXPORT WidgetFactory: public QDesignerWidgetFactoryInterf
 {
     Q_OBJECT
 public:
-    explicit WidgetFactory(QDesignerFormEditorInterface *core, QObject *parent = 0);
+    explicit WidgetFactory(QDesignerFormEditorInterface *core, QObject *parent = nullptr);
     ~WidgetFactory();
 
-    QWidget* containerOfWidget(QWidget *widget) const Q_DECL_OVERRIDE;
-    QWidget* widgetOfContainer(QWidget *widget) const Q_DECL_OVERRIDE;
+    QWidget* containerOfWidget(QWidget *widget) const override;
+    QWidget* widgetOfContainer(QWidget *widget) const override;
 
     QObject* createObject(const QString &className, QObject* parent) const;
 
-    QWidget *createWidget(const QString &className, QWidget *parentWidget) const Q_DECL_OVERRIDE;
-    QLayout *createLayout(QWidget *widget, QLayout *layout, int type) const Q_DECL_OVERRIDE;
+    QWidget *createWidget(const QString &className, QWidget *parentWidget) const override;
+    QLayout *createLayout(QWidget *widget, QLayout *layout, int type) const override;
 
-    bool isPassiveInteractor(QWidget *widget) Q_DECL_OVERRIDE;
-    void initialize(QObject *object) const Q_DECL_OVERRIDE;
+    bool isPassiveInteractor(QWidget *widget) override;
+    void initialize(QObject *object) const override;
     void initializeCommon(QWidget *object) const;
     void initializePreview(QWidget *object) const;
 
 
-    QDesignerFormEditorInterface *core() const Q_DECL_OVERRIDE;
+    QDesignerFormEditorInterface *core() const override;
 
     static QString classNameOf(QDesignerFormEditorInterface *core, const QObject* o);
 
@@ -121,58 +93,21 @@ public:
 
 public slots:
     void loadPlugins();
-
-private slots:
     void activeFormWindowChanged(QDesignerFormWindowInterface *formWindow);
     void formWindowAdded(QDesignerFormWindowInterface *formWindow);
 
 private:
-    struct Strings { // Reduce string allocations by storing predefined strings
-        Strings();
-        const QString m_alignment;
-        const QString m_bottomMargin;
-        const QString m_geometry;
-        const QString m_leftMargin;
-        const QString m_line;
-        const QString m_objectName;
-        const QString m_spacerName;
-        const QString m_orientation;
-        const QString m_qAction;
-        const QString m_qButtonGroup;
-        const QString m_qAxWidget;
-        const QString m_qDialog;
-        const QString m_qDockWidget;
-        const QString m_qLayoutWidget;
-        const QString m_qMenu;
-        const QString m_qMenuBar;
-        const QString m_qWidget;
-        const QString m_rightMargin;
-        const QString m_sizeHint;
-        const QString m_spacer;
-        const QString m_text;
-        const QString m_title;
-        const QString m_topMargin;
-        const QString m_windowIcon;
-        const QString m_windowTitle;
-    };
-
     QWidget* createCustomWidget(const QString &className, QWidget *parentWidget, bool *creationError) const;
     QDesignerFormWindowInterface *findFormWindow(QWidget *parentWidget) const;
     void setFormWindowStyle(QDesignerFormWindowInterface *formWindow);
 
-    const Strings m_strings;
     QDesignerFormEditorInterface *m_core;
-    typedef QMap<QString, QDesignerCustomWidgetInterface*> CustomWidgetFactoryMap;
-    CustomWidgetFactoryMap m_customFactory;
+    QMap<QString, QDesignerCustomWidgetInterface *> m_customFactory;
     QDesignerFormWindowInterface *m_formWindow;
 
     // Points to the cached style or 0 if the default (qApp) is active
     QStyle *m_currentStyle;
-    typedef QHash<QString, QStyle *> StyleCache;
-    StyleCache m_styleCache;
-
-    static QPointer<QWidget> *m_lastPassiveInteractor;
-    static bool m_lastWasAPassiveInteractor;
+    QHash<QString, QStyle *> m_styleCache;
 };
 
 } // namespace qdesigner_internal

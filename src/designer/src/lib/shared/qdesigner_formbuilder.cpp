@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qdesigner_formbuilder_p.h"
 #include "dynamicpropertysheet.h"
@@ -42,13 +12,13 @@
 // sdk
 #include <QtDesigner/container.h>
 #include <QtDesigner/propertysheet.h>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerWidgetFactoryInterface>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractwidgetfactory.h>
 #include <abstractdialoggui_p.h>
 
-#include <QtUiPlugin/QDesignerCustomWidgetInterface>
+#include <QtUiPlugin/customwidget.h>
 
 // shared
 #include <qdesigner_propertysheet_p.h>
@@ -56,23 +26,25 @@
 #include <formwindowbase_p.h>
 #include <qtresourcemodel_p.h>
 
-#include <QtWidgets/QWidget>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QToolBar>
-#include <QtWidgets/QMenuBar>
-#include <QtWidgets/QMainWindow>
-#include <QtWidgets/QStyleFactory>
-#include <QtWidgets/QStyle>
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QAbstractScrollArea>
-#include <QtWidgets/QMessageBox>
-#include <QtGui/QPixmap>
+#include <QtWidgets/qwidget.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qtoolbar.h>
+#include <QtWidgets/qmenubar.h>
+#include <QtWidgets/qmainwindow.h>
+#include <QtWidgets/qstylefactory.h>
+#include <QtWidgets/qstyle.h>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qabstractscrollarea.h>
+#include <QtWidgets/qmessagebox.h>
+#include <QtGui/qpixmap.h>
 
-#include <QtCore/QBuffer>
+#include <QtCore/qbuffer.h>
 #include <QtCore/qdebug.h>
-#include <QtCore/QCoreApplication>
+#include <QtCore/qcoreapplication.h>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 namespace qdesigner_internal {
 
@@ -80,10 +52,10 @@ QDesignerFormBuilder::QDesignerFormBuilder(QDesignerFormEditorInterface *core,
                                            const DeviceProfile &deviceProfile) :
     m_core(core),
     m_deviceProfile(deviceProfile),
-    m_pixmapCache(0),
-    m_iconCache(0),
+    m_pixmapCache(nullptr),
+    m_iconCache(nullptr),
     m_ignoreCreateResources(false),
-    m_tempResourceSet(0),
+    m_tempResourceSet(nullptr),
     m_mainWidget(true)
 {
     Q_ASSERT(m_core);
@@ -115,10 +87,10 @@ QWidget *QDesignerFormBuilder::create(DomUI *ui, QWidget *parentWidget)
 
     core()->resourceModel()->setCurrentResourceSet(resourceSet);
     core()->resourceModel()->removeResourceSet(m_tempResourceSet);
-    m_tempResourceSet = 0;
+    m_tempResourceSet = nullptr;
     m_ignoreCreateResources = false;
-    m_pixmapCache = 0;
-    m_iconCache = 0;
+    m_pixmapCache = nullptr;
+    m_iconCache = nullptr;
 
     m_customWidgetsWithScript.clear();
     return widget;
@@ -126,13 +98,13 @@ QWidget *QDesignerFormBuilder::create(DomUI *ui, QWidget *parentWidget)
 
 QWidget *QDesignerFormBuilder::createWidget(const QString &widgetName, QWidget *parentWidget, const QString &name)
 {
-    QWidget *widget = 0;
+    QWidget *widget = nullptr;
 
-    if (widgetName == QStringLiteral("QToolBar")) {
+    if (widgetName == "QToolBar"_L1) {
         widget = new QToolBar(parentWidget);
-    } else if (widgetName == QStringLiteral("QMenu")) {
+    } else if (widgetName == "QMenu"_L1) {
         widget = new QMenu(parentWidget);
-    } else if (widgetName == QStringLiteral("QMenuBar")) {
+    } else if (widgetName == "QMenuBar"_L1) {
         widget = new QMenuBar(parentWidget);
     } else {
         widget = core()->widgetFactory()->createWidget(widgetName, parentWidget);
@@ -171,16 +143,16 @@ bool QDesignerFormBuilder::addItem(DomLayoutItem *ui_item, QLayoutItem *item, QL
 
 QIcon QDesignerFormBuilder::nameToIcon(const QString &filePath, const QString &qrcPath)
 {
-    Q_UNUSED(filePath)
-    Q_UNUSED(qrcPath)
+    Q_UNUSED(filePath);
+    Q_UNUSED(qrcPath);
     qWarning() << "QDesignerFormBuilder::nameToIcon() is obsoleted";
     return QIcon();
 }
 
 QPixmap QDesignerFormBuilder::nameToPixmap(const QString &filePath, const QString &qrcPath)
 {
-    Q_UNUSED(filePath)
-    Q_UNUSED(qrcPath)
+    Q_UNUSED(filePath);
+    Q_UNUSED(qrcPath);
     qWarning() << "QDesignerFormBuilder::nameToPixmap() is obsoleted";
     return QPixmap();
 }
@@ -231,14 +203,12 @@ static bool readDomEnumerationValue(const DomProperty *p,
 
 void QDesignerFormBuilder::applyProperties(QObject *o, const QList<DomProperty*> &properties)
 {
-    typedef QList<DomProperty*> DomPropertyList;
-
-    if (properties.empty())
+    if (properties.isEmpty())
         return;
 
     const QDesignerPropertySheetExtension *sheet = qt_extension<QDesignerPropertySheetExtension*>(core()->extensionManager(), o);
     const QDesignerDynamicPropertySheetExtension *dynamicSheet = qt_extension<QDesignerDynamicPropertySheetExtension*>(core()->extensionManager(), o);
-    const bool changingMetaObject = WidgetFactory::classNameOf(core(), o) == QStringLiteral("QAxWidget");
+    const bool changingMetaObject = WidgetFactory::classNameOf(core(), o) == "QAxWidget"_L1;
     const QDesignerMetaObjectInterface *meta = core()->introspection()->metaObject(o);
     const bool dynamicPropertiesAllowed = dynamicSheet && dynamicSheet->dynamicPropertiesAllowed();
 
@@ -252,9 +222,7 @@ void QDesignerFormBuilder::applyProperties(QObject *o, const QList<DomProperty*>
             designerPropertySheet->setIconCache(m_iconCache);
     }
 
-    const DomPropertyList::const_iterator cend = properties.constEnd();
-    for (DomPropertyList::const_iterator it = properties.constBegin(); it != cend; ++it) {
-        DomProperty *p = *it;
+    for (DomProperty *p : properties) {
         QVariant v;
         if (!readDomEnumerationValue(p, sheet, v))
             v = toVariant(o->metaObject(), p);
@@ -276,7 +244,7 @@ void QDesignerFormBuilder::applyProperties(QObject *o, const QList<DomProperty*>
 
         QObject *obj = o;
         QAbstractScrollArea *scroll = qobject_cast<QAbstractScrollArea *>(o);
-        if (scroll && attributeName == QStringLiteral("cursor") && scroll->viewport())
+        if (scroll && attributeName == "cursor"_L1 && scroll->viewport())
             obj = scroll->viewport();
 
         // a real property
@@ -304,9 +272,9 @@ void QDesignerFormBuilder::createResources(DomResources *resources)
     if (m_ignoreCreateResources)
         return;
     QStringList paths;
-    if (resources != 0) {
-        const QList<DomResource*> dom_include = resources->elementInclude();
-        foreach (DomResource *res, dom_include) {
+    if (resources != nullptr) {
+        const auto &dom_include = resources->elementInclude();
+        for (DomResource *res : dom_include) {
             QString path = QDir::cleanPath(workingDirectory().absoluteFilePath(res->attributeLocation()));
             paths << path;
         }
@@ -340,10 +308,10 @@ QWidget *QDesignerFormBuilder::createPreview(const QDesignerFormWindowInterface 
     QBuffer buffer(&bytes);
     buffer.open(QIODevice::ReadOnly);
 
-    QWidget *widget = builder.load(&buffer, 0);
+    QWidget *widget = builder.load(&buffer, nullptr);
     if (!widget) { // Shouldn't happen
         *errorMessage = QCoreApplication::translate("QDesignerFormBuilder", "The preview failed to build.");
-        return  0;
+        return  nullptr;
     }
     // Make sure palette is applied
     const QString styleToUse = styleName.isEmpty() ? builder.deviceProfile().style() : styleName;
@@ -355,12 +323,8 @@ QWidget *QDesignerFormBuilder::createPreview(const QDesignerFormWindowInterface 
     }
     // Fake application style sheet by prepending. (If this doesn't work, fake by nesting
     // into parent widget).
-    if (!appStyleSheet.isEmpty()) {
-        QString styleSheet = appStyleSheet;
-        styleSheet += QLatin1Char('\n');
-        styleSheet +=  widget->styleSheet();
-        widget->setStyleSheet(styleSheet);
-    }
+    if (!appStyleSheet.isEmpty())
+        widget->setStyleSheet(appStyleSheet + u'\n' + widget->styleSheet());
     return widget;
 }
 
@@ -387,7 +351,7 @@ QWidget *QDesignerFormBuilder::createPreview(const QDesignerFormWindowInterface 
         fw->core()->dialogGui()->message(dialogParent, QDesignerDialogGuiInterface::PreviewFailureMessage,
                                          QMessageBox::Warning, QCoreApplication::translate("QDesignerFormBuilder", "Designer"),
                                          errorMessage, QMessageBox::Ok);
-        return 0;
+        return nullptr;
     }
     return widget;
 }

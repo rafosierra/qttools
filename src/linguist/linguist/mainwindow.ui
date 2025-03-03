@@ -1,37 +1,8 @@
-<?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <comment>*********************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-*********************************************************************</comment>
+<comment>
+* Copyright (C) 2016 The Qt Company Ltd.
+* SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+</comment>
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
   <property name="geometry">
@@ -87,6 +58,7 @@
      <string>V&amp;alidation</string>
     </property>
     <addaction name="actionAccelerators"/>
+    <addaction name="actionSurroundingWhitespace"/>
     <addaction name="actionEndingPunctuation"/>
     <addaction name="actionPhraseMatches"/>
     <addaction name="actionPlaceMarkerMatches"/>
@@ -114,16 +86,26 @@
      <addaction name="separator"/>
      <addaction name="actionResetZoomToDefault"/>
     </widget>
+    <widget class="QMenu" name="menuGuesses">
+     <property name="title">
+      <string>Guesses</string>
+     </property>
+     <addaction name="actionShowMoreGuesses"/>
+     <addaction name="actionShowFewerGuesses"/>
+     <addaction name="separator"/>
+     <addaction name="actionResetGuessesToDefault"/>
+    </widget>
     <addaction name="actionResetSorting"/>
     <addaction name="actionDisplayGuesses"/>
-    <addaction name="actionStatistics"/>
     <addaction name="actionLengthVariants"/>
     <addaction name="actionVisualizeWhitespace"/>
     <addaction name="separator"/>
     <addaction name="menuZoom"/>
+    <addaction name="menuGuesses"/>
     <addaction name="separator"/>
     <addaction name="menuToolbars"/>
     <addaction name="menuViewViews"/>
+    <addaction name="actionStatistics"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
@@ -142,6 +124,7 @@
     <addaction name="actionNextUnfinished"/>
     <addaction name="actionPrev"/>
     <addaction name="actionNext"/>
+    <addaction name="actionDone"/>
     <addaction name="actionDoneAndNext"/>
     <addaction name="actionBeginFromSource"/>
    </widget>
@@ -185,6 +168,7 @@
     <addaction name="actionSelectAll"/>
     <addaction name="separator"/>
     <addaction name="actionFind"/>
+    <addaction name="actionFindPrev"/>
     <addaction name="actionFindNext"/>
     <addaction name="actionSearchAndTranslate"/>
     <addaction name="actionBatchTranslation"/>
@@ -476,7 +460,7 @@
   </action>
   <action name="actionBeginFromSource">
    <property name="enabled">
-    <bool>false</bool>
+    <bool>true</bool>
    </property>
    <property name="text">
     <string>Copy from source text</string>
@@ -505,10 +489,27 @@
     <string>&amp;Accelerators</string>
    </property>
    <property name="toolTip">
-    <string>Toggle the validity check of accelerators</string>
+    <string>Toggles the validity check of accelerators</string>
    </property>
    <property name="whatsThis">
-    <string>Toggle the validity check of accelerators, i.e. whether the number of ampersands in the source and translation text is the same. If the check fails, a message is shown in the warnings window.</string>
+    <string>Toggles the validity check of accelerators, i.e. whether the number of ampersands in the source and translation text is the same. If the check fails, a message is shown in the warnings window.</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionSurroundingWhitespace">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Surrounding &amp;Whitespace</string>
+   </property>
+   <property name="toolTip">
+    <string>Toggles the validity check of surrounding whitespace.</string>
+   </property>
+   <property name="whatsThis">
+    <string>Toggles the validity check of surrounding whitespace. If the check fails, a message is shown in the warnings window.</string>
    </property>
    <property name="menuRole">
     <enum>QAction::NoRole</enum>
@@ -522,10 +523,10 @@
     <string>&amp;Ending Punctuation</string>
    </property>
    <property name="toolTip">
-    <string>Toggle the validity check of ending punctuation</string>
+    <string>Toggles the validity check of ending punctuation</string>
    </property>
    <property name="whatsThis">
-    <string>Toggle the validity check of ending punctuation. If the check fails, a message is shown in the warnings window.</string>
+    <string>Toggles the validity check of ending punctuation. If the check fails, a message is shown in the warnings window.</string>
    </property>
    <property name="menuRole">
     <enum>QAction::NoRole</enum>
@@ -539,10 +540,10 @@
     <string>&amp;Phrase matches</string>
    </property>
    <property name="toolTip">
-    <string>Toggle checking that phrase suggestions are used</string>
+    <string>Toggles checking that phrase suggestions are used</string>
    </property>
    <property name="whatsThis">
-    <string>Toggle checking that phrase suggestions are used. If the check fails, a message is shown in the warnings window.</string>
+    <string>Toggles checking that phrase suggestions are used. If the check fails, a message is shown in the warnings window.</string>
    </property>
    <property name="menuRole">
     <enum>QAction::NoRole</enum>
@@ -556,10 +557,10 @@
     <string>Place &amp;Marker Matches</string>
    </property>
    <property name="toolTip">
-    <string>Toggle the validity check of place markers</string>
+    <string>Toggles the validity check of place markers</string>
    </property>
    <property name="whatsThis">
-    <string>Toggle the validity check of place markers, i.e. whether %1, %2, ... are used consistently in the source text and translation text. If the check fails, a message is shown in the warnings window.</string>
+    <string>Toggles the validity check of place markers, i.e. whether %1, %2, ... are used consistently in the source text and translation text. If the check fails, a message is shown in the warnings window.</string>
    </property>
    <property name="menuRole">
     <enum>QAction::NoRole</enum>
@@ -629,10 +630,10 @@
   </action>
   <action name="actionStatistics">
    <property name="checkable">
-    <bool>true</bool>
+    <bool>false</bool>
    </property>
    <property name="checked">
-    <bool>true</bool>
+    <bool>false</bool>
    </property>
    <property name="text">
     <string>&amp;Statistics</string>
@@ -886,7 +887,7 @@
     <string>Visualize whitespace</string>
    </property>
    <property name="toolTip">
-    <string>Toggle visualize whitespace in editors</string>
+    <string>Toggles visualize whitespace in editors</string>
    </property>
   </action>
   <action name="actionIncreaseZoom">
@@ -911,6 +912,58 @@
    </property>
    <property name="shortcut">
     <string>Ctrl+0</string>
+   </property>
+  </action>
+  <action name="actionShowMoreGuesses">
+   <property name="text">
+    <string>Show more</string>
+   </property>
+   <property name="shortcut">
+    <string>Alt++</string>
+   </property>
+  </action>
+  <action name="actionShowFewerGuesses">
+   <property name="text">
+    <string>Show fewer</string>
+   </property>
+   <property name="shortcut">
+    <string>Alt+-</string>
+   </property>
+  </action>
+  <action name="actionResetGuessesToDefault">
+   <property name="text">
+    <string>Reset to default</string>
+   </property>
+   <property name="shortcut">
+    <string>Alt+0</string>
+   </property>
+  </action>
+  <action name="actionDone">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>D&amp;one</string>
+   </property>
+   <property name="toolTip">
+    <string>Mark item as done</string>
+   </property>
+   <property name="whatsThis">
+    <string>Mark this item as done.</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionFindPrev">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>Find P&amp;revious</string>
+   </property>
+   <property name="shortcut">
+    <string>Shift+F3</string>
    </property>
   </action>
  </widget>

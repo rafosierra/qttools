@@ -1,48 +1,20 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "saveformastemplate.h"
 #include "qdesigner_settings.h"
 
-#include <QtCore/QFile>
-#include <QtWidgets/QFileDialog>
-#include <QtWidgets/QMessageBox>
-#include <QtWidgets/QPushButton>
+#include <QtCore/qfile.h>
+#include <QtWidgets/qfiledialog.h>
+#include <QtWidgets/qmessagebox.h>
+#include <QtWidgets/qpushbutton.h>
 
 #include <QtDesigner/abstractformeditor.h>
 #include <QtDesigner/abstractformwindow.h>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 SaveFormAsTemplate::SaveFormAsTemplate(QDesignerFormEditorInterface *core,
                                        QDesignerFormWindowInterface *formWindow,
@@ -52,7 +24,6 @@ SaveFormAsTemplate::SaveFormAsTemplate(QDesignerFormEditorInterface *core,
       m_formWindow(formWindow)
 {
     ui.setupUi(this);
-    setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
     ui.templateNameEdit->setText(formWindow->mainContainer()->objectName());
     ui.templateNameEdit->selectAll();
@@ -63,22 +34,19 @@ SaveFormAsTemplate::SaveFormAsTemplate(QDesignerFormEditorInterface *core,
     ui.categoryCombo->addItems(paths);
     ui.categoryCombo->addItem(tr("Add path..."));
     m_addPathIndex = ui.categoryCombo->count() - 1;
-    connect(ui.templateNameEdit, SIGNAL(textChanged(QString)),
-            this, SLOT(updateOKButton(QString)));
-    connect(ui.categoryCombo, SIGNAL(activated(int)), this, SLOT(checkToAddPath(int)));
+    connect(ui.templateNameEdit, &QLineEdit::textChanged,
+            this, &SaveFormAsTemplate::updateOKButton);
+    connect(ui.categoryCombo, &QComboBox::activated,
+            this, &SaveFormAsTemplate::checkToAddPath);
 }
 
-SaveFormAsTemplate::~SaveFormAsTemplate()
-{
-}
+SaveFormAsTemplate::~SaveFormAsTemplate() = default;
 
 void SaveFormAsTemplate::accept()
 {
-    QString templateFileName = ui.categoryCombo->currentText();
-    templateFileName += QLatin1Char('/');
     const QString name = ui.templateNameEdit->text();
-    templateFileName +=  name;
-    const QString extension = QStringLiteral(".ui");
+    QString templateFileName = ui.categoryCombo->currentText() + u'/' + name;
+    const auto extension = ".ui"_L1;
     if (!templateFileName.endsWith(extension))
         templateFileName.append(extension);
     QFile file(templateFileName);
@@ -96,7 +64,8 @@ void SaveFormAsTemplate::accept()
 
     while (!file.open(QFile::WriteOnly)) {
         if (QMessageBox::information(m_formWindow, tr("Open Error"),
-            tr("There was an error opening template %1 for writing. Reason: %2").arg(name).arg(file.errorString()),
+            tr("There was an error opening template %1 for writing. Reason: %2")
+              .arg(name, file.errorString()),
             QMessageBox::Retry|QMessageBox::Cancel, QMessageBox::Cancel) == QMessageBox::Cancel) {
             return;
         }
@@ -110,7 +79,8 @@ void SaveFormAsTemplate::accept()
     m_formWindow->setFileName(origName);
     while (file.write(ba) != ba.size()) {
         if (QMessageBox::information(m_formWindow, tr("Write Error"),
-            tr("There was an error writing the template %1 to disk. Reason: %2").arg(name).arg(file.errorString()),
+            tr("There was an error writing the template %1 to disk. Reason: %2")
+              .arg(name, file.errorString()),
             QMessageBox::Retry|QMessageBox::Cancel, QMessageBox::Cancel) == QMessageBox::Cancel) {
                 file.close();
                 file.remove();

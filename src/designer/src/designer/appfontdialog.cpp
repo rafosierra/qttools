@@ -1,67 +1,41 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "appfontdialog.h"
 
 #include <iconloader_p.h>
 
-#include <QtDesigner/QDesignerSettingsInterface>
+#include <QtDesigner/abstractsettings.h>
 
-#include <QtWidgets/QTreeView>
-#include <QtWidgets/QToolButton>
-#include <QtWidgets/QHBoxLayout>
-#include <QtWidgets/QVBoxLayout>
-#include <QtWidgets/QSpacerItem>
-#include <QtWidgets/QFileDialog>
-#include <QtGui/QStandardItemModel>
-#include <QtWidgets/QMessageBox>
-#include <QtGui/QFontDatabase>
-#include <QtWidgets/QDialogButtonBox>
+#include <QtGui/qfontdatabase.h>
+#include <QtGui/qstandarditemmodel.h>
 
-#include <QtCore/QSettings>
-#include <QtCore/QCoreApplication>
-#include <QtCore/QStringList>
-#include <QtCore/QFileInfo>
-#include <QtCore/QtAlgorithms>
-#include <QtCore/QVector>
-#include <QtCore/QDebug>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qdialogbuttonbox.h>
+#include <QtWidgets/qfiledialog.h>
+#include <QtWidgets/qlayoutitem.h>
+#include <QtWidgets/qmessagebox.h>
+#include <QtWidgets/qtoolbutton.h>
+#include <QtWidgets/qtreeview.h>
+
+#include <QtCore/qalgorithms.h>
+#include <QtCore/qcoreapplication.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qlist.h>
+#include <QtCore/qsettings.h>
+#include <QtCore/qstringlist.h>
+
+#include <algorithm>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 enum {FileNameRole = Qt::UserRole + 1, IdRole =  Qt::UserRole + 2 };
 enum { debugAppFontWidget = 0 };
 
-static const char fontFileKeyC[] = "fontFiles";
+static constexpr auto fontFileKeyC = "fontFiles"_L1;
 
 // AppFontManager: Singleton that maintains the mapping of loaded application font
 // ids to the file names (which are not stored in QFontDatabase)
@@ -69,7 +43,7 @@ static const char fontFileKeyC[] = "fontFiles";
 
 class AppFontManager
 {
-    Q_DISABLE_COPY(AppFontManager)
+    Q_DISABLE_COPY_MOVE(AppFontManager)
     AppFontManager();
 public:
     static AppFontManager &instance();
@@ -85,17 +59,15 @@ public:
     bool removeAt(int index, QString *errorMessage);
 
     // Store loaded fonts as pair of file name and Id
-    typedef QPair<QString,int> FileNameFontIdPair;
-    typedef QList<FileNameFontIdPair> FileNameFontIdPairs;
+    using FileNameFontIdPair = std::pair<QString, int>;
+    using FileNameFontIdPairs = QList<FileNameFontIdPair>;
     const FileNameFontIdPairs &fonts() const;
 
 private:
     FileNameFontIdPairs m_fonts;
 };
 
-AppFontManager::AppFontManager()
-{
-}
+AppFontManager::AppFontManager() = default;
 
 AppFontManager &AppFontManager::instance()
 {
@@ -107,12 +79,11 @@ void AppFontManager::save(QDesignerSettingsInterface *s, const QString &prefix) 
 {
     // Store as list of file names
     QStringList fontFiles;
-    const FileNameFontIdPairs::const_iterator cend = m_fonts.constEnd();
-    for (FileNameFontIdPairs::const_iterator it = m_fonts.constBegin(); it != cend; ++it)
-        fontFiles.push_back(it->first);
+    for (const auto &fnp : m_fonts)
+        fontFiles.push_back(fnp.first);
 
     s->beginGroup(prefix);
-    s->setValue(QLatin1String(fontFileKeyC),  fontFiles);
+    s->setValue(fontFileKeyC,  fontFiles);
     s->endGroup();
 
     if (debugAppFontWidget)
@@ -121,19 +92,17 @@ void AppFontManager::save(QDesignerSettingsInterface *s, const QString &prefix) 
 
 void AppFontManager::restore(const QDesignerSettingsInterface *s, const QString &prefix)
 {
-    QString key = prefix;
-    key += QLatin1Char('/');
-    key += QLatin1String(fontFileKeyC);
+    const QString key = prefix + u'/' + fontFileKeyC;
     const QStringList fontFiles = s->value(key, QStringList()).toStringList();
 
     if (debugAppFontWidget)
         qDebug() << "AppFontManager::restoring" << fontFiles.size() << "fonts from " << prefix;
-    if (!fontFiles.empty()) {
+    if (!fontFiles.isEmpty()) {
         QString errorMessage;
-        const QStringList::const_iterator cend = fontFiles.constEnd();
-        for (QStringList::const_iterator it = fontFiles.constBegin(); it != cend; ++it)
-            if (add(*it, &errorMessage) == -1)
+        for (const auto &ff : fontFiles) {
+            if (add(ff, &errorMessage) == -1)
                 qWarning("%s", qPrintable(errorMessage));
+        }
     }
 }
 
@@ -150,9 +119,8 @@ int AppFontManager::add(const QString &fontFile, QString *errorMessage)
     }
     const QString fullPath = inf.absoluteFilePath();
     // Check if already loaded
-    const FileNameFontIdPairs::const_iterator cend = m_fonts.constEnd();
-    for (FileNameFontIdPairs::const_iterator it = m_fonts.constBegin(); it != cend; ++it) {
-        if (it->first == fullPath) {
+    for (const auto &fnp : std::as_const(m_fonts)) {
+        if (fnp.first == fullPath) {
             *errorMessage = QCoreApplication::translate("AppFontManager", "The font file '%1' is already loaded.").arg(fontFile);
             return -1;
         }
@@ -172,9 +140,8 @@ int AppFontManager::add(const QString &fontFile, QString *errorMessage)
 
 bool AppFontManager::remove(int id, QString *errorMessage)
 {
-    const int count = m_fonts.size();
-    for (int i = 0; i < count; i++)
-        if (m_fonts[i].second == id)
+    for (qsizetype i = 0, count = m_fonts.size(); i < count; ++i)
+        if (m_fonts.at(i).second == id)
             return removeAt(i, errorMessage);
 
     *errorMessage = QCoreApplication::translate("AppFontManager", "'%1' is not a valid font id.").arg(id);
@@ -183,9 +150,8 @@ bool AppFontManager::remove(int id, QString *errorMessage)
 
 bool AppFontManager::remove(const QString &fontFile, QString *errorMessage)
 {
-    const int count = m_fonts.size();
-    for (int i = 0; i < count; i++)
-        if (m_fonts[i].first == fontFile)
+    for (qsizetype i = 0, count = m_fonts.size(); i < count; ++i)
+        if (m_fonts.at(i).first == fontFile)
             return removeAt(i, errorMessage);
 
     *errorMessage = QCoreApplication::translate("AppFontManager", "There is no loaded font matching the id '%1'.").arg(fontFile);
@@ -217,9 +183,9 @@ const AppFontManager::FileNameFontIdPairs &AppFontManager::fonts() const
 
 // ------------- AppFontModel
 class AppFontModel : public QStandardItemModel {
-    Q_DISABLE_COPY(AppFontModel)
+    Q_DISABLE_COPY_MOVE(AppFontModel)
 public:
-    AppFontModel(QObject *parent = 0);
+    AppFontModel(QObject *parent = nullptr);
 
     void init(const AppFontManager &mgr);
     void add(const QString &fontFile, int id);
@@ -234,12 +200,11 @@ AppFontModel::AppFontModel(QObject * parent) :
 
 void AppFontModel::init(const AppFontManager &mgr)
 {
-    typedef AppFontManager::FileNameFontIdPairs FileNameFontIdPairs;
+    using FileNameFontIdPairs = AppFontManager::FileNameFontIdPairs;
 
     const FileNameFontIdPairs &fonts = mgr.fonts();
-    const FileNameFontIdPairs::const_iterator cend = fonts.constEnd();
-    for (FileNameFontIdPairs::const_iterator it = fonts.constBegin(); it != cend; ++it)
-        add(it->first, it->second);
+    for (const auto &fnp : fonts)
+        add(fnp.first, fnp.second);
 }
 
 void AppFontModel::add(const QString &fontFile, int id)
@@ -255,11 +220,10 @@ void AppFontModel::add(const QString &fontFile, int id)
 
     appendRow(fileItem);
     const QStringList families = QFontDatabase::applicationFontFamilies(id);
-    const QStringList::const_iterator cend = families.constEnd();
-    for (QStringList::const_iterator it = families.constBegin(); it != cend; ++it) {
-        QStandardItem *familyItem = new QStandardItem(*it);
+    for (const auto &fam : families) {
+        QStandardItem *familyItem = new QStandardItem(fam);
         familyItem->setToolTip(fullPath);
-        familyItem->setFont(QFont(*it));
+        familyItem->setFont(QFont(fam));
         familyItem->setFlags(Qt::ItemIsEnabled);
         fileItem->appendRow(familyItem);
     }
@@ -285,20 +249,21 @@ AppFontWidget::AppFontWidget(QWidget *parent) :
     m_view->setModel(m_model);
     m_view->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_view->expandAll();
-    connect(m_view->selectionModel(), SIGNAL(selectionChanged(QItemSelection,QItemSelection)), this, SLOT(selectionChanged(QItemSelection,QItemSelection)));
+    connect(m_view->selectionModel(), &QItemSelectionModel::selectionChanged, this, &AppFontWidget::selectionChanged);
 
     m_addButton->setToolTip(tr("Add font files"));
-    m_addButton->setIcon(qdesigner_internal::createIconSet(QString::fromUtf8("plus.png")));
-    connect(m_addButton, SIGNAL(clicked()), this, SLOT(addFiles()));
+    m_addButton->setIcon(qdesigner_internal::createIconSet("plus.png"_L1));
+    connect(m_addButton, &QAbstractButton::clicked, this, &AppFontWidget::addFiles);
 
     m_removeButton->setEnabled(false);
     m_removeButton->setToolTip(tr("Remove current font file"));
-    m_removeButton->setIcon(qdesigner_internal::createIconSet(QString::fromUtf8("minus.png")));
-    connect(m_removeButton, SIGNAL(clicked()), this, SLOT(slotRemoveFiles()));
+    m_removeButton->setIcon(qdesigner_internal::createIconSet("minus.png"_L1));
+    connect(m_removeButton, &QAbstractButton::clicked, this, &AppFontWidget::slotRemoveFiles);
 
     m_removeAllButton->setToolTip(tr("Remove all font files"));
-    m_removeAllButton->setIcon(qdesigner_internal::createIconSet(QString::fromUtf8("editdelete.png")));
-    connect(m_removeAllButton, SIGNAL(clicked()), this, SLOT(slotRemoveAll()));
+    m_removeAllButton->setIcon(qdesigner_internal::createIconSet(QIcon::ThemeIcon::EditDelete,
+                                                                 "editdelete.png"_L1));
+    connect(m_removeAllButton, &QAbstractButton::clicked, this, &AppFontWidget::slotRemoveAll);
 
     QHBoxLayout *hLayout = new QHBoxLayout;
     hLayout->addWidget(m_addButton);
@@ -317,17 +282,16 @@ void AppFontWidget::addFiles()
     const QStringList files =
         QFileDialog::getOpenFileNames(this, tr("Add Font Files"), QString(),
                                       tr("Font files (*.ttf)"));
-    if (files.empty())
+    if (files.isEmpty())
         return;
 
     QString errorMessage;
 
     AppFontManager &fmgr = AppFontManager::instance();
-    const QStringList::const_iterator cend = files.constEnd();
-    for (QStringList::const_iterator it = files.constBegin(); it != cend; ++it) {
-        const int id = fmgr.add(*it, &errorMessage);
+    for (const auto &f : files) {
+        const int id = fmgr.add(f, &errorMessage);
         if (id != -1) {
-            m_model->add(*it, id);
+            m_model->add(f, id);
         } else {
             QMessageBox::critical(this, tr("Error Adding Fonts"), errorMessage);
         }
@@ -337,30 +301,29 @@ void AppFontWidget::addFiles()
 
 static void removeFonts(const QModelIndexList &selectedIndexes, AppFontModel *model, QWidget *dialogParent)
 {
-    if (selectedIndexes.empty())
+    if (selectedIndexes.isEmpty())
         return;
 
     // Reverse sort top level rows and remove
     AppFontManager &fmgr = AppFontManager::instance();
-    QVector<int> rows;
+    QList<int> rows;
     rows.reserve(selectedIndexes.size());
 
     QString errorMessage;
-    const QModelIndexList::const_iterator cend = selectedIndexes.constEnd();
-    for (QModelIndexList::const_iterator it = selectedIndexes.constBegin(); it != cend; ++it) {
-        const int id = model->idAt(*it);
+    for (const auto &mi : selectedIndexes) {
+        const int id = model->idAt(mi);
         if (id != -1) {
             if (fmgr.remove(id, &errorMessage)) {
-                rows.push_back(it->row());
+                rows.append(mi.row());
             } else {
                 QMessageBox::critical(dialogParent, AppFontWidget::tr("Error Removing Fonts"), errorMessage);
             }
         }
     }
 
-    qStableSort(rows.begin(), rows.end());
-    for (int i = rows.size() - 1; i >= 0; i--)
-        model->removeRow(rows[i]);
+    std::stable_sort(rows.begin(), rows.end());
+    for (qsizetype i = rows.size() - 1; i >= 0; --i)
+        model->removeRow(rows.at(i));
 }
 
 void AppFontWidget::slotRemoveFiles()
@@ -388,7 +351,7 @@ void AppFontWidget::slotRemoveAll()
 
 void AppFontWidget::selectionChanged(const QItemSelection &selected, const QItemSelection & /*deselected*/)
 {
-     m_removeButton->setEnabled(!selected.indexes().empty());
+     m_removeButton->setEnabled(!selected.indexes().isEmpty());
 }
 
 void AppFontWidget::save(QDesignerSettingsInterface *s, const QString &prefix)
@@ -407,14 +370,13 @@ AppFontDialog::AppFontDialog(QWidget *parent) :
     m_appFontWidget(new AppFontWidget)
 {
     setAttribute(Qt::WA_DeleteOnClose, true);
-    setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
     setWindowTitle(tr("Additional Fonts"));
     setModal(false);
     QVBoxLayout *vl = new  QVBoxLayout;
     vl->addWidget(m_appFontWidget);
 
     QDialogButtonBox *bb = new QDialogButtonBox(QDialogButtonBox::Close);
-    QDialog::connect(bb, SIGNAL(rejected()), this, SLOT(reject()));
+    QDialog::connect(bb, &QDialogButtonBox::rejected, this, &AppFontDialog::reject);
     vl->addWidget(bb);
     setLayout(vl);
 }

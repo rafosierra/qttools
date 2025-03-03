@@ -1,60 +1,29 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "phrase.h"
 #include "translator.h"
+#include "xmlparser.h"
 
 #include <QApplication>
 #include <QFile>
 #include <QFileInfo>
 #include <QMessageBox>
-#include <QRegExp>
-#include <QTextCodec>
 #include <QTextStream>
-#include <QXmlAttributes>
-#include <QXmlDefaultHandler>
-#include <QXmlParseException>
+#include <QXmlStreamReader>
 
 QT_BEGIN_NAMESPACE
 
-static QString protect(const QString & str)
+using namespace Qt::Literals::StringLiterals;
+
+static QString xmlProtect(const QString & str)
 {
     QString p = str;
-    p.replace(QLatin1Char('&'),  QLatin1String("&amp;"));
-    p.replace(QLatin1Char('\"'), QLatin1String("&quot;"));
-    p.replace(QLatin1Char('>'),  QLatin1String("&gt;"));
-    p.replace(QLatin1Char('<'),  QLatin1String("&lt;"));
-    p.replace(QLatin1Char('\''), QLatin1String("&apos;"));
+    p.replace(u'&', "&amp;"_L1);
+    p.replace(u'\"', "&quot;"_L1);
+    p.replace(u'>', "&gt;"_L1);
+    p.replace(u'<', "&lt;"_L1);
+    p.replace(QLatin1Char('\''), "&apos;"_L1);
     return p;
 }
 
@@ -63,10 +32,9 @@ Phrase::Phrase()
 {
 }
 
-Phrase::Phrase(const QString &source, const QString &target,
-               const QString &definition, int sc)
-    : shrtc(sc), s(source), t(target), d(definition),
-      m_phraseBook(0)
+Phrase::Phrase(const QString &source, const QString &target, const QString &definition,
+               const Candidate &candidate, int sc)
+    : shrtc(sc), s(source), t(target), d(definition), cand(candidate), m_phraseBook(0)
 {
 }
 
@@ -110,24 +78,26 @@ bool operator==(const Phrase &p, const Phrase &q)
         p.definition() == q.definition() && p.phraseBook() == q.phraseBook();
 }
 
-class QphHandler : public QXmlDefaultHandler
+class QphHandler : public XmlParser
 {
 public:
-    QphHandler(PhraseBook *phraseBook)
-        : pb(phraseBook), ferrorCount(0) { }
-
-    virtual bool startElement(const QString &namespaceURI,
-        const QString &localName, const QString &qName,
-        const QXmlAttributes &atts);
-    virtual bool endElement(const QString &namespaceURI,
-        const QString &localName, const QString &qName);
-    virtual bool characters(const QString &ch);
-    virtual bool fatalError(const QXmlParseException &exception);
+    QphHandler(PhraseBook *phraseBook, QXmlStreamReader &reader)
+        : XmlParser(reader), pb(phraseBook), ferrorCount(0)
+    {
+    }
+    ~QphHandler() override = default;
 
     QString language() const { return m_language; }
     QString sourceLanguage() const { return m_sourceLanguage; }
 
 private:
+    bool startElement(QStringView namespaceURI, QStringView localName,
+                      QStringView qName, const QXmlStreamAttributes &atts) override;
+    bool endElement(QStringView namespaceURI, QStringView localName,
+                    QStringView qName) override;
+    bool characters(QStringView ch) override;
+    bool fatalError(qint64 line, qint64 column, const QString &message) override;
+
     PhraseBook *pb;
     QString source;
     QString target;
@@ -139,15 +109,16 @@ private:
     int ferrorCount;
 };
 
-bool QphHandler::startElement(const QString & /* namespaceURI */,
-                              const QString & /* localName */,
-                              const QString &qName,
-                              const QXmlAttributes &atts)
+bool QphHandler::startElement(QStringView namespaceURI, QStringView localName,
+                              QStringView qName, const QXmlStreamAttributes &atts)
 {
-    if (qName == QLatin1String("QPH")) {
-        m_language = atts.value(QLatin1String("language"));
-        m_sourceLanguage = atts.value(QLatin1String("sourcelanguage"));
-    } else if (qName == QLatin1String("phrase")) {
+    Q_UNUSED(namespaceURI);
+    Q_UNUSED(localName);
+
+    if (qName == "QPH"_L1) {
+        m_language = atts.value("language"_L1).toString();
+        m_sourceLanguage = atts.value("sourcelanguage"_L1).toString();
+    } else if (qName == "phrase"_L1) {
         source.truncate(0);
         target.truncate(0);
         definition.truncate(0);
@@ -156,35 +127,37 @@ bool QphHandler::startElement(const QString & /* namespaceURI */,
     return true;
 }
 
-bool QphHandler::endElement(const QString & /* namespaceURI */,
-                            const QString & /* localName */,
-                            const QString &qName)
+bool QphHandler::endElement(QStringView namespaceURI, QStringView localName,
+                            QStringView qName)
 {
-    if (qName == QLatin1String("source"))
+    Q_UNUSED(namespaceURI);
+    Q_UNUSED(localName);
+
+    if (qName == "source"_L1)
         source = accum;
-    else if (qName == QLatin1String("target"))
+    else if (qName == "target"_L1)
         target = accum;
-    else if (qName == QLatin1String("definition"))
+    else if (qName == "definition"_L1)
         definition = accum;
-    else if (qName == QLatin1String("phrase"))
+    else if (qName == "phrase"_L1)
         pb->m_phrases.append(new Phrase(source, target, definition, pb));
     return true;
 }
 
-bool QphHandler::characters(const QString &ch)
+bool QphHandler::characters(QStringView ch)
 {
     accum += ch;
     return true;
 }
 
-bool QphHandler::fatalError(const QXmlParseException &exception)
+bool QphHandler::fatalError(qint64 line, qint64 column, const QString &message)
 {
     if (ferrorCount++ == 0) {
         QString msg = PhraseBook::tr("Parse error at line %1, column %2 (%3).")
-            .arg(exception.lineNumber()).arg(exception.columnNumber())
-            .arg(exception.message());
-        QMessageBox::information(0,
-            QObject::tr("Qt Linguist"), msg);
+                              .arg(line)
+                              .arg(column)
+                              .arg(message);
+        QMessageBox::information(nullptr, QObject::tr("Qt Linguist"), msg);
     }
     return false;
 }
@@ -193,8 +166,8 @@ PhraseBook::PhraseBook() :
     m_changed(false),
     m_language(QLocale::C),
     m_sourceLanguage(QLocale::C),
-    m_country(QLocale::AnyCountry),
-    m_sourceCountry(QLocale::AnyCountry)
+    m_territory(QLocale::AnyTerritory),
+    m_sourceTerritory(QLocale::AnyTerritory)
 {
 }
 
@@ -203,21 +176,21 @@ PhraseBook::~PhraseBook()
     qDeleteAll(m_phrases);
 }
 
-void PhraseBook::setLanguageAndCountry(QLocale::Language lang, QLocale::Country country)
+void PhraseBook::setLanguageAndTerritory(QLocale::Language lang, QLocale::Territory territory)
 {
-    if (m_language == lang && m_country == country)
+    if (m_language == lang && m_territory == territory)
         return;
     m_language = lang;
-    m_country = country;
+    m_territory = territory;
     setModified(true);
 }
 
-void PhraseBook::setSourceLanguageAndCountry(QLocale::Language lang, QLocale::Country country)
+void PhraseBook::setSourceLanguageAndTerritory(QLocale::Language lang, QLocale::Territory territory)
 {
-    if (m_sourceLanguage == lang && m_sourceCountry == country)
+    if (m_sourceLanguage == lang && m_sourceTerritory == territory)
         return;
     m_sourceLanguage = lang;
-    m_sourceCountry = country;
+    m_sourceTerritory = territory;
     setModified(true);
 }
 
@@ -229,36 +202,26 @@ bool PhraseBook::load(const QString &fileName, bool *langGuessed)
 
     m_fileName = fileName;
 
-    QXmlInputSource in(&f);
-    QXmlSimpleReader reader;
-    // don't click on these!
-    reader.setFeature(QLatin1String("http://xml.org/sax/features/namespaces"), false);
-    reader.setFeature(QLatin1String("http://xml.org/sax/features/namespace-prefixes"), true);
-    reader.setFeature(QLatin1String("http://trolltech.com/xml/features/report-whitespace"
-                                    "-only-CharData"), false);
-    QphHandler *hand = new QphHandler(this);
-    reader.setContentHandler(hand);
-    reader.setErrorHandler(hand);
+    QXmlStreamReader reader(&f);
+    QphHandler *hand = new QphHandler(this, reader);
+    reader.setNamespaceProcessing(false);
+    bool ok = hand->parse();
 
-    bool ok = reader.parse(in);
-    reader.setContentHandler(0);
-    reader.setErrorHandler(0);
-
-    Translator::languageAndCountry(hand->language(), &m_language, &m_country);
+    Translator::languageAndTerritory(hand->language(), &m_language, &m_territory);
     *langGuessed = false;
     if (m_language == QLocale::C) {
         QLocale sys;
         m_language = sys.language();
-        m_country = sys.country();
+        m_territory = sys.territory();
         *langGuessed = true;
     }
 
     QString lang = hand->sourceLanguage();
     if (lang.isEmpty()) {
         m_sourceLanguage = QLocale::C;
-        m_sourceCountry = QLocale::AnyCountry;
+        m_sourceTerritory = QLocale::AnyTerritory;
     } else {
-        Translator::languageAndCountry(lang, &m_sourceLanguage, &m_sourceCountry);
+        Translator::languageAndTerritory(lang, &m_sourceLanguage, &m_sourceTerritory);
     }
 
     delete hand;
@@ -282,21 +245,20 @@ bool PhraseBook::save(const QString &fileName)
     m_fileName = fileName;
 
     QTextStream t(&f);
-    t.setCodec( QTextCodec::codecForName("UTF-8") );
 
     t << "<!DOCTYPE QPH>\n<QPH";
     if (sourceLanguage() != QLocale::C)
         t << " sourcelanguage=\""
-          << Translator::makeLanguageCode(sourceLanguage(), sourceCountry()) << '"';
+          << Translator::makeLanguageCode(sourceLanguage(), sourceTerritory()) << '"';
     if (language() != QLocale::C)
-        t << " language=\"" << Translator::makeLanguageCode(language(), country()) << '"';
+        t << " language=\"" << Translator::makeLanguageCode(language(), territory()) << '"';
     t << ">\n";
-    foreach (Phrase *p, m_phrases) {
+    for (Phrase *p : std::as_const(m_phrases)) {
         t << "<phrase>\n";
-        t << "    <source>" << protect( p->source() ) << "</source>\n";
-        t << "    <target>" << protect( p->target() ) << "</target>\n";
+        t << "    <source>" << xmlProtect( p->source() ) << "</source>\n";
+        t << "    <target>" << xmlProtect( p->target() ) << "</target>\n";
         if (!p->definition().isEmpty())
-            t << "    <definition>" << protect( p->definition() )
+            t << "    <definition>" << xmlProtect( p->definition() )
               << "</definition>\n";
         t << "</phrase>\n";
     }

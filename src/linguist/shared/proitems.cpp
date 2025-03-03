@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "proitems.h"
 
@@ -37,13 +7,14 @@
 #include <qset.h>
 #include <qstringlist.h>
 #include <qtextstream.h>
+#include <private/qduplicatetracker_p.h>
 
 QT_BEGIN_NAMESPACE
 
 // from qhash.cpp
-uint ProString::hash(const QChar *p, int n)
+size_t ProString::hash(const QChar *p, int n)
 {
-    uint h = 0;
+    size_t h = 0;
 
     while (n--) {
         h = (h << 4) + (*p++).unicode();
@@ -69,24 +40,29 @@ ProString::ProString(const ProString &other, OmitPreHashing) :
 }
 
 ProString::ProString(const QString &str, DoPreHashing) :
-    m_string(str), m_offset(0), m_length(str.length()), m_file(0)
+    m_string(str), m_offset(0), m_length(str.size()), m_file(0)
 {
     updatedHash();
 }
 
 ProString::ProString(const QString &str) :
-    m_string(str), m_offset(0), m_length(str.length()), m_file(0), m_hash(0x80000000)
+    m_string(str), m_offset(0), m_length(str.size()), m_file(0), m_hash(0x80000000)
+{
+}
+
+ProString::ProString(QStringView str) :
+    m_string(str.toString()), m_offset(0), m_length(str.size()), m_file(0), m_hash(0x80000000)
 {
 }
 
 ProString::ProString(const char *str, DoPreHashing) :
-    m_string(QString::fromLatin1(str)), m_offset(0), m_length(qstrlen(str)), m_file(0)
+    m_string(QString::fromLatin1(str)), m_offset(0), m_length(int(qstrlen(str))), m_file(0)
 {
     updatedHash();
 }
 
 ProString::ProString(const char *str) :
-    m_string(QString::fromLatin1(str)), m_offset(0), m_length(qstrlen(str)), m_file(0), m_hash(0x80000000)
+    m_string(QString::fromLatin1(str)), m_offset(0), m_length(int(qstrlen(str))), m_file(0), m_hash(0x80000000)
 {
 }
 
@@ -108,15 +84,15 @@ ProString::ProString(const QString &str, int offset, int length) :
 
 void ProString::setValue(const QString &str)
 {
-    m_string = str, m_offset = 0, m_length = str.length(), m_hash = 0x80000000;
+    m_string = str, m_offset = 0, m_length = str.size(), m_hash = 0x80000000;
 }
 
-uint ProString::updatedHash() const
+size_t ProString::updatedHash() const
 {
      return (m_hash = hash(m_string.constData() + m_offset, m_length));
 }
 
-uint qHash(const ProString &str)
+size_t qHash(const ProString &str)
 {
     if (!(str.m_hash & 0x80000000))
         return str.m_hash;
@@ -145,7 +121,7 @@ ProKey::ProKey(const QString &str, int off, int len, uint hash) :
 
 void ProKey::setValue(const QString &str)
 {
-    m_string = str, m_offset = 0, m_length = str.length();
+    m_string = str, m_offset = 0, m_length = str.size();
     updatedHash();
 }
 
@@ -156,30 +132,8 @@ QString ProString::toQString() const
 
 QString &ProString::toQString(QString &tmp) const
 {
-    return tmp.setRawData(m_string.constData() + m_offset, m_length);
-}
-
-QChar *ProString::prepareExtend(int extraLen, int thisTarget, int extraTarget)
-{
-    if (m_string.isDetached() && m_length + extraLen <= m_string.capacity()) {
-        m_string.reserve(0); // Prevent the resize() below from reallocating
-        QChar *ptr = (QChar *)m_string.constData();
-        if (m_offset != thisTarget)
-            memmove(ptr + thisTarget, ptr + m_offset, m_length * 2);
-        ptr += extraTarget;
-        m_offset = 0;
-        m_length += extraLen;
-        m_string.resize(m_length);
-        m_hash = 0x80000000;
-        return ptr;
-    } else {
-        QString neu(m_length + extraLen, Qt::Uninitialized);
-        QChar *ptr = (QChar *)neu.constData();
-        memcpy(ptr + thisTarget, m_string.constData() + m_offset, m_length * 2);
-        ptr += extraTarget;
-        *this = ProString(neu);
-        return ptr;
-    }
+    tmp = m_string.mid(m_offset, m_length);
+    return tmp;
 }
 
 ProString &ProString::prepend(const ProString &other)
@@ -188,10 +142,12 @@ ProString &ProString::prepend(const ProString &other)
         if (!m_length) {
             *this = other;
         } else {
-            QChar *ptr = prepareExtend(other.m_length, other.m_length, 0);
-            memcpy(ptr, other.constData(), other.m_length * 2);
+            m_string = other.toQStringView() + toQStringView();
+            m_offset = 0;
+            m_length = m_string.size();
             if (!m_file)
                 m_file = other.m_file;
+            m_hash = 0x80000000;
         }
     }
     return *this;
@@ -199,24 +155,33 @@ ProString &ProString::prepend(const ProString &other)
 
 ProString &ProString::append(const QLatin1String other)
 {
-    const char *latin1 = other.latin1();
-#if QT_VERSION >= QT_VERSION_CHECK(5, 0, 0)
-    int size = other.size();
-#else
-    int size = strlen(latin1);
-#endif
-    if (size) {
-        QChar *ptr = prepareExtend(size, 0, m_length);
-        for (int i = 0; i < size; i++)
-            *ptr++ = QLatin1Char(latin1[i]);
+    if (other.size()) {
+        if (m_length != m_string.size()) {
+            m_string = toQStringView() + other;
+            m_offset = 0;
+            m_length = m_string.size();
+        } else {
+            Q_ASSERT(m_offset == 0);
+            m_string.append(other);
+            m_length += other.size();
+        }
+        m_hash = 0x80000000;
     }
     return *this;
 }
 
 ProString &ProString::append(QChar other)
 {
-    QChar *ptr = prepareExtend(1, 0, m_length);
-    *ptr = other;
+    if (m_length != m_string.size()) {
+        m_string = toQStringView() + other;
+        m_offset = 0;
+        m_length = m_string.size();
+    } else {
+        Q_ASSERT(m_offset == 0);
+        m_string.append(other);
+        ++m_length;
+    }
+    m_hash = 0x80000000;
     return *this;
 }
 
@@ -227,16 +192,18 @@ ProString &ProString::append(const ProString &other, bool *pending)
         if (!m_length) {
             *this = other;
         } else {
-            QChar *ptr;
+            if (m_length != m_string.size())
+                m_string = toQString();
             if (pending && !*pending) {
-                ptr = prepareExtend(1 + other.m_length, 0, m_length);
-                *ptr++ = 32;
+                m_string += u' ' + other.toQStringView();
             } else {
-                ptr = prepareExtend(other.m_length, 0, m_length);
+                m_string += other.toQStringView();
             }
-            memcpy(ptr, other.m_string.constData() + other.m_offset, other.m_length * 2);
+            m_length = m_string.size();
+            m_offset = 0;
             if (other.m_file)
                 m_file = other.m_file;
+            m_hash = 0x80000000;
         }
         if (pending)
             *pending = true;
@@ -256,27 +223,24 @@ ProString &ProString::append(const ProStringList &other, bool *pending, bool ski
         if (!m_length && sz == startIdx + 1) {
             *this = other.at(startIdx);
         } else {
-            int totalLength = sz - startIdx;
-            for (int i = startIdx; i < sz; ++i)
-                totalLength += other.at(i).size();
             bool putSpace = false;
             if (pending && !*pending && m_length)
                 putSpace = true;
-            else
-                totalLength--;
 
-            QChar *ptr = prepareExtend(totalLength, 0, m_length);
+            m_string = toQString();
+            m_offset = 0;
             for (int i = startIdx; i < sz; ++i) {
                 if (putSpace)
-                    *ptr++ = 32;
+                    m_string += u' ';
                 else
                     putSpace = true;
                 const ProString &str = other.at(i);
-                memcpy(ptr, str.m_string.constData() + str.m_offset, str.m_length * 2);
-                ptr += str.m_length;
+                m_string += str.toQStringView();
             }
+            m_length = m_string.size();
             if (other.last().m_file)
                 m_file = other.last().m_file;
+            m_hash = 0x80000000;
         }
         if (pending)
             *pending = true;
@@ -333,7 +297,7 @@ ProString ProString::trimmed() const
 
 QTextStream &operator<<(QTextStream &t, const ProString &str)
 {
-    t << str.toQString(); // XXX optimize ... somehow
+    t << str.toQStringView();
     return t;
 }
 
@@ -362,6 +326,11 @@ static QString ProStringList_join(const ProStringList &this_, const QChar *sep, 
     return res;
 }
 
+QString ProStringList::join(const ProString &sep) const
+{
+    return ProStringList_join(*this, sep.constData(), sep.size());
+}
+
 QString ProStringList::join(const QString &sep) const
 {
     return ProStringList_join(*this, sep.constData(), sep.size());
@@ -386,29 +355,40 @@ void ProStringList::removeAll(const char *str)
             remove(i);
 }
 
+void ProStringList::removeEach(const ProStringList &value)
+{
+    for (const ProString &str : value) {
+        if (isEmpty())
+            break;
+        if (!str.isEmpty())
+            removeAll(str);
+    }
+}
+
+void ProStringList::removeEmpty()
+{
+    for (int i = size(); --i >= 0;)
+        if (at(i).isEmpty())
+            remove(i);
+}
+
 void ProStringList::removeDuplicates()
 {
-    int n = size();
-    int j = 0;
-    QSet<ProString> seen;
-    seen.reserve(n);
-    for (int i = 0; i < n; ++i) {
-        const ProString &s = at(i);
-        if (seen.contains(s))
-            continue;
-        seen.insert(s);
-        if (j != i)
-            (*this)[j] = s;
-        ++j;
-    }
-    if (n != j)
-        erase(begin() + j, end());
+    QDuplicateTracker<ProString> seen(size());
+    removeIf([&](const ProString &s) { return seen.hasSeen(s); });
+}
+
+void ProStringList::insertUnique(const ProStringList &value)
+{
+    for (const ProString &str : value)
+        if (!str.isEmpty() && !contains(str))
+            append(str);
 }
 
 ProStringList::ProStringList(const QStringList &list)
 {
     reserve(list.size());
-    foreach (const QString &str, list)
+    for (const QString &str : list)
         *this << ProString(str);
 }
 
@@ -416,8 +396,8 @@ QStringList ProStringList::toQStringList() const
 {
     QStringList ret;
     ret.reserve(size());
-    for (int i = 0; i < size(); i++) // foreach causes MSVC2010 ICE
-        ret << at(i).toQString();
+    for (const auto &e : *this)
+        ret.append(e.toQString());
     return ret;
 }
 
@@ -425,6 +405,14 @@ bool ProStringList::contains(const ProString &str, Qt::CaseSensitivity cs) const
 {
     for (int i = 0; i < size(); i++)
         if (!at(i).compare(str, cs))
+            return true;
+    return false;
+}
+
+bool ProStringList::contains(QStringView str, Qt::CaseSensitivity cs) const
+{
+    for (int i = 0; i < size(); i++)
+        if (!at(i).toQStringView().compare(str, cs))
             return true;
     return false;
 }
@@ -437,19 +425,45 @@ bool ProStringList::contains(const char *str, Qt::CaseSensitivity cs) const
     return false;
 }
 
-ProFile::ProFile(const QString &fileName)
+ProFile::ProFile(int id, const QString &fileName)
     : m_refCount(1),
       m_fileName(fileName),
+      m_id(id),
       m_ok(true),
       m_hostBuild(false)
 {
-    if (!fileName.startsWith(QLatin1Char('(')))
+    if (!fileName.startsWith(u'('))
         m_directoryName = QFileInfo( // qmake sickness: canonicalize only the directory!
-                fileName.left(fileName.lastIndexOf(QLatin1Char('/')))).canonicalFilePath();
+                                  fileName.left(fileName.lastIndexOf(u'/')))
+                                  .canonicalFilePath();
 }
 
 ProFile::~ProFile()
 {
+}
+
+ProString ProFile::getStr(const ushort *&tPtr)
+{
+    uint len = *tPtr++;
+    ProString ret(items(), tPtr - tokPtr(), len);
+    ret.setSource(m_id);
+    tPtr += len;
+    return ret;
+}
+
+ProKey ProFile::getHashStr(const ushort *&tPtr)
+{
+    uint hash = *tPtr++;
+    hash |= (uint)*tPtr++ << 16;
+    uint len = *tPtr++;
+    ProKey ret(items(), tPtr - tokPtr(), len, hash);
+    tPtr += len;
+    return ret;
+}
+
+QDebug operator<<(QDebug debug, const ProString &str)
+{
+    return debug << str.toQString();
 }
 
 QT_END_NAMESPACE

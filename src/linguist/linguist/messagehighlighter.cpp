@@ -1,96 +1,40 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Linguist of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "messagehighlighter.h"
+
+#include "globals.h"
 
 #include <QtCore/QTextStream>
 #include <QtWidgets/QTextEdit>
 
 QT_BEGIN_NAMESPACE
 
+using namespace Qt::Literals::StringLiterals;
+
 MessageHighlighter::MessageHighlighter(QTextEdit *textEdit)
     : QSyntaxHighlighter(textEdit->document())
 {
-    QTextCharFormat entityFormat;
-    entityFormat.setForeground(Qt::red);
-    m_formats[Entity] = entityFormat;
-
-    QTextCharFormat tagFormat;
-    tagFormat.setForeground(Qt::darkMagenta);
-    m_formats[Tag] = tagFormat;
-
-    QTextCharFormat commentFormat;
-    commentFormat.setForeground(Qt::gray);
-    commentFormat.setFontItalic(true);
-    m_formats[Comment] = commentFormat;
-
-    QTextCharFormat attributeFormat;
-    attributeFormat.setForeground(Qt::black);
-    attributeFormat.setFontItalic(true);
-    m_formats[Attribute] = attributeFormat;
-
-    QTextCharFormat valueFormat;
-    valueFormat.setForeground(Qt::blue);
-    m_formats[Value] = valueFormat;
-
-    QTextCharFormat acceleratorFormat;
-    acceleratorFormat.setFontUnderline(true);
-    m_formats[Accelerator] = acceleratorFormat;
-
-    QTextCharFormat variableFormat;
-    variableFormat.setForeground(Qt::blue);
-    m_formats[Variable] = variableFormat;
-
-    rehighlight();
+    adjustColors();
 }
 
 void MessageHighlighter::highlightBlock(const QString &text)
 {
-    static const QLatin1Char tab = QLatin1Char('\t');
-    static const QLatin1Char space = QLatin1Char(' ');
-    static const QLatin1Char amp = QLatin1Char('&');
-    static const QLatin1Char endTag = QLatin1Char('>');
-    static const QLatin1Char quot = QLatin1Char('"');
-    static const QLatin1Char apos = QLatin1Char('\'');
-    static const QLatin1Char semicolon = QLatin1Char(';');
-    static const QLatin1Char equals = QLatin1Char('=');
-    static const QLatin1Char percent = QLatin1Char('%');
-    static const QLatin1String startComment = QLatin1String("<!--");
-    static const QLatin1String endComment = QLatin1String("-->");
-    static const QLatin1String endElement = QLatin1String("/>");
+    static constexpr QLatin1Char tab('\t');
+    static constexpr QLatin1Char space(' ');
+    static constexpr QLatin1Char amp('&');
+    static constexpr QLatin1Char endTag('>');
+    static constexpr QLatin1Char quot('"');
+    static constexpr QLatin1Char apos('\'');
+    static constexpr QLatin1Char semicolon(';');
+    static constexpr QLatin1Char equals('=');
+    static constexpr QLatin1Char percent('%');
+    static constexpr auto startComment = "<!--"_L1;
+    static constexpr auto endComment = "-->"_L1;
+    static constexpr auto endElement = "/>"_L1;
 
     int state = previousBlockState();
-    int len = text.length();
+    int len = text.size();
     int start = 0;
     int pos = 0;
 
@@ -100,7 +44,7 @@ void MessageHighlighter::highlightBlock(const QString &text)
         default:
             while (pos < len) {
                 QChar ch = text.at(pos);
-                if (ch == QLatin1Char('<')) {
+                if (ch == u'<') {
                     if (text.mid(pos, 4) == startComment) {
                         state = InComment;
                     } else {
@@ -135,7 +79,7 @@ void MessageHighlighter::highlightBlock(const QString &text)
                     // %[1-9]*
                     for (++pos; pos < len && text.at(pos).isDigit(); ++pos) {}
                     // %n
-                    if (pos < len && pos == start + 1 && text.at(pos) == QLatin1Char('n'))
+                    if (pos < len && pos == start + 1 && text.at(pos) == u'n')
                         ++pos;
                     setFormat(start, pos - start, m_formats[Variable]);
                 } else {
@@ -198,6 +142,47 @@ void MessageHighlighter::highlightBlock(const QString &text)
         }
     }
     setCurrentBlockState(state);
+}
+
+void MessageHighlighter::adjustColors()
+{
+    QTextCharFormat entityFormat;
+    QTextCharFormat tagFormat;
+    QTextCharFormat commentFormat;
+    QTextCharFormat attributeFormat;
+    QTextCharFormat valueFormat;
+    QTextCharFormat acceleratorFormat;
+    QTextCharFormat variableFormat;
+
+    if (isDarkMode()) {
+        entityFormat.setForeground(Qt::red);
+        tagFormat.setForeground(QColor(Qt::darkMagenta).lighter());
+        commentFormat.setForeground(Qt::gray);
+        attributeFormat.setForeground(QColor(Qt::darkGray).lighter());
+        valueFormat.setForeground(QColor(Qt::darkGreen).lighter());
+        variableFormat.setForeground(QColor(Qt::darkGreen).lighter());
+    } else {
+        entityFormat.setForeground(Qt::red);
+        tagFormat.setForeground(Qt::darkMagenta);
+        commentFormat.setForeground(Qt::gray);
+        attributeFormat.setForeground(Qt::black);
+        valueFormat.setForeground(Qt::darkGreen);
+        variableFormat.setForeground(Qt::darkGreen);
+    }
+
+    commentFormat.setFontItalic(true);
+    attributeFormat.setFontItalic(true);
+    acceleratorFormat.setFontUnderline(true);
+
+    m_formats[Entity] = entityFormat;
+    m_formats[Tag] = tagFormat;
+    m_formats[Comment] = commentFormat;
+    m_formats[Attribute] = attributeFormat;
+    m_formats[Value] = valueFormat;
+    m_formats[Accelerator] = acceleratorFormat;
+    m_formats[Variable] = variableFormat;
+
+    rehighlight();
 }
 
 QT_END_NAMESPACE

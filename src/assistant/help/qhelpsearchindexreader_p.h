@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Assistant of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 
 #ifndef QHELPSEARCHINDEXREADER_H
 #define QHELPSEARCHINDEXREADER_H
@@ -45,54 +15,48 @@
 // We mean it.
 //
 
-#include "qhelpsearchengine.h"
+#include "qhelpsearchresult.h"
 
-#include <QtCore/QList>
-#include <QtCore/QMutex>
-#include <QtCore/QObject>
-#include <QtCore/QString>
-#include <QtCore/QThread>
-#include <QtCore/QWaitCondition>
+#include <QtCore/qlist.h>
+#include <QtCore/qmutex.h>
+#include <QtCore/qthread.h>
 
 QT_BEGIN_NAMESPACE
 
-class QHelpEngineCore;
-
 namespace fulltextsearch {
 
+// TODO: Employ QFuture / QtConcurrent::run() ?
 class QHelpSearchIndexReader : public QThread
 {
     Q_OBJECT
 
 public:
-    QHelpSearchIndexReader();
-    ~QHelpSearchIndexReader();
+    ~QHelpSearchIndexReader() override;
 
     void cancelSearching();
-    void search(const QString &collectionFile,
-        const QString &indexFilesFolder,
-        const QList<QHelpSearchQuery> &queryList);
-    int hitCount() const;
-    QList<QHelpSearchEngine::SearchHit> hits(int start, int end) const;
+    void search(const QString &collectionFile, const QString &indexFilesFolder,
+                const QString &searchInput, bool usesFilterEngine = false);
+    int searchResultCount() const;
+    QList<QHelpSearchResult> searchResults(int start, int end) const;
 
 signals:
     void searchingStarted();
-    void searchingFinished(int hits);
-
-protected:
-    mutable QMutex mutex;
-    QList<QHelpSearchEngine::SearchHit> hitList;
-    bool m_cancel;
-    QString m_collectionFile;
-    QList<QHelpSearchQuery> m_query;
-    QString m_indexFilesFolder;
+    void searchingFinished();
 
 private:
-    virtual void run()=0;
+    void run() override;
+
+    mutable QMutex m_mutex;
+    QList<QHelpSearchResult> m_searchResults;
+    bool m_cancel = false;
+    QString m_collectionFile;
+    QString m_searchInput;
+    QString m_indexFilesFolder;
+    bool m_usesFilterEngine = false;
 };
 
-}   // namespace fulltextsearch
+} // namespace fulltextsearch
 
 QT_END_NAMESPACE
 
-#endif  // QHELPSEARCHINDEXREADER_H
+#endif // QHELPSEARCHINDEXREADER_H

@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "abstractintegration.h"
 #include "abstractformwindow.h"
@@ -48,21 +18,25 @@
 #include <qdesigner_propertycommand_p.h>
 #include <qdesigner_propertyeditor_p.h>
 #include <qdesigner_objectinspector_p.h>
+#include <qdesigner_utils_p.h>
 #include <widgetdatabase_p.h>
 #include <pluginmanager_p.h>
 #include <widgetfactory_p.h>
 #include <qdesigner_widgetbox_p.h>
-#include <qtgradientmanager.h>
-#include <qtgradientutils.h>
+#include <qtgradientmanager_p.h>
+#include <qtgradientutils_p.h>
 #include <qtresourcemodel_p.h>
 
-#include <QtCore/QVariant>
-#include <QtCore/QFile>
-#include <QtCore/QDir>
+#include <QtCore/qvariant.h>
+#include <QtCore/qfile.h>
+#include <QtCore/qdir.h>
+#include <QtCore/qlibraryinfo.h>
 
 #include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
+
+using namespace Qt::StringLiterals;
 
 /*!
     \class QDesignerIntegrationInterface
@@ -116,6 +90,14 @@ QT_BEGIN_NAMESPACE
     \property QDesignerIntegrationInterface::headerLowercase
 
     Returns whether headers of promoted widgets should be lower-cased (as the user types the class name).
+*/
+
+/*!
+    \property  QDesignerIntegrationInterface::qtVersion
+
+    Determines the Qt version used when writing out forms.
+
+    \since 6.9
 */
 
 /*!
@@ -230,6 +212,7 @@ public:
         m_core(core) {}
 
     QDesignerFormEditorInterface *m_core;
+    QVersionNumber qtVersion{QLibraryInfo::version()};
 };
 
 QDesignerIntegrationInterface::QDesignerIntegrationInterface(QDesignerFormEditorInterface *core, QObject *parent)
@@ -238,9 +221,7 @@ QDesignerIntegrationInterface::QDesignerIntegrationInterface(QDesignerFormEditor
     core->setIntegration(this);
 }
 
-QDesignerIntegrationInterface::~QDesignerIntegrationInterface()
-{
-}
+QDesignerIntegrationInterface::~QDesignerIntegrationInterface() = default;
 
 QDesignerFormEditorInterface *QDesignerIntegrationInterface::core() const
 {
@@ -250,6 +231,16 @@ QDesignerFormEditorInterface *QDesignerIntegrationInterface::core() const
 bool QDesignerIntegrationInterface::hasFeature(Feature f) const
 {
     return (features() & f) != 0;
+}
+
+QVersionNumber QDesignerIntegrationInterface::qtVersion() const
+{
+    return d->qtVersion;
+}
+
+void QDesignerIntegrationInterface::setQtVersion(const QVersionNumber &qtVersion)
+{
+    d->qtVersion = qtVersion;
 }
 
 void QDesignerIntegrationInterface::emitObjectNameChanged(QDesignerFormWindowInterface *formWindow, QObject *object, const QString &newName, const QString &oldName)
@@ -310,8 +301,6 @@ public:
     void updateSelection();
     void updateCustomWidgetPlugins();
 
-    void updatePropertyPrivate(const QString &name, const QVariant &value);
-
     void initialize();
     void getSelection(qdesigner_internal::Selection &s);
     QObject *propertyEditorObject();
@@ -327,11 +316,11 @@ public:
 
 QDesignerIntegrationPrivate::QDesignerIntegrationPrivate(QDesignerIntegration *qq) :
     q(qq),
-    headerSuffix(QStringLiteral(".h")),
+    headerSuffix(u".h"_s),
     headerLowercase(true),
     m_features(QDesignerIntegrationInterface::DefaultFeature),
     m_resourceFileWatcherBehaviour(QDesignerIntegrationInterface::PromptToReloadResourceFile),
-    m_gradientManager(0)
+    m_gradientManager(nullptr)
 {
 }
 
@@ -344,39 +333,43 @@ void QDesignerIntegrationPrivate::initialize()
     // Extensions
     QDesignerFormEditorInterface *core = q->core();
     if (QDesignerPropertyEditor *designerPropertyEditor= qobject_cast<QDesignerPropertyEditor *>(core->propertyEditor())) {
-        QObject::connect(designerPropertyEditor, SIGNAL(propertyValueChanged(QString,QVariant,bool)), q, SLOT(updateProperty(QString,QVariant,bool)));
-        QObject::connect(designerPropertyEditor, SIGNAL(resetProperty(QString)), q, SLOT(resetProperty(QString)));
-        QObject::connect(designerPropertyEditor, SIGNAL(addDynamicProperty(QString,QVariant)),
-                q, SLOT(addDynamicProperty(QString,QVariant)));
-        QObject::connect(designerPropertyEditor, SIGNAL(removeDynamicProperty(QString)),
-                q, SLOT(removeDynamicProperty(QString)));
-    } else {
-        QObject::connect(core->propertyEditor(), SIGNAL(propertyChanged(QString,QVariant)),
-                q, SLOT(updatePropertyPrivate(QString,QVariant)));
+        QObject::connect(designerPropertyEditor, &QDesignerPropertyEditor::propertyValueChanged,
+                         q, QOverload<const QString &, const QVariant &, bool>::of(&QDesignerIntegration::updateProperty));
+        QObject::connect(designerPropertyEditor, &QDesignerPropertyEditor::resetProperty,
+                         q, &QDesignerIntegration::resetProperty);
+        QObject::connect(designerPropertyEditor, &QDesignerPropertyEditor::addDynamicProperty,
+                         q, &QDesignerIntegration::addDynamicProperty);
+        QObject::connect(designerPropertyEditor, &QDesignerPropertyEditor::removeDynamicProperty,
+                         q, &QDesignerIntegration::removeDynamicProperty);
     }
 
-    QObject::connect(core->formWindowManager(), SIGNAL(formWindowAdded(QDesignerFormWindowInterface*)),
-            q, SLOT(setupFormWindow(QDesignerFormWindowInterface*)));
+    QObject::connect(core->formWindowManager(), &QDesignerFormWindowManagerInterface::formWindowAdded,
+            q, &QDesignerIntegrationInterface::setupFormWindow);
 
-    QObject::connect(core->formWindowManager(), SIGNAL(activeFormWindowChanged(QDesignerFormWindowInterface*)),
-            q, SLOT(updateActiveFormWindow(QDesignerFormWindowInterface*)));
+    QObject::connect(core->formWindowManager(), &QDesignerFormWindowManagerInterface::activeFormWindowChanged,
+            q, &QDesignerIntegrationInterface::updateActiveFormWindow);
 
     m_gradientManager = new QtGradientManager(q);
     core->setGradientManager(m_gradientManager);
 
-    QString designerFolder = QDir::homePath();
-    designerFolder += QDir::separator();
-    designerFolder += QStringLiteral(".designer");
-    m_gradientsPath = designerFolder;
-    m_gradientsPath += QDir::separator();
-    m_gradientsPath += QStringLiteral("gradients.xml");
+    const QString gradientsFile = u"/gradients.xml"_s;
+    m_gradientsPath = dataDirectory() + gradientsFile;
 
-    QFile f(m_gradientsPath);
+    // Migrate from legacy to standard data directory in Qt 7
+    // ### FIXME Qt 8: Remove (QTBUG-96005)
+#if QT_VERSION >= QT_VERSION_CHECK(7, 0, 0)
+    const QString source = QFileInfo::exists(m_gradientsPath)
+        ? m_gradientsPath : legacyDataDirectory() + gradientsFile;
+#else
+    const QString source = m_gradientsPath;
+#endif
+
+    QFile f(source);
     if (f.open(QIODevice::ReadOnly)) {
         QtGradientUtils::restoreState(m_gradientManager, QString::fromLatin1(f.readAll()));
         f.close();
     } else {
-        QFile defaultGradients(QStringLiteral(":/qt-project.org/designer/defaultgradients.xml"));
+        QFile defaultGradients(u":/qt-project.org/designer/defaultgradients.xml"_s);
         if (defaultGradients.open(QIODevice::ReadOnly)) {
             QtGradientUtils::restoreState(m_gradientManager, QString::fromLatin1(defaultGradients.readAll()));
             defaultGradients.close();
@@ -472,14 +465,15 @@ void QDesignerIntegrationPrivate::removeDynamicProperty(const QString &name)
 
 void QDesignerIntegrationPrivate::setupFormWindow(QDesignerFormWindowInterface *formWindow)
 {
-    QObject::connect(formWindow, SIGNAL(selectionChanged()), q, SLOT(updateSelection()));
+    QObject::connect(formWindow, &QDesignerFormWindowInterface::selectionChanged,
+                     q, &QDesignerIntegrationInterface::updateSelection);
 }
 
 void QDesignerIntegrationPrivate::updateSelection()
 {
     QDesignerFormEditorInterface *core = q->core();
     QDesignerFormWindowInterface *formWindow = core->formWindowManager()->activeFormWindow();
-    QWidget *selection = 0;
+    QWidget *selection = nullptr;
 
     if (formWindow) {
         selection = formWindow->cursor()->current();
@@ -549,7 +543,7 @@ QObject *QDesignerIntegrationPrivate::propertyEditorObject()
 {
     if (QDesignerPropertyEditorInterface *propertyEditor = q->core()->propertyEditor())
         return propertyEditor->object();
-    return 0;
+    return nullptr;
 }
 
 // Load plugins into widget database and factory.
@@ -591,12 +585,12 @@ void QDesignerIntegrationPrivate::updateCustomWidgetPlugins()
 static QString fixHelpClassName(const QString &className)
 {
     // ### generalize using the Widget Data Base
-    if (className == QStringLiteral("Line"))
-        return QStringLiteral("QFrame");
-    if (className == QStringLiteral("Spacer"))
-        return QStringLiteral("QSpacerItem");
-    if (className == QStringLiteral("QLayoutWidget"))
-        return QStringLiteral("QLayout");
+    if (className == "Line"_L1)
+        return u"QFrame"_s;
+    if (className == "Spacer"_L1)
+        return u"QSpacerItem"_s;
+    if (className == "QLayoutWidget"_L1)
+        return u"QLayout"_s;
     return className;
 }
 
@@ -630,7 +624,7 @@ QString QDesignerIntegrationPrivate::contextHelpId() const
     }
     QString helpId = fixHelpClassName(className);
     if (!currentPropertyName.isEmpty()) {
-        helpId += QStringLiteral("::");
+        helpId += "::"_L1;
         helpId += currentPropertyName;
     }
     return helpId;
@@ -734,7 +728,8 @@ void QDesignerIntegration::updateActiveFormWindow(QDesignerFormWindowInterface *
 void QDesignerIntegration::setupFormWindow(QDesignerFormWindowInterface *formWindow)
 {
     d->setupFormWindow(formWindow);
-    connect(formWindow, SIGNAL(selectionChanged()), this, SLOT(updateSelection()));
+    connect(formWindow, &QDesignerFormWindowInterface::selectionChanged,
+            this, &QDesignerIntegrationInterface::updateSelection);
 }
 
 void QDesignerIntegration::updateSelection()
@@ -760,7 +755,7 @@ void QDesignerIntegration::updateCustomWidgetPlugins()
 
 QDesignerResourceBrowserInterface *QDesignerIntegration::createResourceBrowser(QWidget *)
 {
-    return 0;
+    return nullptr;
 }
 
 QString QDesignerIntegration::contextHelpId() const

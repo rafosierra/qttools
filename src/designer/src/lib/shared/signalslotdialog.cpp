@@ -1,35 +1,5 @@
-/****************************************************************************
-**
-** Copyright (C) 2015 The Qt Company Ltd.
-** Contact: http://www.qt.io/licensing/
-**
-** This file is part of the Qt Designer of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL21$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see http://www.qt.io/terms-conditions. For further
-** information use the contact form at http://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 or version 3 as published by the Free
-** Software Foundation and appearing in the file LICENSE.LGPLv21 and
-** LICENSE.LGPLv3 included in the packaging of this file. Please review the
-** following information to ensure the GNU Lesser General Public License
-** requirements will be met: https://www.gnu.org/licenses/lgpl.html and
-** http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** As a special exception, The Qt Company gives you certain additional
-** rights. These rights are described in The Qt Company LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "signalslotdialog_p.h"
 #include "ui_signalslotdialog.h"
@@ -39,38 +9,40 @@
 #include "qdesigner_formwindowcommand_p.h"
 #include "iconloader_p.h"
 
-#include <QtDesigner/QDesignerMemberSheetExtension>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerWidgetFactoryInterface>
+#include <QtDesigner/membersheet.h>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractwidgetfactory.h>
 #include <abstractdialoggui_p.h>
 
-#include <QtGui/QStandardItemModel>
-#include <QtGui/QRegExpValidator>
-#include <QtWidgets/QItemDelegate>
-#include <QtWidgets/QLineEdit>
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QMessageBox>
+#include <QtGui/qstandarditemmodel.h>
+#include <QtGui/qvalidator.h>
+#include <QtWidgets/qstyleditemdelegate.h>
+#include <QtWidgets/qlineedit.h>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qmessagebox.h>
 
-#include <QtCore/QRegExp>
-#include <QtCore/QDebug>
+#include <QtCore/qregularexpression.h>
+#include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
 
+using namespace Qt::StringLiterals;
+
 // Regexp to match a function signature, arguments potentially
 // with namespace colons.
-static const char *signatureRegExp = "^[\\w+_]+\\(([\\w+:]\\*?,?)*\\)$";
-static const char *methodNameRegExp = "^[\\w+_]+$";
+static constexpr auto signatureRegExp = "^[\\w+_]+\\(([\\w+:]\\*?,?)*\\)$"_L1;
+static constexpr auto methodNameRegExp = "^[\\w+_]+$"_L1;
 
-static  QStandardItem *createEditableItem(const QString &text)
+static QStandardItem *createEditableItem(const QString &text)
 {
     QStandardItem *rc = new QStandardItem(text);
     rc->setFlags(Qt::ItemIsEnabled|Qt::ItemIsEditable|Qt::ItemIsSelectable);
     return rc;
 }
 
-static  QStandardItem *createDisabledItem(const QString &text)
+static QStandardItem *createDisabledItem(const QString &text)
 {
     QStandardItem *rc = new QStandardItem(text);
     Qt::ItemFlags flags = rc->flags();
@@ -78,66 +50,24 @@ static  QStandardItem *createDisabledItem(const QString &text)
     return rc;
 }
 
-static void fakeMethodsFromMetaDataBase(QDesignerFormEditorInterface *core, QObject *o, QStringList &slotList, QStringList &signalList)
-{
-    slotList.clear();
-    signalList.clear();
-    if (qdesigner_internal::MetaDataBase *metaDataBase = qobject_cast<qdesigner_internal::MetaDataBase *>(core->metaDataBase()))
-        if (const qdesigner_internal::MetaDataBaseItem *item = metaDataBase->metaDataBaseItem(o)) {
-            slotList = item->fakeSlots();
-            signalList = item->fakeSignals();
-        }
-}
-
-static void fakeMethodsToMetaDataBase(QDesignerFormEditorInterface *core, QObject *o, const QStringList &slotList, const QStringList &signalList)
-{
-    if (qdesigner_internal::MetaDataBase *metaDataBase = qobject_cast<qdesigner_internal::MetaDataBase *>(core->metaDataBase())) {
-        qdesigner_internal::MetaDataBaseItem *item = metaDataBase->metaDataBaseItem(o);
-        Q_ASSERT(item);
-        item->setFakeSlots(slotList);
-        item->setFakeSignals(signalList);
-    }
-}
-
-static void existingMethodsFromMemberSheet(QDesignerFormEditorInterface *core,
-                                           QObject *o,
-                                           QStringList &slotList, QStringList &signalList)
-{
-    slotList.clear();
-    signalList.clear();
-
-    QDesignerMemberSheetExtension *msheet = qt_extension<QDesignerMemberSheetExtension*>(core->extensionManager(), o);
-    if (!msheet)
-        return;
-
-    for (int i = 0, count = msheet->count(); i < count; ++i)
-        if (msheet->isVisible(i)) {
-            if (msheet->isSlot(i))
-                slotList += msheet->signature(i);
-            else
-                if (msheet->isSignal(i))
-                    signalList += msheet->signature(i);
-        }
-}
-
 namespace {
     // Internal helper class: A Delegate that validates using RegExps and additionally checks
     // on closing (adds missing parentheses).
-    class SignatureDelegate : public QItemDelegate {
+    class SignatureDelegate : public QStyledItemDelegate {
     public:
-        SignatureDelegate(QObject * parent = 0);
-        QWidget * createEditor (QWidget * parent, const QStyleOptionViewItem &option, const QModelIndex &index ) const Q_DECL_OVERRIDE;
-        void setModelData (QWidget *editor, QAbstractItemModel *model, const QModelIndex &index) const Q_DECL_OVERRIDE;
+        SignatureDelegate(QObject * parent = nullptr);
+        QWidget * createEditor (QWidget * parent, const QStyleOptionViewItem &option, const QModelIndex &index ) const override;
+        void setModelData (QWidget *editor, QAbstractItemModel *model, const QModelIndex &index) const override;
 
     private:
-        QRegExp m_signatureRegexp;
-        QRegExp m_methodNameRegexp;
+        const QRegularExpression m_signatureRegexp;
+        const QRegularExpression m_methodNameRegexp;
     };
 
     SignatureDelegate::SignatureDelegate(QObject * parent) :
-        QItemDelegate(parent),
-        m_signatureRegexp(QLatin1String(signatureRegExp)),
-        m_methodNameRegexp(QLatin1String(methodNameRegExp))
+        QStyledItemDelegate(parent),
+        m_signatureRegexp(signatureRegExp),
+        m_methodNameRegexp(methodNameRegExp)
     {
         Q_ASSERT(m_signatureRegexp.isValid());
         Q_ASSERT(m_methodNameRegexp.isValid());
@@ -145,10 +75,10 @@ namespace {
 
     QWidget * SignatureDelegate::createEditor ( QWidget * parent, const QStyleOptionViewItem &option, const QModelIndex &index ) const
     {
-        QWidget *rc = QItemDelegate::createEditor(parent, option, index);
+        QWidget *rc = QStyledItemDelegate::createEditor(parent, option, index);
         QLineEdit *le = qobject_cast<QLineEdit *>(rc);
         Q_ASSERT(le);
-        le->setValidator(new QRegExpValidator(m_signatureRegexp, le));
+        le->setValidator(new QRegularExpressionValidator(m_signatureRegexp, le));
         return rc;
     }
 
@@ -158,17 +88,15 @@ namespace {
         Q_ASSERT(le);
         // Did the user just type a name? .. Add parentheses
         QString signature = le->text();
-        QRegExp signatureRegexp = m_signatureRegexp;
-        QRegExp methodNameRegexp = m_methodNameRegexp;
-        if (!signatureRegexp.exactMatch(signature )) {
-            if (methodNameRegexp.exactMatch(signature )) {
-                signature += QStringLiteral("()");
+        if (!m_signatureRegexp.match(signature).hasMatch()) {
+            if (m_methodNameRegexp.match(signature).hasMatch()) {
+                signature += "()"_L1;
                 le->setText(signature);
             } else {
                 return;
             }
         }
-        QItemDelegate::setModelData(editor, model, index);
+        QStyledItemDelegate::setModelData(editor, model, index);
     }
 
     // ------ FakeMethodMetaDBCommand: Undo Command to change fake methods in the meta DB.
@@ -181,8 +109,16 @@ namespace {
                   const QStringList &oldFakeSlots, const QStringList &oldFakeSignals,
                   const QStringList &newFakeSlots, const QStringList &newFakeSignals);
 
-        virtual void undo() { fakeMethodsToMetaDataBase(core(), m_object, m_oldFakeSlots, m_oldFakeSignals); }
-        virtual void redo() { fakeMethodsToMetaDataBase(core(), m_object, m_newFakeSlots, m_newFakeSignals); }
+        void undo() override
+        {
+            qdesigner_internal::SignalSlotDialog::fakeMethodsToMetaDataBase(core(), m_object,
+                                                  m_oldFakeSlots, m_oldFakeSignals);
+        }
+        void redo() override
+        {
+            qdesigner_internal::SignalSlotDialog::fakeMethodsToMetaDataBase(core(), m_object,
+                                                  m_newFakeSlots, m_newFakeSignals);
+        }
 
     private:
         QObject *m_object;
@@ -194,7 +130,7 @@ namespace {
 
     FakeMethodMetaDBCommand::FakeMethodMetaDBCommand(QDesignerFormWindowInterface *formWindow) :
         qdesigner_internal::QDesignerFormWindowCommand(QApplication::translate("Command", "Change signals/slots"), formWindow),
-        m_object(0)
+        m_object(nullptr)
      {
      }
 
@@ -254,16 +190,16 @@ SignaturePanel::SignaturePanel(QObject *parent, QListView *listView, QToolButton
 {
     m_removeButton->setEnabled(false);
 
-    connect(addButton, SIGNAL(clicked()), this, SLOT(slotAdd()));
-    connect(m_removeButton, SIGNAL(clicked()), this, SLOT(slotRemove()));
+    connect(addButton, &QAbstractButton::clicked, this, &SignaturePanel::slotAdd);
+    connect(m_removeButton, &QAbstractButton::clicked, this, &SignaturePanel::slotRemove);
 
     m_listView->setModel(m_model);
     SignatureDelegate *delegate = new SignatureDelegate(this);
     m_listView->setItemDelegate(delegate);
-    connect(m_model, SIGNAL(checkSignature(QString,bool*)), this, SIGNAL(checkSignature(QString,bool*)));
-
-    connect(m_listView->selectionModel(), SIGNAL(selectionChanged(QItemSelection,QItemSelection)),
-            this, SLOT(slotSelectionChanged(QItemSelection,QItemSelection)));
+    connect(m_model, &SignatureModel::checkSignature,
+            this, &SignaturePanel::checkSignature);
+    connect(m_listView->selectionModel(), &QItemSelectionModel::selectionChanged,
+            this, &SignaturePanel::slotSelectionChanged);
 }
 
 void SignaturePanel::slotAdd()
@@ -271,12 +207,11 @@ void SignaturePanel::slotAdd()
     m_listView->selectionModel()->clearSelection();
     // find unique name
     for (int i = 1; ; i++) {
-        QString newSlot = m_newPrefix;
-        newSlot += QString::number(i); // Always add number, Avoid setting 'slot' for first entry
-        newSlot += QLatin1Char('(');
+        // Always add number, Avoid setting 'slot' for first entry
+        QString newSlot = m_newPrefix + QString::number(i) + u'(';
         // check for function name independent of parameters
-        if (m_model->findItems(newSlot, Qt::MatchStartsWith, 0).empty()) {
-            newSlot += QLatin1Char(')');
+        if (m_model->findItems(newSlot, Qt::MatchStartsWith, 0).isEmpty()) {
+            newSlot += u')';
             QStandardItem * item = createEditableItem(newSlot);
             m_model->appendRow(item);
             const  QModelIndex index = m_model->indexFromItem (item);
@@ -295,33 +230,33 @@ int SignaturePanel::count(const QString &signature) const
 void SignaturePanel::slotRemove()
 {
     const QModelIndexList selectedIndexes = m_listView->selectionModel()->selectedIndexes ();
-    if (selectedIndexes.empty())
+    if (selectedIndexes.isEmpty())
         return;
 
     closeEditor();
     // scroll to previous
-    if (const int row = selectedIndexes.front().row())
-        m_listView->setCurrentIndex (selectedIndexes.front().sibling(row - 1, 0));
+    if (const int row = selectedIndexes.constFirst().row())
+        m_listView->setCurrentIndex (selectedIndexes.constFirst().sibling(row - 1, 0));
 
-    for (int  i = selectedIndexes.size() - 1; i >= 0; i--)
-        qDeleteAll(m_model->takeRow(selectedIndexes[i].row()));
+    for (auto i = selectedIndexes.size() - 1; i >= 0; --i)
+        qDeleteAll(m_model->takeRow(selectedIndexes.at(i).row()));
 }
 
 void SignaturePanel::slotSelectionChanged(const QItemSelection &selected, const QItemSelection &)
 {
-    m_removeButton->setEnabled(!selected.indexes().empty());
+    m_removeButton->setEnabled(!selected.indexes().isEmpty());
 }
 
 void SignaturePanel::setData(const SignalSlotDialogData &d)
 {
     m_model->clear();
 
-    QStandardItem *lastExisting = 0;
-    foreach(const QString &s, d.m_existingMethods) {
+    QStandardItem *lastExisting = nullptr;
+    for (const QString &s : d.m_existingMethods) {
         lastExisting = createDisabledItem(s);
         m_model->appendRow(lastExisting);
     }
-    foreach(const QString &s, d.m_fakeMethods)
+    for (const QString &s : d.m_fakeMethods)
         m_model->appendRow(createEditableItem(s));
     if (lastExisting)
         m_listView->scrollTo(m_model->indexFromItem(lastExisting));
@@ -351,26 +286,30 @@ void SignaturePanel::closeEditor()
 SignalSlotDialog::SignalSlotDialog(QDesignerDialogGuiInterface *dialogGui, QWidget *parent, FocusMode mode) :
     QDialog(parent),
     m_focusMode(mode),
-    m_ui(new Ui::SignalSlotDialogClass),
+    m_ui(new QT_PREPEND_NAMESPACE(Ui)::SignalSlotDialogClass),
     m_dialogGui(dialogGui)
 {
     setModal(true);
     m_ui->setupUi(this);
 
-    const QIcon plusIcon = qdesigner_internal::createIconSet(QString::fromUtf8("plus.png"));
-    const QIcon minusIcon = qdesigner_internal::createIconSet(QString::fromUtf8("minus.png"));
+    const QIcon plusIcon = qdesigner_internal::createIconSet("plus.png"_L1);
+    const QIcon minusIcon = qdesigner_internal::createIconSet("minus.png"_L1);
     m_ui->addSlotButton->setIcon(plusIcon);
     m_ui->removeSlotButton->setIcon(minusIcon);
     m_ui->addSignalButton->setIcon(plusIcon);
     m_ui->removeSignalButton->setIcon(minusIcon);
 
-    m_slotPanel = new SignaturePanel(this, m_ui->slotListView, m_ui->addSlotButton, m_ui->removeSlotButton, QStringLiteral("slot"));
-    m_signalPanel = new SignaturePanel(this, m_ui->signalListView, m_ui->addSignalButton, m_ui->removeSignalButton, QStringLiteral("signal"));
-    connect(m_slotPanel,   SIGNAL(checkSignature(QString,bool*)), this, SLOT(slotCheckSignature(QString,bool*)));
-    connect(m_signalPanel, SIGNAL(checkSignature(QString,bool*)), this, SLOT(slotCheckSignature(QString,bool*)));
+    m_slotPanel = new SignaturePanel(this, m_ui->slotListView, m_ui->addSlotButton,
+                                     m_ui->removeSlotButton, u"slot"_s);
+    m_signalPanel = new SignaturePanel(this, m_ui->signalListView, m_ui->addSignalButton,
+                                       m_ui->removeSignalButton, u"signal"_s);
+    connect(m_slotPanel, &SignaturePanel::checkSignature,
+            this, &SignalSlotDialog::slotCheckSignature);
+    connect(m_signalPanel, &SignaturePanel::checkSignature,
+            this, &SignalSlotDialog::slotCheckSignature);
 
-    connect(m_ui->buttonBox, SIGNAL(accepted()), this, SLOT(accept()));
-    connect(m_ui->buttonBox, SIGNAL(rejected()), this, SLOT(reject()));
+    connect(m_ui->buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
+    connect(m_ui->buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
     switch(m_focusMode) {
     case FocusSlots:
@@ -458,7 +397,7 @@ bool SignalSlotDialog::editPromotedClass(QDesignerFormEditorInterface *core, con
     if (baseClassName.isEmpty())
         return false;
 
-    QWidget *widget = core->widgetFactory()->createWidget(baseClassName, 0);
+    QWidget *widget = core->widgetFactory()->createWidget(baseClassName, nullptr);
     if (!widget)
         return false;
     const bool rc = editPromotedClass(core, promotedClassName, widget, parent, mode);
@@ -515,6 +454,53 @@ bool SignalSlotDialog::editPromotedClass(QDesignerFormEditorInterface *core, con
     return true;
 }
 
+void SignalSlotDialog::fakeMethodsFromMetaDataBase(QDesignerFormEditorInterface *core, QObject *o,
+                                                   QStringList &slotList, QStringList &signalList)
+{
+    slotList.clear();
+    signalList.clear();
+    if (auto *metaDB = qobject_cast<qdesigner_internal::MetaDataBase *>(core->metaDataBase())) {
+        if (const auto *item = metaDB->metaDataBaseItem(o)) {
+            slotList = item->fakeSlots();
+            signalList = item->fakeSignals();
+        }
+    }
+}
+
+void SignalSlotDialog::fakeMethodsToMetaDataBase(QDesignerFormEditorInterface *core, QObject *o,
+                                                 const QStringList &slotList,
+                                                 const QStringList &signalList)
+{
+    if (auto *metaDB = qobject_cast<qdesigner_internal::MetaDataBase *>(core->metaDataBase())) {
+        if (auto *item = metaDB->metaDataBaseItem(o)) {
+            item->setFakeSlots(slotList);
+            item->setFakeSignals(signalList);
+        }
+    }
+}
+
+void SignalSlotDialog::existingMethodsFromMemberSheet(QDesignerFormEditorInterface *core, QObject *o,
+                                                      QStringList &slotList, QStringList &signalList)
+{
+    slotList.clear();
+    signalList.clear();
+
+    auto *msheet = qt_extension<QDesignerMemberSheetExtension*>(core->extensionManager(), o);
+    if (!msheet)
+        return;
+
+    for (qsizetype i = 0, count = msheet->count(); i < count; ++i) {
+        if (msheet->isVisible(i)) {
+            if (msheet->isSlot(i))
+                slotList += msheet->signature(i);
+            else if (msheet->isSignal(i))
+                signalList += msheet->signature(i);
+        }
+    }
+}
+
 }
 
 QT_END_NAMESPACE
+
+#include "moc_signalslotdialog_p.cpp"
